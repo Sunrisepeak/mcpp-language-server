@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-07 — S6: the payload manifest
+
+S6 states `payload.json` of payload versions 4 (mcppls 0.0.18, 0.0.19: one platform, the server's runner under
+`server`) and 5 (0.0.20 and later: every platform, each platform's runner and engine under `platforms`), and the rule
+by which a client starts the server: the host's entry and `<runner> <server.path>`, a refusal that names the host and
+the platforms a payload serves, and a refusal of a version the client does not implement. Its schema and examples, taken
+from the published 0.0.19 and 0.0.20 payloads, are validated with the other specifications (mcpp design 2026-11-07, D13).
+
 ## 2026-10-31 — S4: an engine that is an ok image
 
 S4-4-12: a payload entry's engine may be the ok image `clangd.okb`, started by the platform's runner, which the entry

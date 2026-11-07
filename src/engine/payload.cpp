@@ -198,6 +198,35 @@ EngineCommand engine_command(std::string_view clangd, std::string_view runner) {
     return EngineCommand { std::string { runner }, { std::string { clangd } } };
 }
 
+std::string engine_context(const PayloadPaths& paths) {
+    // A name of a directory on every system: letters, digits, `.` and `-`.
+    const auto named = [](std::string text) {
+        for (auto& c : text) {
+            if (!std::isalnum(static_cast<unsigned char>(c)) && c != '.' && c != '-') c = '-';
+        }
+        return text.empty() ? std::string { "unknown" } : text;
+    };
+    if (paths.engineIdentity && !paths.engineIdentity->sha256.empty()) {
+        const auto& identity = *paths.engineIdentity;
+        return named(std::format("clangd-{}-{}-{}", identity.version, identity.platform, identity.sha256.substr(0, 12)));
+    }
+    return paths.clangdVersion.empty() ? std::string { "external" } : named(std::format("external-{}", paths.clangdVersion));
+}
+
+std::string engine_database_directory(std::string_view cacheDirectory) {
+    std::string newest { base::join_path(cacheDirectory, "contexts/default/cdb") };
+    std::int64_t newestTime { -1 };
+    for (const auto& context : base::children(base::join_path(cacheDirectory, "contexts"))) {
+        const std::string database { base::join_path(context, "cdb") };
+        const auto stamp = base::file_stamp(base::join_path(database, "compile_commands.json"));
+        if (stamp && static_cast<std::int64_t>(stamp->modified_ns) > newestTime) {
+            newest = database;
+            newestTime = static_cast<std::int64_t>(stamp->modified_ns);
+        }
+    }
+    return newest;
+}
+
 PayloadPaths resolve_payload(const PayloadRequest& requested) {
     std::error_code ignored;
     PayloadPaths paths;

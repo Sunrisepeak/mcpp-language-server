@@ -62,14 +62,16 @@ holds a server holds those images: the okb holds both; the openkal tree holds bo
 with the launchers `bin/mcppls` and `bin/mcppls.exe` and the runner of every system it serves; the
 payload carries the okb as `bin/mcppls.okb` with those runners under `libexec/okrun/<system>-<arch>/`,
 and the VSIX and the CLion plugin carry the payload; a single file is a system's runner with one image
-inside. What differs per platform is clangd (`clangd/<platform>/`, native on each system) and the
-kit of a target; payload.json's entry for each platform names its runner and its engine.
+inside. The engine is also one ok image, mcppls-clangd's `clangd.okb`, which each platform's runner starts;
+what differs per platform is the runner and the kit of a target, and payload.json's entry for each
+platform names its runner and its engine. Native programs are test tools and are not distributed.
 
 | Job (`ci.yml`) | Makes | On |
 |---|---|---|
-| `build` | every platform's programs, test tools (`stage-<platform>`) and unit tests, the tests archived (`mcpp test --no-run --archive`) | Linux |
-| `test` | nothing: each platform's archived tests run on its own system (`mcpp test --archive`), in both profiles | every platform |
-| `server` | `mcppls-<version>-openkal.zip` and `mcppls-<version>.okb` from one build (`mcpp pack --target openkal --mode self-contained --systems all --pkg-format zip,okb`), the tree's `runs_on.self` being every platform; the single files (`--pkg-format single-file --systems all`) | Linux |
+| `build` | every platform's test tools (`stage-<platform>`, release profile); the native server's unit tests, archived (`mcpp test --no-run --archive`), of linux-x64 in both profiles, and of every platform in a run with `native` | Linux |
+| `test` | nothing: the archived tests run on their own system (`mcpp test --archive`): linux-x64's, and every platform's in a run with `native` (a manual dispatch of CI) | linux-x64; every platform with `native` |
+| `openkal-test` | nothing: the server's unit tests as ok images (`mcpp test --target openkal --no-run --archive`, built by `server`) run on each system through its runner | every platform |
+| `server` | `mcppls-<version>-openkal.zip` and `mcppls-<version>.okb` from one build (`mcpp pack --target openkal --mode self-contained --systems all --pkg-format zip,okb`), the tree's `runs_on.self` being every platform; the single files (`--pkg-format single-file --systems all`); the server's unit tests as ok images, archived | Linux |
 | `kits` | each platform's target kit, `mcppls-kit-<target>-<version>.tar.gz` | Linux, Linux arm64, macOS |
 | `payload` | the openkal kit and the one payload | Linux |
 | `vsix` | the one VSIX | Linux |
@@ -155,8 +157,9 @@ The bundled clangd is mcppls-clangd, released from its own repository and pinned
 `packaging/payload.lock.json`. A change to both goes in this order, so that what the engine
 releases has already passed this repository's CI with it, and the release brings no surprise:
 
-1. **The engine PR's CI builds the packaged part** for each platform (`clangd-<platform>-portable`,
-   with its `engine.json`, which names its platform), proved like a release's.
+1. **The engine PR's CI builds the packaged part**, the ok image `clangd-openkal` (`clangd.okb`, with its
+   `engine.json`), proved like a release's. The engine is released only as this image; its native builds
+   are test and comparison builds.
 2. **This repository's PR tests with that build before the engine is merged.** Commit
    `packaging/engine-candidate.json`, naming the engine PR's run:
 
@@ -166,7 +169,7 @@ releases has already passed this repository's CI with it, and the release brings
    ```
 
    Server compilation can run while the upstream builds finish. The `engine candidate parts` job
-   admits payload assembly only after all five parts and the bundle identity check pass, with
+   admits payload assembly only after the images, the `clangd-openkal` part and its identity check pass, with
    matching run/head metadata and immutable artifact digests; known upstream failures or
    cancellations refuse admission.
 
@@ -185,30 +188,13 @@ than `main` may use it: the nightly's ux rounds are where an engine change to id
 latency shows, so they see the engine before it is released. Artifacts are kept 14 days; an older run
 is rebuilt by re-running the engine PR's CI.
 
-### Engine 0.0.20 performance exception
+### Engine performance
 
-The engine's warm-prime report distinguishes the 1.15 target (`target_met`)
-from release eligibility (`accepted`). For engine 0.0.20 only, Linux x64 cold
-CPU may exceed that target when image/native CPU is at most 1.25 and the
-increase is at most 3.0 CPU seconds in the unchanged 304-unit fixture.
-The report retains the strict failure, issue reference, producer commit and
-SHA256 identities of the measured native engine, runner and image.
-
-This rule requires measurement version 3. Cold/warm readiness latency, warm
-CPU, other gated hosts' CPU, complete-lifetime faults, semantic checks,
-resource limits, cancellation, crashes and final server/editor UX retain
-their existing gates. A missing or invalid measurement refuses admission.
-The next engine version uses the original target again. The server uses this
-exception only with the exact published 0.0.20 engine bytes, after candidate
-and published-payload checks.
-
-The qualifying engine 0.0.20 product CI measured a Linux x64 cold-CPU ratio
-of 1.109. It met the original 1.15 target, so this exception was not applied.
-
-The [performance issue](https://github.com/Sunrisepeak/mcpp-language-server/issues/77)
-records the measured limits, including the Windows cold-readiness tradeoff.
-The release notes disclose an applied exception; an accepted release does
-not mark the original performance target as achieved.
+The engine's warm-prime gate is the median of four alternating native/image pairs, measured in a
+comparison run of mcppls-clangd (its `ci/performance-policy.md`); its release names that run. The
+one-release exception of engine 0.0.20 has expired. The
+[performance issue](https://github.com/Sunrisepeak/mcpp-language-server/issues/77) records the measured
+limits, including the Windows cold-readiness tradeoff.
 
 ## Measuring a change
 

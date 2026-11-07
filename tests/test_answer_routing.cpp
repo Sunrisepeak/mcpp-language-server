@@ -303,8 +303,11 @@ int main() {
         std::erase_if(environment, [](const std::string& entry) { return entry.starts_with("MCPPLS_CACHE_DIR="); });
         environment.push_back("MCPPLS_CACHE_DIR=" + cache);
         mcppls::toolrun::Request request;
-        request.program = arguments.front();
-        request.arguments = { "--isolated-answer-tests" };
+        // This program again, as the system starts it (an ok image's loader and then the image).
+        const auto self = mcppls::testing::self_command();
+        request.program = self.front();
+        request.arguments.assign(self.begin() + 1, self.end());
+        request.arguments.push_back("--isolated-answer-tests");
         request.purpose = "answer-routing-test";
         request.bounds.hard = 120s;
         request.environment = std::move(environment);

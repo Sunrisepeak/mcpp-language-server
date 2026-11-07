@@ -754,11 +754,14 @@ public:
         host_ = &host;
         sink_ = host.event_sink(ENGINE_ID);
         const std::string& cache { host.cache_directory() };
-        databaseDirectory_ = base::join_path(cache, "contexts/default/cdb");
-        primeDirectory_ = base::join_path(cache, "contexts/default/prime");
-        moduleHintDirectory_ = base::join_path(cache, "contexts/default/module-hints");   // never created
-        stubDirectory_ = base::join_path(cache, "contexts/default/stubs");
+        const std::string contextName { options_.context.empty() ? std::string { "default" } : options_.context };
+        const std::string context { base::join_path(base::join_path(cache, "contexts"), contextName) };
+        databaseDirectory_ = base::join_path(context, "cdb");
+        primeDirectory_ = base::join_path(context, "prime");
+        moduleHintDirectory_ = base::join_path(context, "module-hints");   // never created
+        stubDirectory_ = base::join_path(context, "stubs");
         (void)std::filesystem::create_directories(databaseDirectory_, ignored);
+        retire_other_contexts_(cache, contextName);
         // WA-CLANGD-009: the last session's verdict, so a project without modules starts clangd without the flag and
         // its first plan does not restart clangd. A cache without one starts with it, as every version before did.
         if (traits_.scansModulesOnEveryRequest) {
@@ -4181,6 +4184,24 @@ private:
         incident_("restart-backoff", Json { { "reason", std::string { reason } }, { "cause", std::string { to_string(cause) } },
                                             { "seconds", std::chrono::duration_cast<std::chrono::seconds>(at - now).count() } }, {});
         host_->status_changed();
+    }
+
+    // D14 (mcpp design 2026-11-07): the contexts of other engines -- their databases, index shards and module builds -- are
+    // nothing this engine reads, and a shard another engine wrote is one this one may not read at all (an engine without
+    // zlib and a compressed string table). They are moved into this context's trash, which prune_module_builds_ removes
+    // on a thread of its own.
+    void retire_other_contexts_(std::string_view cache, std::string_view contextName) {
+        std::error_code ignored;
+        const std::string trash { base::join_path(base::parent_path(databaseDirectory_), "trash") };
+        const auto now = std::chrono::system_clock::now().time_since_epoch().count();
+        for (const auto& other : base::children(base::join_path(cache, "contexts"))) {
+            const std::string name { base::file_name(other) };
+            if (name == contextName || !std::filesystem::is_directory(other, ignored)) continue;
+            (void)std::filesystem::create_directories(trash, ignored);
+            std::error_code failed;
+            std::filesystem::rename(other, base::join_path(trash, std::format("context-{}-{}", name, now)), failed);
+            if (!failed) log::info("retired the cache context of another engine, {} ({})", name, host_->root_directory());
+        }
     }
 
     // C-2 (plan 2026-09-30): the BMIs of commands each unit no longer has (stale_module_builds, all but the newest

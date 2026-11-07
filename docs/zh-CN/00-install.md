@@ -97,7 +97,7 @@ mcpp run -p devtools -- extension --install       # payload、扩展，装进 VS
 | 每个系统和架构一个单文件 | `mcpp pack --release --target openkal --pkg-format single-file --systems all -o DIR/` |
 | 构建程序作为 ok 映像运行 | `mcpp build --host-platform openkal-platform@0.21.1` |
 
-**零配置。** 打包需要什么，都写在 `mcpp.toml` 的 `[xlings.workspace]` 里——VS Code 扩展需要 Node，Zed 需要 Rust——工具启动前 `mcpp run` 会先把这些准备好。payload 本身（clangd、语义工具包）由工具用 C++ 组装，不涉及任何解释器。所有贡献者会用到的命令都在 [93-devtools.md](93-devtools.md) 里。Gradle 和它要用的 JDK 放在 `clion` feature 后面（`mcpp run --features clion ...`），这样不构建那个插件的人就不用下载它们。没有什么需要手动安装，工具也不会背着你装东西：需要什么，只写在这一份 manifest 里。
+**零配置。** 打包需要什么，都写在 `mcpp.toml` 的 `[workspace.xlings.workspace]` 里——VS Code 扩展需要 Node，Zed 需要 Rust——工具启动前 `mcpp run` 会先把这些准备好。payload 本身（clangd、语义工具包）由工具用 C++ 组装，不涉及任何解释器。所有贡献者会用到的命令都在 [93-devtools.md](93-devtools.md) 里。Gradle 和它要用的 JDK 放在 `clion` feature 后面（`mcpp run --features clion ...`），这样不构建那个插件的人就不用下载它们。没有什么需要手动安装，工具也不会背着你装东西：需要什么，只写在这一份 manifest 里。
 
 VS Code 有装卸扩展的命令行；Zed 和 CLion 没有。对这两个编辑器，`--install` 在磁盘上留下的内容与它们自己的界面安装的结果完全相同：对 Zed，它停在最后一步之前，告诉你在命令面板里执行哪个操作（推荐这样装），加 `--link` 则由它自己完成这一步；对 CLion，它按 *Install Plugin from Disk* 的方式解包本系统的包，payload 就在包里。Zed 先从 PATH 启动 `mcppls`，找不到就用 `--install` 放在 `<user data>/mcppls/payload` 的那个 payload 的服务端（Linux 上是 `$XDG_DATA_HOME` 或 `~/.local/share`，macOS 上是 `~/Library/Application Support`，Windows 上是 `%LOCALAPPDATA%`）；用 `uninstall` 卸载 Zed 时，这个服务端也会一起删除。
 

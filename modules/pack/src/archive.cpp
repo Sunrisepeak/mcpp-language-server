@@ -1,14 +1,12 @@
-module;
-
-#include <archive.h>
-#include <archive_entry.h>
-
 module mcppls.pack.archive;
 
 import std;
+import mcpplibs.mwrap.libarchive;
 import mcppls.base.error;
 import mcppls.base.path;
 import mcpplibs.os;
+
+namespace la = mcpplibs::mwrap::libarchive::macros;
 
 namespace os = mcpplibs::os;
 namespace mcppls::pack::archive {
@@ -25,7 +23,7 @@ struct Reader {
         if (handle == nullptr) return;
         ::archive_read_support_filter_all(handle);
         ::archive_read_support_format_all(handle);
-        if (::archive_read_open_filename(handle, std::string { path }.c_str(), READ_BLOCK) != ARCHIVE_OK) {
+        if (::archive_read_open_filename(handle, std::string { path }.c_str(), READ_BLOCK) != la::ARCHIVE_OK) {
             ::archive_read_free(handle);
             handle = nullptr;
         }
@@ -43,9 +41,9 @@ struct Reader {
 Kind kind_of(::archive_entry* entry) {
     if (::archive_entry_hardlink(entry) != nullptr) return Kind::hardlink;
     switch (::archive_entry_filetype(entry)) {
-        case AE_IFDIR: return Kind::directory;
-        case AE_IFLNK: return Kind::symlink;
-        case AE_IFREG: return Kind::file;
+        case la::AE_IFDIR: return Kind::directory;
+        case la::AE_IFLNK: return Kind::symlink;
+        case la::AE_IFREG: return Kind::file;
         default:       return Kind::other;
     }
 }
@@ -161,8 +159,8 @@ base::Result<void> write_entry(::archive* reader, const std::string& destination
     std::int64_t offset { 0 };
     while (true) {
         const int status = ::archive_read_data_block(reader, &block, &size, &offset);
-        if (status == ARCHIVE_EOF) break;
-        if (status < ARCHIVE_OK) {
+        if (status == la::ARCHIVE_EOF) break;
+        if (status < la::ARCHIVE_OK) {
             const char* why { ::archive_error_string(reader) };
             return base::fail("archive-read",
                               std::format("cannot read {}: {}", destination, why != nullptr ? why : "unknown"));
@@ -186,8 +184,8 @@ base::Result<std::vector<Entry>> list(std::string_view archivePath) {
     ::archive_entry* raw { nullptr };
     while (true) {
         const int status = ::archive_read_next_header(reader.handle, &raw);
-        if (status == ARCHIVE_EOF) break;
-        if (status < ARCHIVE_OK) {
+        if (status == la::ARCHIVE_EOF) break;
+        if (status < la::ARCHIVE_OK) {
             const char* why { ::archive_error_string(reader.handle) };
             return base::fail("archive-read",
                               std::format("cannot read {}: {}", archivePath, why != nullptr ? why : "unknown"));
@@ -235,8 +233,8 @@ base::Result<std::vector<std::string>> extract(std::string_view archivePath, std
     ::archive_entry* raw { nullptr };
     while (true) {
         const int status = ::archive_read_next_header(reader.handle, &raw);
-        if (status == ARCHIVE_EOF) break;
-        if (status < ARCHIVE_OK) {
+        if (status == la::ARCHIVE_EOF) break;
+        if (status < la::ARCHIVE_OK) {
             const char* why { ::archive_error_string(reader.handle) };
             return base::fail("archive-read",
                               std::format("cannot read {}: {}", archivePath, why != nullptr ? why : "unknown"));
@@ -326,10 +324,10 @@ base::Result<void> write_file_entry(::archive* out, const std::string& diskPath,
 
     ::archive_entry* entry { ::archive_entry_new() };
     ::archive_entry_set_pathname(entry, archiveName.c_str());
-    ::archive_entry_set_filetype(entry, AE_IFREG);
+    ::archive_entry_set_filetype(entry, la::AE_IFREG);
     ::archive_entry_set_size(entry, static_cast<std::int64_t>(stamp->size));
     ::archive_entry_set_perm(entry, executable ? 0755 : 0644);
-    const bool headerOk { ::archive_write_header(out, entry) == ARCHIVE_OK };
+    const bool headerOk { ::archive_write_header(out, entry) == la::ARCHIVE_OK };
     ::archive_entry_free(entry);
     if (!headerOk) {
         const char* why { ::archive_error_string(out) };
@@ -356,10 +354,10 @@ base::Result<void> write_file_entry(::archive* out, const std::string& diskPath,
 base::Result<void> write_directory_entry(::archive* out, const std::string& archiveName) {
     ::archive_entry* entry { ::archive_entry_new() };
     ::archive_entry_set_pathname(entry, (archiveName + "/").c_str());
-    ::archive_entry_set_filetype(entry, AE_IFDIR);
+    ::archive_entry_set_filetype(entry, la::AE_IFDIR);
     ::archive_entry_set_perm(entry, 0755);
     ::archive_entry_set_size(entry, 0);
-    const bool ok { ::archive_write_header(out, entry) == ARCHIVE_OK };
+    const bool ok { ::archive_write_header(out, entry) == la::ARCHIVE_OK };
     ::archive_entry_free(entry);
     if (!ok) {
         const char* why { ::archive_error_string(out) };
@@ -399,7 +397,7 @@ base::Result<void> write(std::string_view archivePath, std::string_view rootName
     if (out == nullptr) return base::fail("archive-open", "archive_write_new failed");
     ::archive_write_set_format_pax_restricted(out);
     ::archive_write_add_filter_gzip(out);
-    if (::archive_write_open_filename(out, std::string { archivePath }.c_str()) != ARCHIVE_OK) {
+    if (::archive_write_open_filename(out, std::string { archivePath }.c_str()) != la::ARCHIVE_OK) {
         const char* why { ::archive_error_string(out) };
         base::Error error { base::make_error(
             "archive-open", std::format("cannot open {} for writing: {}", archivePath, why != nullptr ? why : "unknown")) };
@@ -414,7 +412,7 @@ base::Result<void> write(std::string_view archivePath, std::string_view rootName
         result = add_recursive(out, entry.source, archiveName);
         if (!result) break;
     }
-    if (result && ::archive_write_close(out) != ARCHIVE_OK) {
+    if (result && ::archive_write_close(out) != la::ARCHIVE_OK) {
         const char* why { ::archive_error_string(out) };
         result = base::fail("archive-write", std::format("cannot finish {}: {}", archivePath, why != nullptr ? why : "unknown"));
     }

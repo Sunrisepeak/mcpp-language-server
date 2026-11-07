@@ -6,6 +6,7 @@ import mcppls.testing;
 import mcppls.base.path;
 import mcppls.base.sha256;
 import mcppls.engine.payload;
+import mcppls.base.engineidentity;
 import mcppls.orchestrator.instance;
 import mcpplibs.os;
 import mcppls.base.payload;
@@ -148,6 +149,22 @@ int main() {
         const auto given = eng::resolve_payload(eng::PayloadRequest { payload, "", mcppls::base::join_path(payload, "kit"), "clangd" });
         expect(given.explicitKit && given.kit == mcppls::base::join_path(payload, "kit") && given.kits.size() == 1);
         std::filesystem::remove_all(payload, ignored);
+    };
+
+    // D14: the cache context of an engine is named by its identity, and of an engine without one by its version.
+    "an engine's cache context is named by its identity"_test = [] {
+        eng::PayloadPaths identified;
+        identified.clangdVersion = "23.1.0-mcppls.10";
+        identified.engineIdentity = mcppls::base::EngineIdentity { "23.1.0-mcppls.10", "23.1.0", {}, {}, {}, "openkal",
+                                                                  "9044251bc7ea2ca01a38bdd233c7fe1384e7418f388e47847d8774cb6af4f09e", {} };
+        expect(eng::engine_context(identified) == "clangd-23.1.0-mcppls.10-openkal-9044251bc7ea");
+        auto other = identified;
+        other.engineIdentity->sha256 = "1b971298c0674025298a1f0658c4d6e4498f0cd0a2686a2757fdeca25ef9b748";
+        expect(eng::engine_context(other) != eng::engine_context(identified)) << "another engine of the same version is another context";
+        eng::PayloadPaths external;
+        external.clangdVersion = "22.1.8 (user build)";
+        expect(eng::engine_context(external) == "external-22.1.8--user-build-");
+        expect(eng::engine_context(eng::PayloadPaths {}) == "external");
     };
 
     "payload version 5: one payload, the entry of each platform"_test = [] {

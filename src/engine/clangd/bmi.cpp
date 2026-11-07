@@ -1,8 +1,7 @@
-module;
-#include <xxhash.h>
 module mcppls.engine.clangd.bmi;
 
 import std;
+import mcpplibs.mwrap.xxhash;
 import mcppls.base.path;
 import mcppls.base.text;
 import mcpplibs.os;

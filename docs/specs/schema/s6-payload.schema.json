@@ -1,0 +1,263 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/mcpp-community/mcpp-language-server/specs/schema/s6-payload/5",
+  "title": "Payload Manifest, payload-version 4 and 5 (S6)",
+  "description": "payload.json at the root of an mcppls payload. Paths are payload paths: relative to the payload root, '/'-separated, not absolute, without a drive prefix and without '..' components. Version 4 serves one platform; version 5 serves every platform it lists under `platforms`.",
+  "type": "object",
+  "required": [
+    "payload-version",
+    "server",
+    "kit",
+    "files"
+  ],
+  "properties": {
+    "payload-version": {
+      "enum": [
+        4,
+        5
+      ]
+    },
+    "server": {
+      "type": "object",
+      "required": [
+        "path",
+        "version"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/payloadPath"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runner": {
+          "$ref": "#/$defs/payloadPath"
+        }
+      }
+    },
+    "kit": {
+      "type": "object",
+      "required": [
+        "name",
+        "path"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "$ref": "#/$defs/payloadPath"
+        }
+      }
+    },
+    "files": {
+      "$ref": "#/$defs/files"
+    },
+    "build": {
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "payload-version": {
+            "const": 4
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "platform",
+          "engines"
+        ],
+        "properties": {
+          "platform": {
+            "$ref": "#/$defs/platformKey"
+          },
+          "engines": {
+            "type": "object",
+            "required": [
+              "clangd"
+            ],
+            "properties": {
+              "clangd": {
+                "$ref": "#/$defs/engine"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "payload-version": {
+            "const": 5
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "platforms"
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "platform"
+              ]
+            },
+            {
+              "required": [
+                "engines"
+              ]
+            },
+            {
+              "properties": {
+                "server": {
+                  "required": [
+                    "runner"
+                  ]
+                }
+              },
+              "required": [
+                "server"
+              ]
+            }
+          ]
+        },
+        "properties": {
+          "platforms": {
+            "type": "object",
+            "minProperties": 1,
+            "propertyNames": {
+              "$ref": "#/$defs/platformKey"
+            },
+            "additionalProperties": {
+              "type": "object",
+              "required": [
+                "engines",
+                "files"
+              ],
+              "properties": {
+                "runner": {
+                  "$ref": "#/$defs/payloadPath"
+                },
+                "engines": {
+                  "type": "object",
+                  "required": [
+                    "clangd"
+                  ],
+                  "properties": {
+                    "clangd": {
+                      "$ref": "#/$defs/engine"
+                    }
+                  }
+                },
+                "files": {
+                  "$ref": "#/$defs/files"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "payload-version": {
+            "const": 5
+          },
+          "server": {
+            "properties": {
+              "path": {
+                "pattern": "\\.okb$"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "platforms": {
+            "additionalProperties": {
+              "required": [
+                "runner"
+              ]
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "payloadPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![A-Za-z]:)(?!/)(?!.*\\\\)(?!(.*/)?\\.\\.(/|$)).+$"
+    },
+    "platformKey": {
+      "enum": [
+        "linux-x64",
+        "linux-arm64",
+        "darwin-arm64",
+        "darwin-x64",
+        "win32-x64",
+        "win32-arm64"
+      ]
+    },
+    "files": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/payloadPath"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "size",
+          "sha256"
+        ],
+        "properties": {
+          "size": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "engine": {
+      "type": "object",
+      "required": [
+        "path",
+        "version",
+        "identity"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/payloadPath"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runner": {
+          "$ref": "#/$defs/payloadPath"
+        },
+        "identity": {
+          "type": "object"
+        },
+        "kit": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}

@@ -35,6 +35,7 @@ orchestrator::EngineFactories engine_factories(const orchestrator::SessionOption
         clangd.executable = payload.clangd;
         clangd.runner = payload.clangdRunner;
         clangd.version = payload.clangdVersion;
+        clangd.context = engine::engine_context(payload);
         if (!payloadCorrupt && payload.engineIdentity) clangd.verifiedFeatures = payload.engineIdentity->features;
         clangd.formatFallbackStyle = options.formatFallbackStyle;
         clangd.mcppFormatStyle = !payloadCorrupt && payload.engineIdentity &&

@@ -9,6 +9,7 @@ This directory holds the normative specifications that let C++ named modules be 
 | [S3](s3-lsp-extensions.md) | Language Server Protocol Extensions for C++ Modules | protocol version 1 | Draft | TypeScript interfaces in the text; [target selection field](schema/s3-target-selection.schema.json) |
 | [S4](s4-semantic-kit.md) | Semantic Kit | kit-version 1 | Draft | [s4-kit.schema.json](schema/s4-kit.schema.json) |
 | [S5](s5-semantic-query.md) | Semantic Queries for C++ Code | 0.1.0 | Draft | TypeScript interfaces in the text |
+| [S6](s6-payload.md) | Payload Manifest | payload-version 4 and 5 | Draft | [s6-payload.schema.json](schema/s6-payload.schema.json) |
 
 ## How the specifications fit together
 
@@ -27,6 +28,7 @@ editor (VS Code extension, other LSP clients)
 - **S3** is what a module-aware language server adds to LSP 3.18, negotiated through `experimental.cxxModules`.
 - **S4** is the manifest of a data-only semantic kit that stands in for a compiler installation. The kits mcppls distributes are published as `mcppls-kit`.
 - **S5** is what a coding agent or a script asks a language server about the code — symbols, references, calls, modules, build contexts, fresh diagnostics — and the shape of the answers, bound to the Model Context Protocol and a command line.
+- **S6** is the manifest of an mcppls payload, `payload.json`: where the server, the engine and the kit are, and the command that starts the server on each system. Editor integrations and package recipes start mcppls by it.
 
 ## Relationship to standardization work
 

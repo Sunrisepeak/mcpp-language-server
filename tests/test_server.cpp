@@ -1608,6 +1608,42 @@ int main() {
         expect(again.check(t0 + 22s).size() == 1u);
     };
 
+    // D14: an engine keeps its database, index shards and module builds in the context of its identity, and the contexts of
+    // other engines are retired, so that a shard another engine wrote is never read.
+    "an engine keeps its own cache context and retires the contexts of other engines"_test = [] {
+        std::error_code ignored;
+        const std::string root { mcppls::base::join_path(base::spelled(os::dirs::temp()),
+            std::format("mcppls-test-engine-context-{}", eng::Clock::now().time_since_epoch().count())) };
+        (void)std::filesystem::create_directories(root, ignored);
+        const std::string executable { mcppls::base::join_path(root, "clangd") };
+        (void)os::fs::write(executable, "pretend-clangd");
+        RecordingHost host { root };
+        const std::string contexts { mcppls::base::join_path(host.cache_directory(), "contexts") };
+        const std::string stale { mcppls::base::join_path(contexts, "default/cdb/.cache/clangd/index/unit.cpp.idx") };
+        (void)std::filesystem::create_directories(mcppls::base::parent_path(stale), ignored);
+        (void)os::fs::write(stale, "a shard another engine wrote");
+        auto shared = std::make_shared<BuildingProcess::Shared>();
+        cld::Options options;
+        options.executable = executable;
+        options.version = "23.1.0-mcppls.10";
+        options.context = "clangd-23.1.0-mcppls.10-openkal-0123456789ab";
+        options.processFactory = [shared] { return std::make_unique<BuildingProcess>(shared); };
+        auto engine = cld::make_engine(std::move(options));
+        engine->start(host);
+        host.pump(*engine);
+        expect(engine->report()["databaseDirectory"].get<std::string>()
+               == mcppls::base::join_path(contexts, "clangd-23.1.0-mcppls.10-openkal-0123456789ab/cdb"));
+        expect(!std::filesystem::exists(mcppls::base::join_path(contexts, "default"), ignored)) << "another engine's context is retired";
+        const auto names = [&] {
+            std::vector<std::string> out;
+            for (const auto& entry : mcppls::base::children(contexts)) out.emplace_back(mcppls::base::file_name(entry));
+            return out;
+        };
+        expect(names() == std::vector<std::string> { "clangd-23.1.0-mcppls.10-openkal-0123456789ab" });
+        engine->shut_down();
+        std::filesystem::remove_all(root, ignored);
+    };
+
     "completed BMIs keep a finite preparation active without inventing completed prime nodes (#59 U15)"_test = [] {
         std::error_code ignored;
         using namespace std::chrono_literals;

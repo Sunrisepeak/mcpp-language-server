@@ -7,6 +7,42 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
+## [0.0.21] — 2026-11-07
+
+The bundled engine is [mcppls-clangd 0.0.21](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.21)
+(`23.1.0-mcppls.10`), its ok image built with zlib as the native engines are, so it reads the index shards an engine
+with zlib writes. Built with mcpp 2026.11.7.1 over openkal-platform 0.24.3 and mcpplibs.os 0.3.1.
+
+### Fixed
+
+- **Index shards one engine wrote, another reads.** The 0.0.20 image read shards that an engine with zlib had written
+  (the native engine of 0.0.19 and earlier, or another clangd) and discarded each one ("Compressed string table, but
+  zlib is unavailable") before indexing again. The 0.0.21 image reads them, and each engine now keeps its database,
+  index shards and module builds in a cache context of its own identity (`clangd-<version>-<platform>-<digest>`); the
+  contexts other engines left are removed when an engine starts (docs/50-troubleshooting.md).
+
+### Added
+
+- **S6, the payload manifest** (`docs/specs/s6-payload.md`): payload versions 4 and 5, and the rule by which a client
+  starts the server — the host's entry and `<runner> <server.path>`, a refusal naming the platforms a payload serves,
+  a refusal of a version the client does not implement. The schema and examples (the published 0.0.19 and 0.0.20
+  manifests) are validated with the other specifications.
+
+### Changed
+
+- libarchive and xxHash are their mwrap modules (`mcpplibs.mwrap.libarchive`, `mcpplibs.mwrap.xxhash`); no source
+  of the server or of `modules/` includes a header.
+- The platform is one release, `openkal-platform@0.24.3` (its okrun reserves a thread's stack for an image's main
+  thread on Windows), and mcpplibs.os is `^0.3.1`; mcpp 2026.11.7.1 or later builds mcppls.
+- The workspace's shared tables are `[workspace.toolchain]`, `[workspace.profile.release]` and
+  `[workspace.xlings.workspace]`, and one `[workspace.dependencies]` holds every shared version.
+- Every file a release distributes holds ok images, the engine included, and CI tests them as such: the server's
+  unit tests are built once as ok images and run on each of the four systems through its runner (`openkal-test`).
+  Native programs are test tools; the native server's and the tools' unit tests run on linux-x64, and on every
+  platform in a manual CI run with `native`. An engine candidate is the engine PR's ok image part, `clangd-openkal`.
+- Tests that start copies of themselves start them as the system names this program (`self_command`): an ok image
+  through its loader.
+
 ## [0.0.20] — 2026-11-06
 
 The bundled engine is [mcppls-clangd 0.0.20](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.20)

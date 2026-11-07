@@ -31,6 +31,23 @@ suite('distribution scope', () => {
         }
     });
 
+    // The manifests of the published payloads (docs/specs/s6-payload.md, its examples taken from 0.0.19
+    // and 0.0.20): each gives a platform's runner and engine, and refuses a platform it does not serve.
+    test('the published payload manifests of versions 4 and 5 give a platform its part (S6)', () => {
+        const examples = path.resolve(__dirname, '../../../../../docs/specs/examples');
+        const v4 = JSON.parse(fs.readFileSync(path.join(examples, 's6-payload-v4-linux-x64.json'), 'utf8'));
+        assert.deepStrictEqual(platformPart(v4, 'linux-x64'), { runner: 'bin/okrun', clangd: 'clangd/bin/clangd' });
+        delete v4.clangd;
+        assert.deepStrictEqual(platformPart(v4, 'linux-x64'), { runner: 'bin/okrun', clangd: 'clangd/bin/clangd' },
+            'version 4 states its engine under engines.clangd');
+        assert.strictEqual(platformPart(v4, 'win32-x64'), undefined);
+        const v5 = JSON.parse(fs.readFileSync(path.join(examples, 's6-payload-v5.json'), 'utf8'));
+        assert.deepStrictEqual(payloadPlatforms(v5).sort(), ['darwin-arm64', 'linux-arm64', 'linux-x64', 'win32-x64']);
+        assert.deepStrictEqual(platformPart(v5, 'win32-x64'),
+            { runner: 'libexec/okrun/windows-x86_64/okrun.exe', clangd: 'clangd/openkal/bin/clangd.okb' });
+        assert.strictEqual(platformPart(v5, 'freebsd-x64'), undefined);
+    });
+
     // The payload's server is one okb of every architecture; the runner of this platform starts it.
     test('an image server starts through the runner payload.json names', () => {
         const payload = fs.mkdtempSync(path.join(os.tmpdir(), 'mcppls-payload-image-'));

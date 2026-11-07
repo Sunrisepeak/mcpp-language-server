@@ -405,6 +405,12 @@ tokens, clangd's module cache and locks, and the private states of the build too
 before the next description starts, so never under one that is running) — and starts again. The logs stay. The first session afterwards is a cold
 one.
 
+Each engine keeps its own part of the cache: its database, the index shards clangd writes and the
+modules it builds live in a context named by the engine's identity (its version, platform and
+digest). When another engine starts in the workspace — after an update, or a switch between the
+native engine and the ok image — the contexts of the earlier ones are removed in the background, so
+an engine never reads a shard or a module another engine wrote.
+
 Old modules are pruned by themselves: each unit keeps the built modules (BMIs) of its two newest
 commands, and older ones are removed in the background when clangd starts. `mcppls cache --prune`
 does the same for every workspace no instance has open.

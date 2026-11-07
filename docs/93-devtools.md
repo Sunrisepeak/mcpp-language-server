@@ -117,8 +117,8 @@ devtools` provisions it first:
 
 | Tool | For | Declared in |
 |---|---|---|
-| Node (npm, npx) | the VS Code extension | `[xlings.workspace]`, `when = "dev"` |
-| Rust (cargo, rustup) | the Zed extension | `[xlings.workspace]`, `when = "dev"` |
+| Node (npm, npx) | the VS Code extension | `[workspace.xlings.workspace]`, `when = "dev"` |
+| Rust (cargo, rustup) | the Zed extension | `[workspace.xlings.workspace]`, `when = "dev"` |
 | Gradle and its JDK | the CLion plugin | `[feature-xlings.clion]`: `mcpp run -p devtools --features clion -- extension --editor clion` |
 | cmake, ninja | a target kit's libc++ configure | the host (CI installs them) |
 

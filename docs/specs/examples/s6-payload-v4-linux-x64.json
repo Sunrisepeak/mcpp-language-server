@@ -1,0 +1,71 @@
+{
+ "build": {
+  "builtAt": "2026-10-29T07:11:42Z",
+  "commit": "ad6e09d4f3b70f63987ee728319a1f622dab36da",
+  "dirty": true,
+  "source": "from-source"
+ },
+ "clangd": {
+  "path": "clangd/bin/clangd",
+  "version": "23.1.0-mcppls.5"
+ },
+ "engines": {
+  "clangd": {
+   "identity": {
+    "build-binary-sha256": "43ba5a35228861eaa92bfff12bf4d7ae216e990cec6506eb2a87c57157e0dba2",
+    "cmake-cache-sha256": "f4eb50aa3f158501180c92eba3c286b6369a3d1f0e7e42c76f40025f6d0837ee",
+    "engine-version": "23.1.0-mcppls.5",
+    "features": [
+     "semantic-tokens-range",
+     "format-style-mcpp",
+     "module-directive-diagnostic-ranges",
+     "module-directive-recovery",
+     "const-correctness-views",
+     "unresolved-import-recovery",
+     "partial-prerequisite-modules",
+     "module-rebuild-reasons",
+     "bounded-module-wait",
+     "managed-input-roots",
+     "persistent-module-memos",
+     "retained-asts-option",
+     "module-input-recheck",
+     "interactive-actions"
+    ],
+    "fork-commit": "67228c81b69ff3d60472c60346b13e9227c4e498",
+    "llvm-base-version": "23.1.0",
+    "llvm-commit": "ea7d852a70e8bdfaf601d6626a760f9771b2c4b4",
+    "llvm-tree-commit": "c7dfd88e157b622412bfa2315f9a135f71329029",
+    "patch-series-sha256": "6cfe7b1ecd8f52bc65c70fd83e9f705ba8d446b1ebd63dcf9bfbed990b135ae9",
+    "platform": "linux-x64",
+    "sha256": "42f5534b9c252b3f4efccaedae526bb9683a692ccf9e8578a37e0224b3be40b4"
+   },
+   "kit": {
+    "name": "mcppls-kit-libcxx-23.1.0-x86_64-unknown-linux-gnu",
+    "path": "kit"
+   },
+   "path": "clangd/bin/clangd",
+   "version": "23.1.0-mcppls.5"
+  }
+ },
+ "files": {
+  "clangd/bin/clangd": {
+   "sha256": "42f5534b9c252b3f4efccaedae526bb9683a692ccf9e8578a37e0224b3be40b4",
+   "size": 55306936
+  },
+  "kit/kit.json": {
+   "sha256": "74c2de97fd10e7927f81c0cc324751ce6b67e36938d72bfcb543b15ade2677b4",
+   "size": 575
+  }
+ },
+ "kit": {
+  "name": "mcppls-kit-libcxx-23.1.0-x86_64-unknown-linux-gnu",
+  "path": "kit"
+ },
+ "payload-version": 4,
+ "platform": "linux-x64",
+ "server": {
+  "path": "bin/mcppls.okb",
+  "runner": "bin/okrun",
+  "version": "0.0.19"
+ }
+}
