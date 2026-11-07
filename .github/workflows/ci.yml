@@ -10,6 +10,11 @@ on:
         description: "A branch of mcpp-community/mcpp to build and test with (empty: .github/versions.env's MCPP_SOURCE_REF, else the released mcpp)"
         required: false
         default: ''
+      native:
+        description: "Also build and test the native server of every platform (it is not distributed)"
+        type: boolean
+        required: false
+        default: false
   workflow_call:
     inputs:
       mcpp_ref:
@@ -17,6 +22,11 @@ on:
         type: string
         required: false
         default: ''
+      native:
+        description: "Also build and test the native server of every platform (it is not distributed)"
+        type: boolean
+        required: false
+        default: false
 
 # The caller's name is part of the group on purpose. `github.workflow` is the CALLING workflow's
 # name inside a `workflow_call`, so Release's copy of these jobs groups as `ci-Release-<ref>` and a
@@ -135,6 +145,13 @@ jobs:
           - { platform: darwin-arm64, target: aarch64-macos,      exe: '',     profile: release }
           - { platform: win32-x64,    target: x86_64-windows-gnu, exe: '.exe', profile: dev }
           - { platform: win32-x64,    target: x86_64-windows-gnu, exe: '.exe', profile: release }
+        # The server is distributed only as the ok image (the `server` job). Outside a run that asks for
+        # `native`, the other platforms' rows build only their release test tools (stage/), which every
+        # later job of the platform runs against the okb; their native server's tests are not built.
+        exclude: ${{ inputs.native && fromJSON('[]') || fromJSON('[{"platform":"linux-arm64","profile":"dev"},{"platform":"darwin-arm64","profile":"dev"},{"platform":"win32-x64","profile":"dev"}]') }}
+    env:
+      # Whether this row builds its native server's tests for the `test` job.
+      NATIVE_TESTS: ${{ (inputs.native || matrix.platform == 'linux-x64') && 'yes' || 'no' }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mcpp
@@ -180,7 +197,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: The tests, built once and archived
-        if: matrix.platform != 'win32-x64' || matrix.profile != 'dev'
+        if: env.NATIVE_TESTS == 'yes' && (matrix.platform != 'win32-x64' || matrix.profile != 'dev')
         run: |
           set -euo pipefail
           mkdir -p test-archives
@@ -197,7 +214,7 @@ jobs:
           done
           ls -l test-archives
       - name: The Windows dev tests, archived before reclaiming their executable space
-        if: matrix.platform == 'win32-x64' && matrix.profile == 'dev'
+        if: env.NATIVE_TESTS == 'yes' && matrix.platform == 'win32-x64' && matrix.profile == 'dev'
         env:
           ARCHIVE_TARGET: ${{ matrix.target }}
           ARCHIVE_PROFILE: ${{ matrix.profile }}
@@ -226,6 +243,7 @@ jobs:
           mcpp run mcppls-lspgen -- generate --meta-model vendor/lsp-metamodel/metaModel-3.18.json --out src/lsp
           git diff --exit-code src/lsp
       - uses: actions/upload-artifact@v7
+        if: env.NATIVE_TESTS == 'yes'
         with:
           name: tests-${{ matrix.platform }}-${{ matrix.profile }}
           path: test-archives
@@ -263,6 +281,9 @@ jobs:
           - { platform: darwin-arm64, os: macos-15,         profile: release }
           - { platform: win32-x64,    os: windows-2022,     profile: dev }
           - { platform: win32-x64,    os: windows-2022,     profile: release }
+        # The native server is not distributed: its tests run on the other systems only in a run that asks
+        # for `native`. The okb is tested on every system by the jobs that take the payload.
+        exclude: ${{ inputs.native && fromJSON('[]') || fromJSON('[{"platform":"linux-arm64"},{"platform":"darwin-arm64"},{"platform":"win32-x64"}]') }}
     defaults:
       run:
         shell: bash

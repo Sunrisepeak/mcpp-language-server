@@ -37,13 +37,19 @@ class CandidateAdmissionTests(unittest.TestCase):
                               conclusion=None, run_attempt=1))
         result = self.result()
         self.assertTrue(result["ready"])
-        self.assertEqual(len(result["packaged-parts"]), 5)
+        self.assertEqual(list(result["packaged-parts"]), ["clangd-openkal"])
         self.assertEqual(result["head"], self.candidate["engine-commit"])
 
-    def test_pending_windows_build_waits_without_admitting(self):
-        job = next(j for j in self.jobs if j["name"] == "build win32-x64")
+    def test_pending_image_waits_without_admitting(self):
+        job = next(j for j in self.jobs if j["name"] == "openkal / image aarch64-openkal")
         job.update(status="in_progress", conclusion=None)
-        self.assertEqual(self.result(), {"ready": False, "pending": ["build win32-x64"]})
+        self.assertEqual(self.result(), {"ready": False, "pending": ["openkal / image aarch64-openkal"]})
+
+    def test_native_engine_builds_are_not_waited_for(self):
+        # A comparison run's native builds may still run, or a pull request's run may have none.
+        self.jobs.append(dict(id=91, name="build win32-x64", status="in_progress",
+                              conclusion=None, run_attempt=1))
+        self.assertTrue(self.result()["ready"])
 
     def test_failure_outside_packaged_parts_refuses(self):
         for verdict in ("failure", "cancelled", "timed_out"):

@@ -9,21 +9,12 @@ import subprocess
 import time
 
 
-REQUIRED = {f"build {host}" for host in (
-    "linux-x64", "linux-arm64", "darwin-arm64", "win32-x64")}
-REQUIRED.update(f"Linux Ubuntu 20.04 package and runtime ({host})"
-                for host in ("linux-x64", "linux-arm64"))
-REQUIRED.update(f"openkal / image {arch}-openkal"
-                for arch in ("x86_64", "aarch64"))
+# The engine is distributed only as the ok image (mcppls-clangd 0.0.21): a candidate is the images of both
+# architectures and clangd.okb, the payload part every platform's entry starts.
+REQUIRED = {f"openkal / image {arch}-openkal" for arch in ("x86_64", "aarch64")}
 BUNDLE = "openkal / clangd.okb, the payload part"
 REQUIRED.add(BUNDLE)
-PARTS = {
-    "clangd-linux-x64-portable": "Linux Ubuntu 20.04 package and runtime (linux-x64)",
-    "clangd-linux-arm64-portable": "Linux Ubuntu 20.04 package and runtime (linux-arm64)",
-    "clangd-darwin-arm64-portable": "build darwin-arm64",
-    "clangd-win32-x64-portable": "build win32-x64",
-    "clangd-openkal": BUNDLE,
-}
+PARTS = {"clangd-openkal": BUNDLE}
 BAD = {"failure", "cancelled", "timed_out", "action_required", "startup_failure"}
 
 

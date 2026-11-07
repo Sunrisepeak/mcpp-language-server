@@ -36,6 +36,10 @@ with zlib writes. Built with mcpp 2026.11.7.1 over openkal-platform 0.24.2 and m
   2026.11.7.1 or later builds mcppls.
 - The workspace's shared tables are `[workspace.toolchain]`, `[workspace.profile.release]` and
   `[workspace.xlings.workspace]`, and one `[workspace.dependencies]` holds every shared version.
+- Every file a release distributes holds ok images, the engine included; native programs are test tools. A pull
+  request's, a push's and a release's CI build every platform's test tools and run the native server's unit tests on
+  linux-x64; a manual CI run with `native` runs them on every platform. An engine candidate is the engine PR's ok
+  image part, `clangd-openkal`.
 
 ## [0.0.20] — 2026-11-06
 
