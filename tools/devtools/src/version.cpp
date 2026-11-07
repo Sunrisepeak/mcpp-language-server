@@ -137,6 +137,8 @@ std::string manifest_path(const std::string& root) { return base::join_path(root
 std::string module_path(const std::string& root) { return base::join_path(root, "modules/base/src/version.cppm"); }
 std::string extension_manifest_path(const std::string& root) { return base::join_path(root, "editors/vscode/package.json"); }
 std::string zed_manifest_path(const std::string& root) { return base::join_path(root, "editors/zed/extension.toml"); }
+// The extension's version as its code knows it, which it sends the server (initializationOptions.plugin).
+std::string zed_constant_path(const std::string& root) { return base::join_path(root, "editors/zed/src/resolve.rs"); }
 std::string clion_properties_path(const std::string& root) { return base::join_path(root, "editors/clion/gradle.properties"); }
 std::string claude_plugin_path(const std::string& root) { return base::join_path(root, "editors/claude-code/mcppls-lsp/.claude-plugin/plugin.json"); }
 std::string claude_marketplace_path(const std::string& root) { return base::join_path(root, "editors/claude-code/.claude-plugin/marketplace.json"); }
@@ -274,11 +276,58 @@ std::optional<std::array<long long, 4>> version_key(std::optional<std::string> t
 
 } // namespace
 
+std::optional<std::string> series_of(std::string_view version) {
+    auto shaped = extension_version(version);
+    if (!shaped) return std::nullopt;
+    return std::string { version.substr(0, version.rfind('.')) };
+}
+
+std::span<const std::string_view> components() {
+    static constexpr std::string_view all[] = { "server", "vscode", "clion", "zed", "claude-code" };
+    return all;
+}
+
+base::Result<std::string> component_version(const std::string& root, std::string_view component,
+                                            std::optional<std::string_view> next) {
+    if (component == "server") {
+        if (next)
+            if (auto r = module_version(root, next); !r) return std::unexpected { r.error() };
+        return manifest_version(root, next);
+    }
+    if (component == "vscode") return extension_manifest_version(root, next);
+    if (component == "clion") return clion_plugin_version(root, next);
+    if (component == "zed") {
+        if (next)
+            if (auto r = read_quoted_site(zed_constant_path(root), "pub const PLUGIN_VERSION: &str", false,
+                                          "PLUGIN_VERSION constant", next); !r)
+                return std::unexpected { r.error() };
+        return zed_manifest_version(root, next);
+    }
+    if (component == "claude-code") {
+        if (next)
+            if (auto r = claude_marketplace_version(root, next); !r) return std::unexpected { r.error() };
+        return claude_plugin_version(root, next);
+    }
+    return base::fail("version-component", std::format("'{}' is not a component; the components are server, vscode, "
+                                                       "clion, zed and claude-code", component));
+}
+
+base::Result<std::map<std::string, std::string>> component_versions(const std::string& root) {
+    std::map<std::string, std::string> out;
+    for (auto c : components()) {
+        auto v = component_version(root, c);
+        if (!v) return std::unexpected { v.error() };
+        out[std::string { c }] = *v;
+    }
+    return out;
+}
+
 base::Result<std::vector<std::string>> check(const std::string& root) {
     auto product = manifest_version(root);
     if (!product) return std::unexpected { product.error() };
     std::vector<std::string> problems;
 
+    // THE SERVER'S TWO SITES ARE ONE VERSION: mcpp.toml, and what the running binary reports.
     auto moduleV = module_version(root);
     if (!moduleV) return std::unexpected { moduleV.error() };
     if (*moduleV != *product) {
@@ -286,42 +335,45 @@ base::Result<std::vector<std::string>> check(const std::string& root) {
             "modules/base/src/version.cppm says '{}', mcpp.toml says '{}' — this is the version the running binary reports",
             *moduleV, *product));
     }
+    const auto series = series_of(*product);
+    if (!series) return std::unexpected { extension_version(*product).error() };
 
-    auto wanted = extension_version(*product);
-    if (!wanted) return std::unexpected { wanted.error() };
-
-    auto extManifest = extension_manifest_version(root);
-    if (!extManifest) return std::unexpected { extManifest.error() };
-    if (*extManifest != *wanted) {
-        problems.push_back(std::format("editors/vscode/package.json says '{}', '{}' maps to '{}'",
-                                        *extManifest, *product, *wanted));
+    // EVERY PLUGIN IS OF THE SERVER'S SERIES (docs/92-release.md "Versions"): X.Y is shared, Z is
+    // the plugin's own patch, so a plugin's fix is released alone and every marketplace still sees
+    // its versions rise.
+    const std::pair<std::string_view, std::string_view> plugins[] = {
+        { "vscode", "editors/vscode/package.json" },
+        { "clion", "editors/clion/gradle.properties" },
+        { "zed", "editors/zed/extension.toml" },
+        { "claude-code", "editors/claude-code/mcppls-lsp/.claude-plugin/plugin.json" },
+    };
+    for (const auto& [component, file] : plugins) {
+        auto v = component_version(root, component);
+        if (!v) return std::unexpected { v.error() };
+        auto s = series_of(*v);
+        if (!s) {
+            problems.push_back(std::format("{} says '{}', which is not a three-part semantic version", file, *v));
+        } else if (*s != *series) {
+            problems.push_back(std::format("{} says '{}', of series {}; the server is {} (series {})", file, *v, *s,
+                                           *product, *series));
+        }
     }
-
-    auto zedV = zed_manifest_version(root);
-    if (!zedV) return std::unexpected { zedV.error() };
-    if (*zedV != *wanted) {
-        problems.push_back(std::format("editors/zed/extension.toml says '{}', '{}' maps to '{}'",
-                                        *zedV, *product, *wanted));
+    auto zedManifest = zed_manifest_version(root);
+    if (!zedManifest) return std::unexpected { zedManifest.error() };
+    auto zedConstant = read_quoted_site(zed_constant_path(root), "pub const PLUGIN_VERSION: &str", false, "PLUGIN_VERSION constant",
+                                        std::nullopt);
+    if (!zedConstant) return std::unexpected { zedConstant.error() };
+    if (*zedConstant != *zedManifest) {
+        problems.push_back(std::format("editors/zed/src/resolve.rs's PLUGIN_VERSION says '{}', its extension.toml says '{}'",
+                                        *zedConstant, *zedManifest));
     }
-
-    auto clionV = clion_plugin_version(root);
-    if (!clionV) return std::unexpected { clionV.error() };
-    if (*clionV != *product) {
-        problems.push_back(std::format("editors/clion/gradle.properties says '{}', mcpp.toml says '{}'", *clionV, *product));
-    }
-
     auto claudeV = claude_plugin_version(root);
     if (!claudeV) return std::unexpected { claudeV.error() };
-    if (*claudeV != *wanted) {
-        problems.push_back(std::format("editors/claude-code/mcppls-lsp/.claude-plugin/plugin.json says '{}', mcpp.toml says '{}'",
-                                        *claudeV, *product));
-    }
-
     auto marketplaceV = claude_marketplace_version(root);
     if (!marketplaceV) return std::unexpected { marketplaceV.error() };
-    if (*marketplaceV != *wanted) {
-        problems.push_back(std::format("editors/claude-code/.claude-plugin/marketplace.json says '{}', mcpp.toml says '{}'",
-                                        *marketplaceV, *product));
+    if (*marketplaceV != *claudeV) {
+        problems.push_back(std::format("editors/claude-code/.claude-plugin/marketplace.json says '{}', its plugin.json says '{}'",
+                                        *marketplaceV, *claudeV));
     }
 
     auto mcppV = mcpp_versions(root);
@@ -356,14 +408,25 @@ base::Result<std::vector<std::string>> check(const std::string& root) {
 base::Result<std::string> set_everywhere(const std::string& root, std::string_view product) {
     auto wanted = extension_version(product);
     if (!wanted) return std::unexpected { wanted.error() };
-    if (auto r = manifest_version(root, product); !r) return std::unexpected { r.error() };
-    if (auto r = module_version(root, product); !r) return std::unexpected { r.error() };
-    if (auto r = extension_manifest_version(root, *wanted); !r) return std::unexpected { r.error() };
-    if (auto r = zed_manifest_version(root, *wanted); !r) return std::unexpected { r.error() };
-    if (auto r = clion_plugin_version(root, product); !r) return std::unexpected { r.error() };
-    if (auto r = claude_plugin_version(root, *wanted); !r) return std::unexpected { r.error() };
-    if (auto r = claude_marketplace_version(root, *wanted); !r) return std::unexpected { r.error() };
+    for (auto c : components())
+        if (auto r = component_version(root, c, *wanted); !r) return std::unexpected { r.error() };
     return *wanted;
+}
+
+base::Result<std::string> set_series(const std::string& root, std::string_view series) {
+    return set_everywhere(root, std::format("{}.0", series));
+}
+
+base::Result<std::string> bump(const std::string& root, std::string_view component) {
+    auto current = component_version(root, component);
+    if (!current) return std::unexpected { current.error() };
+    auto shaped = extension_version(*current);
+    if (!shaped) return std::unexpected { shaped.error() };
+    const auto dot = current->rfind('.');
+    const auto patch = std::stoll(current->substr(dot + 1));
+    const auto next = std::format("{}.{}", current->substr(0, dot), patch + 1);
+    if (auto r = component_version(root, component, next); !r) return std::unexpected { r.error() };
+    return next;
 }
 
 } // namespace mcppls::devtools::version
@@ -376,59 +439,59 @@ namespace vsn = mcppls::devtools::version;
 
 int command_version(const cmdline::ParsedArgs& arguments) {
     const std::string root { repository_root() };
+    auto fail_with = [](const base::Error& e) {
+        std::println(std::cerr, "mcppls-devtools: {}", e.message);
+        return 1;
+    };
 
+    if (const auto series = arguments.value("series")) {
+        auto wanted = vsn::set_series(root, *series);
+        if (!wanted) return fail_with(wanted.error());
+        std::println("version: series {}: the server and every editor plugin are {}", *series, *wanted);
+        return 0;
+    }
+    if (const auto component = arguments.value("bump")) {
+        auto next = vsn::bump(root, *component);
+        if (!next) return fail_with(next.error());
+        std::println("version: {} is {}", *component, *next);
+        return 0;
+    }
     if (const auto set = arguments.value("set")) {
         auto wanted = vsn::set_everywhere(root, *set);
-        if (!wanted) {
-            std::println(std::cerr, "mcppls-devtools: {}", wanted.error().message);
-            return 1;
-        }
+        if (!wanted) return fail_with(wanted.error());
         std::println("version: set to {} in mcpp.toml, the server and every editor plugin", *wanted);
         return 0;
     }
     if (arguments.is_flag_set("check")) {
         auto problems = vsn::check(root);
-        if (!problems) {
-            std::println(std::cerr, "mcppls-devtools: {}", problems.error().message);
-            return 1;
-        }
+        if (!problems) return fail_with(problems.error());
         if (!problems->empty()) {
             std::println(std::cerr, "version: the version sites disagree");
             for (const auto& problem : *problems) std::println(std::cerr, "  - {}", problem);
             return 1;
         }
-        auto product = vsn::manifest_version(root);
-        if (!product) {
-            std::println(std::cerr, "mcppls-devtools: {}", product.error().message);
-            return 1;
-        }
-        auto extension = vsn::extension_version(*product);
-        if (!extension) {
-            std::println(std::cerr, "mcppls-devtools: {}", extension.error().message);
-            return 1;
-        }
-        std::println("version: {} (extension {}), every site agrees", *product, *extension);
+        auto all = vsn::component_versions(root);
+        if (!all) return fail_with(all.error());
+        std::string listing;
+        for (const auto& [c, v] : *all) listing += std::format("{}{} {}", listing.empty() ? "" : ", ", c, v);
+        std::println("version: series {}: {}", vsn::series_of(all->at("server")).value_or("?"), listing);
         return 0;
     }
     if (arguments.is_flag_set("print")) {
-        auto product = vsn::manifest_version(root);
-        if (!product) {
-            std::println(std::cerr, "mcppls-devtools: {}", product.error().message);
-            return 1;
+        std::string component { arguments.value("component").value_or("server") };
+        if (arguments.is_flag_set("extension")) component = "vscode";
+        if (component == "all") {
+            auto all = vsn::component_versions(root);
+            if (!all) return fail_with(all.error());
+            for (const auto& [c, v] : *all) std::println("{}={}", c, v);
+            return 0;
         }
-        if (arguments.is_flag_set("extension")) {
-            auto extension = vsn::extension_version(*product);
-            if (!extension) {
-                std::println(std::cerr, "mcppls-devtools: {}", extension.error().message);
-                return 1;
-            }
-            std::println("{}", *extension);
-        } else {
-            std::println("{}", *product);
-        }
+        auto v = vsn::component_version(root, component);
+        if (!v) return fail_with(v.error());
+        std::println("{}", *v);
         return 0;
     }
-    std::println(std::cerr, "mcppls-devtools: version needs one of --print, --check, --set VERSION");
+    std::println(std::cerr, "mcppls-devtools: version needs one of --print, --check, --series X.Y, --bump COMPONENT, --set VERSION");
     return 2;
 }
 
@@ -436,11 +499,15 @@ int command_version(const cmdline::ParsedArgs& arguments) {
 
 cmdline::App version_command(bool& handled, int& status) {
     cmdline::App command { "version" };
-    (void) command.description("The product version: print it, check every derived site, or set it everywhere");
-    (void) command.option("print").help("Print the product version");
-    (void) command.option("extension").help("With --print: the version the editor plugins carry, which is the product version");
-    (void) command.option("check").help("Every derived site agrees, or say which does not");
-    (void) command.option("set").takes_value().value_name("VERSION").help("Write this version everywhere");
+    (void) command.description("The versions: X.Y the series of the server and every plugin, Z each component's own patch");
+    (void) command.option("print").help("Print a component's version (the server's unless --component)");
+    (void) command.option("component").takes_value().value_name("COMPONENT")
+        .help("With --print: server, vscode, clion, zed, claude-code, or all (one `name=version` line each)");
+    (void) command.option("extension").help("With --print: the VS Code extension's version (--component vscode)");
+    (void) command.option("check").help("The server's sites agree and every plugin is of its series, or say which is not");
+    (void) command.option("series").takes_value().value_name("X.Y").help("Start a series: every component becomes X.Y.0");
+    (void) command.option("bump").takes_value().value_name("COMPONENT").help("A component's next patch: Z + 1");
+    (void) command.option("set").takes_value().value_name("VERSION").help("Write this version to every component");
     (void) command.action([&handled, &status](const cmdline::ParsedArgs& arguments) {
         handled = true;
         status = command_version(arguments);

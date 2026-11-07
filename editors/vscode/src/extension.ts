@@ -39,6 +39,7 @@ import { serverEnabled } from './enable';
 import { transition } from './enableSwitch';
 import { FatalController } from './fatal';
 import { resolveLaunch } from './payload';
+import { seriesMismatch } from './series';
 import { absoluteServerLogPath, announcedServerLog, ServerLogLevel, ServerLogRouter } from './serverLog';
 import { promptTestHarness, PromptKind, ShownPrompt } from './prompt';
 import { CxxModulesStatus, ModuleIssue, ModuleState, StatusController } from './status';
@@ -372,6 +373,8 @@ class ServerHost implements vscode.Disposable {
                 ...buildInitializationOptions(configuration, compiler),
                 // 0.0.13 W7: the server says when the editor package started a server other than its own.
                 extensionVersion: String(this.context.extension.packageJSON.version ?? ''),
+                // The server serves a plugin of its own series only (docs/92-release.md "Versions").
+                plugin: { name: 'vscode', version: String(this.context.extension.packageJSON.version ?? '') },
             },
             middleware: {
                 // Fix plan 2026-09-26 F9 (D4 layer 1): of the completions a typed space asks for, only
@@ -434,6 +437,16 @@ class ServerHost implements vscode.Disposable {
                 this.status.showRunning();
             }
             this.knownServerVersion = client.initializeResult?.serverInfo?.version;
+            // A server of another series is not used (docs/92-release.md "Versions").
+            const mismatch = seriesMismatch(String(this.context.extension.packageJSON.version ?? ''), this.knownServerVersion);
+            if (mismatch) {
+                this.log(mismatch);
+                this.status.showFailure(mismatch, true);
+                await client.stop().catch(() => undefined);
+                if (this.client === client) this.client = undefined;
+                this.initializedClient = undefined;
+                return;
+            }
             void this.learnServerLog(client);
         } catch (error) {
             if (this.client !== client) return;

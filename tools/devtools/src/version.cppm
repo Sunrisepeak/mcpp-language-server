@@ -2,10 +2,12 @@
 // .github/scripts/version.py --- see that file's docstring for why a site nothing checked (the
 // version the running binary reports) is the one a release without this could ship silently wrong.
 //
-//   mcppls-devtools version --print                 the product version
-//   mcppls-devtools version --print --extension     the version the editor plugins carry (the same)
-//   mcppls-devtools version --check                 every derived site agrees, or say which does not
-//   mcppls-devtools version --set 0.0.2              write it everywhere
+//   mcppls-devtools version --print [--component C]   a component's version (the server's by default)
+//   mcppls-devtools version --print --component all   one `name=version` line per component
+//   mcppls-devtools version --check                   the server's sites agree, every plugin is of its series
+//   mcppls-devtools version --series 0.22             every component to 0.22.0
+//   mcppls-devtools version --bump vscode             the VS Code extension's next patch
+//   mcppls-devtools version --set 0.21.0              one version, every component
 export module mcppls.devtools.version;
 
 import std;
@@ -14,9 +16,8 @@ import mcppls.base.error;
 
 export namespace mcppls::devtools::version {
 
-// The version the editor plugins carry: the product version itself, which must be a three-part
-// semantic version MAJOR.MINOR.PATCH -- the one shape the VS Code Marketplace, Open VSX, Zed and
-// JetBrains all accept, so no plugin carries a version mapped from another. Anything else, a
+// A component's version as it may be published: a three-part semantic version MAJOR.MINOR.PATCH,
+// the one shape the VS Code Marketplace, Open VSX, Zed and JetBrains all accept. Anything else, a
 // four-part date version included, is refused rather than published under a second name.
 base::Result<std::string> extension_version(std::string_view product);
 
@@ -53,6 +54,21 @@ struct KitVersions {
     std::optional<std::string> written;
 };
 base::Result<KitVersions> kit_versions(const std::string& root);
+
+// THE SERIES (docs/92-release.md "Versions"): X.Y of a version, shared by the server and every
+// plugin; Z is each component's own patch. Nothing when the version is not MAJOR.MINOR.PATCH.
+std::optional<std::string> series_of(std::string_view version);
+// The components: server, vscode, clion, zed, claude-code.
+std::span<const std::string_view> components();
+// A component's version, read, or written when `next` is given (the server's two sites, the Claude
+// Code plugin and its marketplace entry, together).
+base::Result<std::string> component_version(const std::string& root, std::string_view component,
+                                            std::optional<std::string_view> next = std::nullopt);
+base::Result<std::map<std::string, std::string>> component_versions(const std::string& root);
+// Every component to X.Y.0.
+base::Result<std::string> set_series(const std::string& root, std::string_view series);
+// A component's next patch; returns it.
+base::Result<std::string> bump(const std::string& root, std::string_view component);
 
 // Every problem `--check` would report against the current mcpp.toml version; empty means every
 // site agrees.

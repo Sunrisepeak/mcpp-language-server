@@ -8,7 +8,7 @@ import com.intellij.openapi.util.SystemInfo
 import com.intellij.util.system.CpuArch
 import java.io.File
 
-// Where the server is and the command that starts it (design 2026-10-29 §2.2; ecosystem design 2026-10-29 §9). In order:
+// Where the server is and the command that starts it, of this plugin's series (Series.kt) (design 2026-10-29 §2.2; ecosystem design 2026-10-29 §9). In order:
 //
 //   1. MCPPLS_SERVER, a program's absolute path (development and tests; the VS Code extension's name for it);
 //   2. the payload this plugin carries, `<plugin>/payload`: one payload for every system (payload version 5), whose
@@ -48,23 +48,29 @@ internal fun resolveLaunch(
     payload: File? = carriedPayload(),
     platform: String = currentPlatform(),
     onPath: () -> File? = { PathEnvironmentVariableUtil.findExecutableInPathOnAnyOS("mcppls") },
+    version: String = pluginVersion(),
+    asked: (File) -> String? = ::reportedVersion,
 ): Launch {
     environment["MCPPLS_SERVER"]?.takeIf { it.isNotEmpty() }?.let { named ->
         val program = File(named)
         if (!program.isAbsolute || !program.isFile) return Launch.Refused("MCPPLS_SERVER does not name an existing program: $named")
         return Launch.Found(listOf(runnable(program).path), "MCPPLS_SERVER")
     }
-    if (payload != null && payload.resolve("payload.json").isFile) return payloadLaunch(payload, platform)
-    onPath()?.let { return Launch.Found(listOf(it.path), "PATH") }
+    if (payload != null && payload.resolve("payload.json").isFile) return payloadLaunch(payload, platform, version)
+    onPath()?.let { program ->
+        seriesMismatch(version, asked(program), "on the PATH (${program.path})")?.let { return Launch.Refused(it) }
+        return Launch.Found(listOf(program.path), "PATH")
+    }
     return Launch.Missing
 }
 
 // The command payload.json names for `platform`, with the executable bits a package may have lost put back: the runner,
 // a program server, and the clangd the server starts. A payload with no entry for `platform` is refused, saying which
 // platforms it carries.
-internal fun payloadLaunch(payload: File, platform: String = currentPlatform()): Launch {
+internal fun payloadLaunch(payload: File, platform: String = currentPlatform(), version: String = pluginVersion()): Launch {
     val manifest = readManifest(payload)
         ?: return Launch.Refused("The plugin's payload manifest ${payload.resolve("payload.json")} cannot be read. Reinstall the plugin.")
+    seriesMismatch(version, member(manifest, "server", "version"), "in the plugin's payload")?.let { return Launch.Refused(it) }
     if (platformPart(manifest, platform) == null) {
         val carried = payloadPlatforms(manifest).joinToString(", ").ifEmpty { "none" }
         return Launch.Refused("The plugin's payload carries no server for $platform; it carries $carried. Reinstall the plugin, or put mcppls on the PATH.")

@@ -34,6 +34,18 @@ dependencies {
     testImplementation("org.opentest4j:opentest4j:1.3.0")
 }
 
+// The plugin's own version, which it compares with a server's series (Series.kt): written at build time, since asking
+// the platform for a plugin's descriptor is its internal API.
+val versionResource = layout.buildDirectory.dir("generated/version")
+val writeVersion by tasks.registering {
+    val out = versionResource
+    val v = project.version.toString()
+    inputs.property("version", v)
+    outputs.dir(out)
+    doLast { out.get().file("mcppls-clion.properties").asFile.apply { parentFile.mkdirs(); writeText("version=$v\n") } }
+}
+sourceSets["main"].resources.srcDir(writeVersion)
+
 kotlin {
     jvmToolchain(21)
     // Built against 2026.2.3 but run on 2026.1 too. Without this Kotlin copies the platform

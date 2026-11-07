@@ -23,6 +23,23 @@ pub struct Launch {
     pub args: Vec<String>,
 }
 
+/// This extension's version, as extension.toml states it (`mcppls-devtools version --check` holds the
+/// two together). The server serves a plugin of its own series only (docs/92-release.md "Versions").
+pub const PLUGIN_VERSION: &str = "0.21.0";
+
+/// The initialization options the server receives: the user's (`lsp.mcppls.initialization_options`),
+/// with `plugin` naming this extension and its version, so a server of another series refuses with
+/// both versions instead of serving a plugin it was not built for.
+pub fn initialization_options(user: Option<zed_extension_api::serde_json::Value>) -> zed_extension_api::serde_json::Value {
+    use zed_extension_api::serde_json::{json, Value};
+    let mut options = match user {
+        Some(Value::Object(map)) => Value::Object(map),
+        _ => json!({}),
+    };
+    options["plugin"] = json!({ "name": "zed", "version": PLUGIN_VERSION });
+    options
+}
+
 pub const NOT_FOUND: &str = "mcppls is not on PATH. Build and install it from a checkout: \
                              mcpp run -p devtools -- extension --editor zed --install";
 
@@ -80,6 +97,23 @@ mod tests {
 
     fn env(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
         pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    }
+
+    #[test]
+    fn the_options_name_this_plugin_beside_the_users_own() {
+        use zed_extension_api::serde_json::json;
+        let options = initialization_options(Some(json!({ "engine": { "name": "clangd" } })));
+        assert_eq!(options["engine"]["name"], "clangd");
+        assert_eq!(options["plugin"]["name"], "zed");
+        assert_eq!(options["plugin"]["version"], PLUGIN_VERSION);
+        assert_eq!(initialization_options(None)["plugin"]["version"], PLUGIN_VERSION);
+    }
+
+    #[test]
+    fn the_constant_is_the_extensions_version() {
+        let manifest = include_str!("../extension.toml");
+        let line = manifest.lines().find(|l| l.starts_with("version = ")).unwrap();
+        assert_eq!(line, format!("version = \"{PLUGIN_VERSION}\""));
     }
 
     #[test]

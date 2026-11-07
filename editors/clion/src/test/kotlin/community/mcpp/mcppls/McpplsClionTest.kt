@@ -180,7 +180,12 @@ class McpplsClionTest : UsefulTestCase() {
                 resolveLaunch(mapOf("MCPPLS_SERVER" to program.path), payload, "linux-x64", onPath))
             assertTrue(resolveLaunch(mapOf("MCPPLS_SERVER" to "relative/mcppls"), payload, "linux-x64", onPath) is Launch.Refused)
             assertEquals(Launch.Found(listOf(program.path), "payload"), resolveLaunch(emptyMap(), payload, "linux-x64", onPath))
-            assertEquals(Launch.Found(listOf(elsewhere.path), "PATH"), resolveLaunch(emptyMap(), payload.resolve("missing"), "linux-x64", onPath))
+            assertEquals(Launch.Found(listOf(elsewhere.path), "PATH"),
+                resolveLaunch(emptyMap(), payload.resolve("missing"), "linux-x64", onPath, "0.21.0") { "0.21.2" })
+            assertTrue("a server on the PATH of another series is refused",
+                resolveLaunch(emptyMap(), payload.resolve("missing"), "linux-x64", onPath, "0.21.0") { "0.20.0" } is Launch.Refused)
+            assertEquals("a server that does not say its version is started", Launch.Found(listOf(elsewhere.path), "PATH"),
+                resolveLaunch(emptyMap(), payload.resolve("missing"), "linux-x64", onPath, "0.21.0") { null })
             assertEquals(Launch.Missing, resolveLaunch(emptyMap(), null, "linux-x64") { null })
         } finally {
             payload.deleteRecursively()
@@ -195,13 +200,16 @@ class McpplsClionTest : UsefulTestCase() {
             val image = payload.resolve("bin").also { it.mkdirs() }.resolve("mcppls.okb").also { it.writeText("okb") }
             val runner = payload.resolve("libexec/okrun/linux-x86_64").also { it.mkdirs() }.resolve("okrun").also { it.writeText("runner") }
             payload.resolve("payload.json").writeText(
-                """{"payload-version": 5, "server": {"version": "0.0.20", "path": "bin/mcppls.okb"}, "kit": {"name": "k", "path": "kit"},
+                """{"payload-version": 5, "server": {"version": "0.21.4", "path": "bin/mcppls.okb"}, "kit": {"name": "k", "path": "kit"},
                    "platforms": {
                      "linux-x64": {"runner": "libexec/okrun/linux-x86_64/okrun", "engines": {"clangd": {"version": "23", "path": "clangd/linux-x64/bin/clangd"}}},
                      "win32-x64": {"runner": "libexec/okrun/windows-x86_64/okrun.exe", "engines": {"clangd": {"version": "23", "path": "clangd/win32-x64/bin/clangd.exe"}}}}}""")
-            assertEquals(Launch.Found(listOf(runner.path, image.path), "payload"), payloadLaunch(payload, "linux-x64"))
+            assertEquals(Launch.Found(listOf(runner.path, image.path), "payload"), payloadLaunch(payload, "linux-x64", "0.21.0"))
             assertTrue("the runner's executable bit is put back", runner.canExecute())
-            val refused = payloadLaunch(payload, "darwin-arm64")
+            val other = payloadLaunch(payload, "linux-x64", "0.22.1")
+            assertTrue("a server of another series is refused, naming both: $other", other is Launch.Refused &&
+                other.reason.contains("0.21.4") && other.reason.contains("0.22.1") && other.reason.contains("mcppls@0.22"))
+            val refused = payloadLaunch(payload, "darwin-arm64", "0.21.0")
             assertTrue("a platform the payload lacks is refused: $refused", refused is Launch.Refused &&
                 refused.reason.contains("darwin-arm64") && refused.reason.contains("linux-x64, win32-x64"))
             assertNull("its runner is not there", serverCommand(payload, platform = "win32-x64"))
@@ -211,6 +219,14 @@ class McpplsClionTest : UsefulTestCase() {
     }
 
     // The semantic kit of a target: the status's kit-missing issue, asked once per kit (KitPrompt).
+    fun testTheSeriesOfAVersion() {
+        assertEquals("0.21", seriesOf("0.21.3"))
+        assertNull(seriesOf("2026.11.8.1"))
+        assertNull(seriesMismatch("0.21.1", "0.21.0", "here"))
+        assertNull(seriesMismatch("0.21.1", null, "here"))
+        assertNotNull("the plugin knows its own version: '${pluginVersion()}'", seriesOf(pluginVersion()))
+    }
+
     fun testAKitIsAskedAboutOncePerKit() {
         val status = com.google.gson.JsonParser.parseString(
             """{"issues": [{"code": "kit-missing", "message": "the semantic kit for x86_64-linux-gnu is not installed", "askInstall": true,

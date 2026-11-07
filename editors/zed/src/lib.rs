@@ -6,7 +6,7 @@
 // build tools it starts. That decision is resolve.rs, which `cargo test` covers on the host.
 mod resolve;
 
-use resolve::{resolve, Arch, Launch, Platform};
+use resolve::{initialization_options, resolve, Arch, Launch, Platform};
 use zed_extension_api::{self as zed, Result};
 
 struct Mcppls;
@@ -40,6 +40,17 @@ impl zed::Extension for Mcppls {
             // of what it needs from the environment, so nothing else has to be passed here.
             env,
         })
+    }
+
+    fn language_server_initialization_options(
+        &mut self,
+        _language_server_id: &zed::LanguageServerId,
+        worktree: &zed::Worktree,
+    ) -> Result<Option<zed::serde_json::Value>> {
+        let user = zed::settings::LspSettings::for_worktree("mcppls", worktree)
+            .ok()
+            .and_then(|settings| settings.initialization_options);
+        Ok(Some(initialization_options(user)))
     }
 }
 
