@@ -60,6 +60,8 @@ struct Versions {
 Versions one_version(std::string_view version);
 
 std::vector<Expected> expected_files(const Manifest& manifest, const Versions& versions);
+// Whether `name` is one of `files` (a `*` in a declared name matching one or more characters).
+bool declares(const std::vector<Expected>& files, std::string_view name);
 
 // The MANIFEST.md text release_manifest.py's `--render` writes into the staged directory: every
 // declared file, what it is, how to install it, and which ones are missing from THIS directory.

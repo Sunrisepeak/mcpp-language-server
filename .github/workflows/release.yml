@@ -3,8 +3,14 @@ name: Release
 # One button. `workflow_dispatch` with a version runs the pre-release test (prerelease.yml: all of
 # CI, the Zed and CLion plugins, installing them, performance and stability), and publishes the
 # release candidate it staged and checked, as a GitHub release with the tag it created. A pushed
-# `v*` tag does the same thing for people who prefer tagging first; `v*-rc*` tags run only the
+# tag does the same thing for people who prefer tagging first; `v*-rc*` tags run only the
 # pre-release test.
+#
+# WHAT A RELEASE IS (docs/92-release.md "Versions"). A version is X.Y.Z: X.Y the series of the
+# server and every plugin, Z each component's own patch. `component: all` releases the series,
+# every component at X.Y.0, tagged `vX.Y.0`; a component releases its patch alone, tagged
+# `<component>-vX.Y.Z` (`server-`, `vscode-`, `clion-`, `zed-`, `claude-code-`), carrying only its
+# own files. Every release is tested as a whole: the candidate is always the whole product.
 #
 # The release is a draft unless asked otherwise, because it is verified before anyone gets it: the
 # maintainer tries the draft's `mcppls-<platform>.vsix` files locally, then publishes the draft.
@@ -20,8 +26,13 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release, e.g. 0.0.2 (the tag becomes v<version>)'
+        description: 'Version to release: the series X.Y.0 for `all`, else the component''s X.Y.Z'
         required: true
+      component:
+        description: 'What is released: the series (all), or one component''s patch'
+        type: choice
+        default: all
+        options: [all, server, vscode, clion, zed, claude-code]
       draft:
         description: 'Publish as a draft (uncheck to publish immediately)'
         type: boolean
@@ -31,7 +42,7 @@ on:
         type: boolean
         default: true
   push:
-    tags: ['v*', '!v*-rc*']
+    tags: ['v*', '!v*-rc*', 'server-v*', 'vscode-v*', 'clion-v*', 'zed-v*', 'claude-code-v*']
 
 permissions:
   contents: write
@@ -49,6 +60,8 @@ jobs:
     outputs:
       version: ${{ steps.pick.outputs.version }}
       tag: ${{ steps.pick.outputs.tag }}
+      component: ${{ steps.pick.outputs.component }}
+      heading: ${{ steps.pick.outputs.heading }}
     steps:
       - uses: actions/checkout@v7
       - id: pick
@@ -56,12 +69,22 @@ jobs:
           set -euo pipefail
           if [ -n '${{ github.event.inputs.version }}' ]; then
             version='${{ github.event.inputs.version }}'
+            component='${{ github.event.inputs.component }}'
           else
-            version='${{ github.ref_name }}'; version="${version#v}"
+            ref='${{ github.ref_name }}'
+            case "$ref" in
+              v*) component=all; version="${ref#v}" ;;
+              *-v*) component="${ref%%-v*}"; version="${ref#*-v}" ;;
+            esac
           fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=v$version"    >> "$GITHUB_OUTPUT"
-          echo "releasing $version"
+          if [ "$component" = all ]; then
+            tag="v$version"; heading="[$version]"
+            case "$version" in *.0) ;; *) echo "::error::a series release is X.Y.0; $version is a component's patch (choose its component)"; exit 1 ;; esac
+          else
+            tag="$component-v$version"; heading="[$component $version]"
+          fi
+          { echo "version=$version"; echo "component=$component"; echo "tag=$tag"; echo "heading=$heading"; } >> "$GITHUB_OUTPUT"
+          echo "releasing $tag"
       # The version in the manifests is the one being released. Checked before anything is built,
       # because a mismatch found after the matrix has run has cost an hour to learn one line.
       - uses: ./.github/actions/setup-mcpp
@@ -71,13 +94,26 @@ jobs:
           mcpp build -p devtools
           devtools=$(find target -type f -name mcppls-devtools -path '*/bin/*' | head -1)
           "$devtools" version --check
-          declared=$("$devtools" version --print)
-          echo "manifests say $declared, releasing ${{ steps.pick.outputs.version }}"
-          [ "$declared" = '${{ steps.pick.outputs.version }}' ] || {
-            echo "::error::mcpp.toml says $declared but the release asks for ${{ steps.pick.outputs.version }}."
-            echo "::error::Run: mcpp run -p devtools -- version --set ${{ steps.pick.outputs.version }}"
-            exit 1
-          }
+          component='${{ steps.pick.outputs.component }}'
+          version='${{ steps.pick.outputs.version }}'
+          if [ "$component" = all ]; then
+            # Every component at the series' X.Y.0.
+            "$devtools" version --print --component all | while IFS== read -r name declared; do
+              [ "$declared" = "$version" ] || {
+                echo "::error::$name is $declared, but a series release has every component at $version."
+                echo "::error::Run: mcpp run -p devtools -- version --series ${version%.0}"
+                exit 1
+              }
+            done
+          else
+            declared=$("$devtools" version --print --component "$component")
+            [ "$declared" = "$version" ] || {
+              echo "::error::$component is $declared but the release asks for $version."
+              echo "::error::Run: mcpp run -p devtools -- version --bump $component"
+              exit 1
+            }
+          fi
+          echo "manifests agree: releasing ${{ steps.pick.outputs.tag }}"
       # A release ships the engine the lock names, released and pinned; a candidate never does.
       - name: No candidate engine
         run: |
@@ -90,8 +126,9 @@ jobs:
       - name: CHANGELOG.md has this version's section
         run: |
           set -euo pipefail
-          grep -q '^## \[${{ steps.pick.outputs.version }}\]' CHANGELOG.md || {
-            echo "::error::CHANGELOG.md has no '## [${{ steps.pick.outputs.version }}]' section; a release's notes are that section."
+          heading='## ${{ steps.pick.outputs.heading }}'
+          grep -qF "$heading" CHANGELOG.md || {
+            echo "::error::CHANGELOG.md has no '$heading' section; a release's notes are that section."
             exit 1
           }
 
@@ -110,16 +147,31 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: release-candidate
-          path: release
-      # The candidate was checked against the manifest for the version mcpp.toml declares, and
-      # `what` checked that this is the version being released; this only confirms the two met.
-      - name: The candidate is this version
+          path: candidate
+      - uses: actions/download-artifact@v8
+        with:
+          name: stage-linux-x64
+          path: stage-artifact
+      # The candidate was checked against the manifest for the versions the sites declare, and `what`
+      # checked that this is the version being released. A component's release is the candidate's files
+      # of that component, with MANIFEST.md and SHA256SUMS of its own.
+      - name: The files of this release
         run: |
           set -euo pipefail
+          (cd candidate && sha256sum -c SHA256SUMS)
+          if [ '${{ needs.what.outputs.component }}' = all ]; then
+            mv candidate release
+          else
+            tar -xzf "$(find stage-artifact -name 'stage-linux-x64.tar.gz' | head -1)" stage/mcppls-devtools
+            ./stage/mcppls-devtools release check --version '${{ needs.what.outputs.version }}' \
+              --component '${{ needs.what.outputs.component }}' --from candidate --dir release --render
+            (cd release && sha256sum * > SHA256SUMS)
+            ./stage/mcppls-devtools release check --version '${{ needs.what.outputs.version }}' \
+              --component '${{ needs.what.outputs.component }}' --dir release
+          fi
           ls -l release
           ls release | grep -q -- '-${{ needs.what.outputs.version }}\.' || {
-            echo "::error::the release candidate is not version ${{ needs.what.outputs.version }}"; exit 1; }
-          (cd release && sha256sum -c SHA256SUMS)
+            echo "::error::the release carries no file of version ${{ needs.what.outputs.version }}"; exit 1; }
       - name: Tag and release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -132,8 +184,9 @@ jobs:
           # The manifest's own table has no heading, and without one it reads as part of the
           # CHANGELOG section's last subsection. Written outside release/, whose every file is an asset.
           notes="$RUNNER_TEMP/notes.md"
-          section=$(awk -v heading="## [$version]" 'index($0, heading) == 1 { on = 1; next } on && /^## \[/ { exit } on { print }' CHANGELOG.md)
-          [ -n "$(printf '%s' "$section" | tr -d '[:space:]')" ] || { echo "::error::CHANGELOG.md has no [$version] section"; exit 1; }
+          heading='## ${{ needs.what.outputs.heading }}'
+          section=$(awk -v heading="$heading" 'index($0, heading) == 1 { on = 1; next } on && /^## \[/ { exit } on { print }' CHANGELOG.md)
+          [ -n "$(printf '%s' "$section" | tr -d '[:space:]')" ] || { echo "::error::CHANGELOG.md has no $heading section"; exit 1; }
           { head -n 1 release/MANIFEST.md; printf '\n## What changed\n'; printf '%s\n' "$section"; printf '\n## Files\n'; tail -n +2 release/MANIFEST.md; } > "$notes"
           commit=$(git rev-parse HEAD)
           remote=$(git ls-remote origin "refs/tags/$tag" "refs/tags/$tag^{}" | awk '
@@ -155,7 +208,7 @@ jobs:
   # it, through publish-openvsx.yml's own `release: published` trigger.
   openvsx:
     needs: [what, publish]
-    if: github.event.inputs.draft == 'false'
+    if: github.event.inputs.draft == 'false' && contains(fromJSON('["all","vscode"]'), needs.what.outputs.component)
     uses: ./.github/workflows/publish-openvsx.yml
     with:
       tag: ${{ needs.what.outputs.tag }}
@@ -163,7 +216,7 @@ jobs:
 
   jetbrains:
     needs: [what, publish]
-    if: github.event.inputs.draft == 'false'
+    if: github.event.inputs.draft == 'false' && contains(fromJSON('["all","clion"]'), needs.what.outputs.component)
     uses: ./.github/workflows/publish-jetbrains.yml
     with:
       tag: ${{ needs.what.outputs.tag }}

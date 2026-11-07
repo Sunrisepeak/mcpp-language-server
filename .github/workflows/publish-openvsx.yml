@@ -39,6 +39,8 @@ concurrency:
 jobs:
   openvsx:
     name: Open VSX ${{ inputs.tag || github.event.release.tag_name }}
+    # Only a release that carries the extension: the series (vX.Y.0) or the extension's patch (vscode-v*).
+    if: startsWith(inputs.tag || github.event.release.tag_name, 'v') || startsWith(inputs.tag || github.event.release.tag_name, 'vscode-v')
     runs-on: ubuntu-24.04
     steps:
       # ovsx 1.2.0 requires Node 22.

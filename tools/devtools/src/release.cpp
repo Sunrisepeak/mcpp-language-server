@@ -242,6 +242,31 @@ int command_release_check(const cmdline::ParsedArgs& arguments) {
         std::println(std::cerr, "mcppls-devtools: {}", versions.error().message);
         return 1;
     }
+    // A component's release out of the whole candidate: the files of `--from` this release declares, copied
+    // into `--dir` (MANIFEST.md and SHA256SUMS are rendered for the subset, not copied).
+    if (const auto from = arguments.value("from")) {
+        auto manifest = pack::release::load_manifest(base::join_path(root, "packaging/release.manifest.json"));
+        if (!manifest) {
+            std::println(std::cerr, "mcppls-devtools: {}", manifest.error().message);
+            return 1;
+        }
+        if (auto lockData = pack::lock::load(base::join_path(root, "packaging/payload.lock.json")))
+            for (const auto& [platform, row] : lockData->platforms)
+                if (!row.kit.name.empty()) manifest->kits[platform] = row.kit.name;
+        const auto files = pack::release::expected_files(*manifest, *versions);
+        std::error_code ec;
+        std::filesystem::create_directories(*directory, ec);
+        for (const auto& path : base::children(*from)) {
+            const std::string name { base::file_name(path) };
+            if (name == "MANIFEST.md" || name == "SHA256SUMS" || !pack::release::declares(files, name)) continue;
+            std::filesystem::copy_file(path, base::join_path(*directory, name), std::filesystem::copy_options::overwrite_existing, ec);
+            if (ec) {
+                std::println(std::cerr, "mcppls-devtools: could not copy {}: {}", name, ec.message());
+                return 1;
+            }
+            std::println("  selected: {}", name);
+        }
+    }
     auto report = release::check_release(root, *versions, *directory, arguments.is_flag_set("render"));
     if (!report) {
         std::println(std::cerr, "mcppls-devtools: {}", report.error().message);
@@ -253,7 +278,8 @@ int command_release_check(const cmdline::ParsedArgs& arguments) {
         for (const auto& problem : report->problems) std::println(std::cerr, "  {}", problem);
         return 1;
     }
-    std::println("\nrelease_manifest: {} matches packaging/release.manifest.json", *version);
+    std::println("\nrelease_manifest: {}{} matches packaging/release.manifest.json", *version,
+                 versions->components.empty() ? std::string {} : std::format(" ({})", *versions->components.begin()));
     return 0;
 }
 
@@ -295,7 +321,8 @@ cmdline::App release_command(bool& handled, int& status) {
         .option("version").takes_value().value_name("VERSION").help("The release being staged").option("dir")
         .takes_value().value_name("DIR").help("The staged release directory").option("render")
         .help("Also write MANIFEST.md into the directory").option("component").takes_value().value_name("COMPONENT")
-        .help("A component's own release (server, vscode, clion, zed, claude-code); default all, the series release");
+        .help("A component's own release (server, vscode, clion, zed, claude-code); default all, the series release")
+        .option("from").takes_value().value_name("DIR").help("Copy into --dir the files of this directory the release declares");
     (void) command.subcommand("xlings")
         .description("Render the xim-pkgindex descriptors of a release: the server's one asset and each kit's")
         .option("release").takes_value().value_name("DIR").help("A release's directory: mcppls-<version>-openkal.zip and mcppls-kit-*.tar.gz").option("out")

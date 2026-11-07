@@ -68,7 +68,7 @@ each row names its kit (`mcppls-devtools check platforms`).
 | Build the server | `mcpp build` |
 | Build for another platform | `mcpp build --target aarch64-macos` / `--target x86_64-windows-gnu` / `--target aarch64-linux-musl` |
 | Regenerate `src/lsp` from the LSP meta model | `mcpp run mcppls-lspgen -- generate --meta-model vendor/lsp-metamodel/metaModel-3.18.json --out src/lsp` |
-| Change the product version everywhere | `mcpp run -p devtools -- version --set 0.0.2` |
+| Start a series, or release one component's patch | `mcpp run -p devtools -- version --series 0.22`, `version --bump vscode` |
 
 ### Test
 

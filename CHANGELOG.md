@@ -4,10 +4,23 @@ Notable changes to mcpp-language-server. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); each release is one dated section, and a
 release's notes are that section.
 
-Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
-product version unchanged.
+Versions are three-part semantic versions, `X.Y.Z`: `X.Y` is the series of the server and every editor plugin,
+`Z` each component's own patch (docs/92-release.md "Versions"). A series release is `## [X.Y.0]`; a component's
+patch is `## [<component> X.Y.Z]` (`server`, `vscode`, `clion`, `zed`, `claude-code`).
 
-## [0.0.21] — 2026-11-07
+## [0.21.0] — 2026-11-08
+
+- **Versions are a series and a patch.** `X.Y` is shared by the server and every editor plugin, `Z` is each
+  component's own, so a plugin's fix is released alone (`vscode-v0.21.1`) and every marketplace still sees its
+  versions rise. 0.0.21 is released as 0.21.0, continuing the count (0.0.*N* is series 0.*N*). A plugin states its
+  version in `initializationOptions.plugin`, and a server of another series refuses `initialize` naming both and
+  the install that matches; VS Code and CLion also check the server they are about to start. `mcppls-devtools
+  version` gains `--series X.Y`, `--bump <component>` and `--print --component`; the release manifest names each
+  asset's component, and a component's release carries its own files.
+- **CI follows the change.** A table of components (`.github/components.tsv`) decides which jobs a pull request
+  runs: a change of the server runs everything, a change of one plugin runs that plugin's jobs over the payload
+  main already built for the same server, a change of the documentation runs the documentation's checks. Main,
+  nightly and release runs run everything.
 
 The bundled engine is [mcppls-clangd 0.0.21](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.21)
 (`23.1.0-mcppls.10`), its ok image built with zlib as the native engines are, so it reads the index shards an engine

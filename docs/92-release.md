@@ -8,24 +8,38 @@
 
 ## Versions
 
-The product's version lives in `mcpp.toml` and nowhere else. Everything derived from it is written
-or checked by one command:
+A version is `X.Y.Z`. `X.Y`, the **series**, is shared by the server and every editor plugin (VS Code,
+CLion, Zed, the Claude Code plugin); `Z` is each component's own patch. A plugin works with any server of
+its series and refuses another, naming both versions and the install that matches: a plugin states its
+version in `initializationOptions.plugin`, and the server refuses `initialize` when the series differ;
+the VS Code extension and the CLion plugin also check the server they are about to start. The Neovim
+plugin and the Copilot CLI fragments have no version of their own and are released with the series.
+
+The server's version lives in `mcpp.toml` and is reported by the binary (`modules/base/src/version.cppm`);
+each plugin's lives in its manifest. One command writes or checks every site:
 
 ```bash
-mcpp run -p devtools -- version --check          # every site agrees
-mcpp run -p devtools -- version --set 0.0.2
+mcpp run -p devtools -- version --check                  # the server's sites agree, every plugin is of its series
+mcpp run -p devtools -- version --print --component all  # one `name=version` line per component
+mcpp run -p devtools -- version --series 0.22            # a new series: every component 0.22.0
+mcpp run -p devtools -- version --bump vscode            # the VS Code extension's next patch
 ```
 
-It keeps these in step: `mcpp.toml`, the constant the running binary reports
-(`modules/base/src/version.cppm`), the version of every editor plugin (VS Code, Zed, CLion and the
-Claude Code plugin with its marketplace entry), and the clangd and kit versions the server states
-against the ones the payload is actually built from.
+`--check` also compares the clangd and kit versions the server states with the ones the payload is built
+from. Three parts is the one shape the VS Code Marketplace, Open VSX, Zed and JetBrains all accept; anything
+else, a four-part date version included, is refused. Each component's `Z` only rises, so every marketplace
+sees its versions rise, and a version, once published anywhere, is never used again.
 
-The version is a three-part semantic version, `MAJOR.MINOR.PATCH`, starting at `0.0.1`, and every
-plugin carries it unchanged — three parts is the one shape the VS Code Marketplace, Open VSX, Zed
-and JetBrains all accept. `version --set` refuses anything else, a four-part date version included.
-A marketplace only takes a version higher than every one it has seen, so a version, once published
-anywhere, is never used again.
+| Release | Tag | Carries | CHANGELOG section |
+|---|---|---|---|
+| a series | `vX.Y.0` | every component at `X.Y.0` | `## [X.Y.0]` |
+| a component's patch | `<component>-vX.Y.Z` (`server-`, `vscode-`, `clion-`, `zed-`, `claude-code-`) | that component's files | `## [<component> X.Y.Z]` |
+
+Every release is tested as a whole: the candidate is the whole product, and a component's release publishes
+its files out of it, with a MANIFEST.md and SHA256SUMS of their own. Open VSX receives a release that carries
+the extension (`v*`, `vscode-v*`), JetBrains one that carries the CLion plugin (`v*`, `clion-v*`). A plugin's
+patch carries the newest server patch of its series. The series numbering continues the earlier versions:
+0.0.*N* became series 0.*N*, so 0.0.21 was released as 0.21.0.
 
 The versions CI *builds with* are a different thing and live in `.github/versions.env`.
 
@@ -90,7 +104,7 @@ Everything is one manual run. **Actions → Release → Run workflow**, and give
 Before pressing it:
 
 1. Everything is on `main` and CI is green.
-2. `mcpp run -p devtools -- version --set <version>` is committed. The run checks this first and
+2. `mcpp run -p devtools -- version --series X.Y` (a series) or `--bump <component>` (a patch) is committed. The run checks this first and
    stops before building anything if the manifests disagree — an hour is a long time to wait to
    learn one line is wrong.
 3. `CHANGELOG.md` has the entry for it.

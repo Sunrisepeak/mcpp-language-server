@@ -62,6 +62,10 @@ base::Result<Manifest> load_manifest(std::string_view path) {
     return manifest;
 }
 
+bool declares(const std::vector<Expected>& files, std::string_view name) {
+    return std::ranges::any_of(files, [&](const Expected& file) { return matches(file.name, name); });
+}
+
 Versions one_version(std::string_view version) {
     Versions v {};
     v.release = std::string { version };

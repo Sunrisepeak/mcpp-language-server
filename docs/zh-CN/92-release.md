@@ -6,16 +6,25 @@
 
 ## 版本号
 
-产品的版本号只存在 `mcpp.toml` 里，别处没有第二份。由它派生出的一切，都靠一条命令写入或核对：
+版本号是 `X.Y.Z`。`X.Y` 是**系列**，由服务端与全部编辑器插件（VS Code、CLion、Zed、Claude Code 插件）共享；`Z` 是各组件自己的补丁号。插件接受同一系列的任何服务端，拒绝其他系列，并在提示中给出两个版本与匹配的安装命令：插件在 `initializationOptions.plugin` 中说明自己的版本，系列不同时服务端拒绝 `initialize`；VS Code 扩展与 CLion 插件在启动服务端之前也做同样的检查。Neovim 插件与 Copilot CLI 的配置片段没有自己的版本，随系列发布。
+
+服务端的版本写在 `mcpp.toml` 里，并由二进制报出（`modules/base/src/version.cppm`）；每个插件的版本写在它自己的清单里。一条命令写入或核对全部位置：
 
 ```bash
-mcpp run -p devtools -- version --check          # 检查各处版本一致
-mcpp run -p devtools -- version --set 0.0.2
+mcpp run -p devtools -- version --check                  # 服务端各处一致，每个插件属于它的系列
+mcpp run -p devtools -- version --print --component all  # 每个组件一行 `name=version`
+mcpp run -p devtools -- version --series 0.22            # 新的系列：每个组件为 0.22.0
+mcpp run -p devtools -- version --bump vscode            # VS Code 扩展的下一个补丁
 ```
 
-这条命令让这些地方保持一致：`mcpp.toml`、运行中的二进制文件报出的常量（`modules/base/src/version.cppm`）、每个编辑器插件的版本号（VS Code、Zed、CLion，以及 Claude Code 插件和它在 marketplace 里的条目），以及服务端声明的 clangd 和 kit 版本与 payload 实际构建所用版本的对应关系。
+`--check` 也核对服务端声明的 clangd 与 kit 版本与 payload 实际构建所用的版本。三段式是 VS Code Marketplace、Open VSX、Zed 和 JetBrains 都接受的唯一格式，其他格式（包括四段式的日期版本）一律拒绝。每个组件的 `Z` 只增不减，所以每个应用市场看到的版本都只升不降；一个版本号只要在任何地方发布过，就不再重复使用。
 
-版本号是三段式的语义化版本 `MAJOR.MINOR.PATCH`，从 `0.0.1` 开始，每个插件都原样使用它——三段式是 VS Code Marketplace、Open VSX、Zed 和 JetBrains 都接受的唯一格式。`version --set` 会拒绝其他格式，包括四段式的日期版本。应用市场只接受比已发布过的版本更高的版本号，所以一个版本号只要在任何地方发布过，就不再重复使用。
+| 发布 | 标签 | 内容 | CHANGELOG 小节 |
+|---|---|---|---|
+| 一个系列 | `vX.Y.0` | 全部组件，均为 `X.Y.0` | `## [X.Y.0]` |
+| 一个组件的补丁 | `<组件>-vX.Y.Z`（`server-`、`vscode-`、`clion-`、`zed-`、`claude-code-`） | 该组件的文件 | `## [<组件> X.Y.Z]` |
+
+每次发布都作为整体测试：候选物是整个产品，组件的发布从中取出自己的文件，并带自己的 MANIFEST.md 与 SHA256SUMS。Open VSX 接收含扩展的发布（`v*`、`vscode-v*`），JetBrains 接收含 CLion 插件的发布（`v*`、`clion-v*`）。插件的补丁内带其系列中最新的服务端补丁。系列的编号延续此前的版本：0.0.*N* 成为系列 0.*N*，所以 0.0.21 以 0.21.0 发布。
 
 CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里。
 
@@ -64,7 +73,7 @@ CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里
 运行之前：
 
 1. 一切都在 `main` 上，CI 是绿的。
-2. `mcpp run -p devtools -- version --set <version>` 的结果已经提交。这次运行会先检查这一点，各处版本不一致时会在构建前停止，避免花一个小时才发现一行写错。
+2. `mcpp run -p devtools -- version --series X.Y`（系列）或 `--bump <组件>`（补丁）的结果已经提交。这次运行会先检查这一点，各处版本不一致时会在构建前停止，避免花一个小时才发现一行写错。
 3. `CHANGELOG.md` 里有这次发布的条目。
 
 接下来这次运行会执行下面的 pre-release 测试：重新运行完整的 CI，构建 Zed 和 CLion 插件并安装，测性能和稳定性，把所有东西暂存好，对着发布清单检查，写出 `SHA256SUMS` 和 `MANIFEST.md`。只有全部通过，才会创建标签，把暂存好的候选版本逐个文件发布出去。

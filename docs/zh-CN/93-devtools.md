@@ -48,7 +48,7 @@ mcpp run -p devtools -- extension --editor vscode --install  # payload、VS Code
 | 构建服务端 | `mcpp build` |
 | 为另一个平台构建 | `mcpp build --target aarch64-macos` / `--target x86_64-windows-gnu` / `--target aarch64-linux-musl` |
 | 从 LSP meta model 重新生成 `src/lsp` | `mcpp run mcppls-lspgen -- generate --meta-model vendor/lsp-metamodel/metaModel-3.18.json --out src/lsp` |
-| 一次性改遍产品版本号 | `mcpp run -p devtools -- version --set 0.0.2` |
+| 开始一个系列，或发布一个组件的补丁 | `mcpp run -p devtools -- version --series 0.22`、`version --bump vscode` |
 
 ### 测试
 

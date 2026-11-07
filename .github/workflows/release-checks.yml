@@ -51,7 +51,10 @@ jobs:
           mcpp build --release -p devtools
           devtools=$(find target -type f -name mcppls-devtools -path '*/bin/*' | head -1)
           "$devtools" version --check
-          echo "version=$("$devtools" version --print)" >> "$GITHUB_OUTPUT"
+          # Each package is named with its own component's version (docs/92-release.md "Versions").
+          { echo "version=$("$devtools" version --print)"
+            echo "zed=$("$devtools" version --print --component zed)"
+            echo "clion=$("$devtools" version --print --component clion)"; } >> "$GITHUB_OUTPUT"
       # No rust or java action here on purpose. `[xlings.workspace]` declares what packaging needs
       # and `mcpp run` provisions it, so this job is the thing that proves that claim on a machine
       # which has neither.
@@ -63,10 +66,10 @@ jobs:
         run: |
           set -euo pipefail
           mcpp run --release -p devtools -- extension --editor zed
-          tar -czf "mcppls-zed-${{ steps.version.outputs.version }}.tar.gz" -C editors \
+          tar -czf "mcppls-zed-${{ steps.version.outputs.zed }}.tar.gz" -C editors \
               --transform 's,^zed,mcppls-zed,' \
               zed/extension.toml zed/extension.wasm zed/README.md zed/Cargo.toml zed/Cargo.lock zed/src
-          tar -tzf "mcppls-zed-${{ steps.version.outputs.version }}.tar.gz"
+          tar -tzf "mcppls-zed-${{ steps.version.outputs.zed }}.tar.gz"
       - uses: ./.github/actions/payload
         with:
           platform: linux-x64
@@ -74,8 +77,8 @@ jobs:
         run: |
           set -euo pipefail
           mcpp run --release --features clion -p devtools -- extension --editor clion --payload "$PWD/payload"
-          cp target/pack/mcppls-clion-${{ steps.version.outputs.version }}.zip .
-          package=mcppls-clion-${{ steps.version.outputs.version }}.zip
+          cp target/pack/mcppls-clion-${{ steps.version.outputs.clion }}.zip .
+          package=mcppls-clion-${{ steps.version.outputs.clion }}.zip
           echo "$package: $(unzip -l "$package" | tail -1)"
           unzip -p "$package" mcppls-clion/payload/payload.json | jq -e '.platforms | has("linux-x64") and has("linux-arm64") and has("darwin-arm64") and has("win32-x64")' 
       - uses: actions/upload-artifact@v7
