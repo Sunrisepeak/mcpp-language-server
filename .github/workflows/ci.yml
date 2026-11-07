@@ -135,20 +135,24 @@ jobs:
     timeout-minutes: 120
     strategy:
       fail-fast: false
+      # Every platform's release row builds its test tools (stage/), which every later job of the platform
+      # runs against the okb; the dev rows, and the native server's tests outside Linux x64, are a run's that
+      # asks for `native` (the server is distributed only as the ok image). The release rows are the base;
+      # the Linux x64 dev row is added by its own include, which merges into the base when `native` adds
+      # every dev row.
       matrix:
+        platform:
+          - linux-x64
+          - linux-arm64
+          - darwin-arm64
+          - win32-x64
+        profile: ${{ inputs.native && fromJSON('["dev","release"]') || fromJSON('["release"]') }}
         include:
-          - { platform: linux-x64,    target: x86_64-linux-gnu,   exe: '',     profile: dev }
-          - { platform: linux-x64,    target: x86_64-linux-gnu,   exe: '',     profile: release }
-          - { platform: linux-arm64,  target: aarch64-linux-musl, exe: '',     profile: dev }
-          - { platform: linux-arm64,  target: aarch64-linux-musl, exe: '',     profile: release }
-          - { platform: darwin-arm64, target: aarch64-macos,      exe: '',     profile: dev }
-          - { platform: darwin-arm64, target: aarch64-macos,      exe: '',     profile: release }
-          - { platform: win32-x64,    target: x86_64-windows-gnu, exe: '.exe', profile: dev }
-          - { platform: win32-x64,    target: x86_64-windows-gnu, exe: '.exe', profile: release }
-        # The server is distributed only as the ok image (the `server` job). Outside a run that asks for
-        # `native`, the other platforms' rows build only their release test tools (stage/), which every
-        # later job of the platform runs against the okb; their native server's tests are not built.
-        exclude: ${{ inputs.native && fromJSON('[]') || fromJSON('[{"platform":"linux-arm64","profile":"dev"},{"platform":"darwin-arm64","profile":"dev"},{"platform":"win32-x64","profile":"dev"}]') }}
+          - { platform: linux-x64,    target: x86_64-linux-gnu,   exe: '' }
+          - { platform: linux-arm64,  target: aarch64-linux-musl, exe: '' }
+          - { platform: darwin-arm64, target: aarch64-macos,      exe: '' }
+          - { platform: win32-x64,    target: x86_64-windows-gnu, exe: '.exe' }
+          - { platform: linux-x64,    target: x86_64-linux-gnu,   exe: '', profile: dev }
     env:
       # Whether this row builds its native server's tests for the `test` job.
       NATIVE_TESTS: ${{ (inputs.native || matrix.platform == 'linux-x64') && 'yes' || 'no' }}
@@ -281,20 +285,26 @@ jobs:
           - { platform: darwin-arm64, os: macos-15,         profile: release }
           - { platform: win32-x64,    os: windows-2022,     profile: dev }
           - { platform: win32-x64,    os: windows-2022,     profile: release }
-        # The native server is not distributed: its tests run on the other systems only in a run that asks
-        # for `native`. The okb is tested on every system by the jobs that take the payload.
-        exclude: ${{ inputs.native && fromJSON('[]') || fromJSON('[{"platform":"linux-arm64"},{"platform":"darwin-arm64"},{"platform":"win32-x64"}]') }}
+    # The native server is not distributed: its tests run on the other systems only in a run that asks for
+    # `native`, and a row of another system does nothing otherwise. The okb is tested on every system by
+    # `openkal-test` and the jobs that take the payload.
+    env:
+      NATIVE_ROW: ${{ (inputs.native || matrix.platform == 'linux-x64') && 'yes' || 'no' }}
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v7
+        if: env.NATIVE_ROW == 'yes'
       - uses: ./.github/actions/setup-mcpp
+        if: env.NATIVE_ROW == 'yes'
       - uses: actions/download-artifact@v8
+        if: env.NATIVE_ROW == 'yes'
         with:
           name: tests-${{ matrix.platform }}-${{ matrix.profile }}
           path: test-archives
       - name: Run the archived tests
+        if: env.NATIVE_ROW == 'yes'
         run: |
           set -euo pipefail
           failed=''
