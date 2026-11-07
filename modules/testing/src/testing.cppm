@@ -68,4 +68,9 @@ inline constexpr int operator""_i(unsigned long long value) { return static_cast
 // Prints the summary and returns the process exit code.
 int report();
 
+// This test program again, before its arguments, for a test that starts copies of itself: as the
+// system names it (`mcpplibs::os::env::self_command`), so an ok image is started by its loader as it
+// was. A test's own first argument names the image, which no system starts as a program.
+std::vector<std::string> self_command();
+
 } // namespace mcppls::testing

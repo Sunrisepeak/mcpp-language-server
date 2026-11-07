@@ -1,6 +1,7 @@
 module mcppls.testing;
 
 import std;
+import mcpplibs.os;
 
 namespace mcppls::testing {
 
@@ -78,6 +79,15 @@ int report() {
                              state.assertions, state.failedAssertions);
     std::cout.flush();
     return state.failedCases == 0 ? 0 : 1;
+}
+
+std::vector<std::string> self_command() {
+    auto command = mcpplibs::os::env::self_command();
+    if (command.empty()) {
+        const auto arguments = mcpplibs::os::env::arguments();
+        if (!arguments.empty()) command.push_back(std::filesystem::absolute(arguments.front()).string());
+    }
+    return command;
 }
 
 } // namespace mcppls::testing

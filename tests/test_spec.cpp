@@ -68,11 +68,12 @@ int producer_main(std::string_view mode, std::string_view databasePath) {
     return 0;
 }
 
-std::string self_path() {
-    const auto arguments = os::env::arguments();
-    std::string path { arguments.empty() ? std::string {} : arguments.front() };
-    if (!base::is_absolute_path(path)) path = base::join_path(base::current_directory(), path);
-    return base::normalize_path(path);
+// This program again as a discovery command, as the system starts it (an ok image's loader and then the image).
+std::vector<std::string> producer(std::vector<std::string> arguments) {
+    auto command = mcppls::testing::self_command();
+    command.push_back("--producer");
+    command.insert(command.end(), arguments.begin(), arguments.end());
+    return command;
 }
 
 } // namespace
@@ -312,19 +313,18 @@ int main(int argc, char* argv[]) {
 
     "a discovery command runs as a child, within a bound"_test = [&] {
         namespace spec = mcppls::spec;
-        const std::string self { self_path() };
         const std::string database { base::join_path(root, "docs/specs/examples/s1-level3-gcc.json") };
         const spec::DiscoveryRequest request { root, {}, {} };
-        const std::vector<std::string> stream { self, "--producer", "stream", database };
+        const std::vector<std::string> stream = producer({ "stream", database });
         auto answered = spec::run_discovery(stream, request, root, spec::RunContext { .hard = std::chrono::seconds { 60 } });
         expect(fatal(answered.has_value())) << (answered ? "" : answered.error().message);
         expect(answered->database == database && answered->watch == std::vector<std::string> { "mcpp.toml" });
-        const std::vector<std::string> truncated { self, "--producer", "truncated" };
+        const std::vector<std::string> truncated = producer({ "truncated" });
         expect(!spec::run_discovery(truncated, request, root, spec::RunContext { .hard = std::chrono::seconds { 60 } }).has_value());
-        const std::vector<std::string> failing { self, "--producer", "failing" };
+        const std::vector<std::string> failing = producer({ "failing" });
         auto failed = spec::run_discovery(failing, request, root, spec::RunContext { .hard = std::chrono::seconds { 60 } });
         expect(!failed.has_value() && failed.error().message == "no toolchain");
-        const std::vector<std::string> sleeping { self, "--producer", "sleeping" };
+        const std::vector<std::string> sleeping = producer({ "sleeping" });
         const auto started = std::chrono::steady_clock::now();
         auto expired = spec::run_discovery(sleeping, request, root, spec::RunContext { .hard = std::chrono::milliseconds { 500 } });
         expect(!expired.has_value() && expired.error().code == "discovery-timeout");

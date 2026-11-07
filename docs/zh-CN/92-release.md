@@ -44,7 +44,8 @@ CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里
 |---|---|---|
 | `build` | 每个平台的测试工具（`stage-<platform>`，release profile）；原生服务端的单元测试写成归档（`mcpp test --no-run --archive`）：linux-x64 两种 profile，带 `native` 的运行中为每个平台 | Linux |
 | `test` | 不产出文件：测试归档在它自己的系统上运行（`mcpp test --archive`）：linux-x64 的，以及带 `native` 的运行（手动触发 CI）中每个平台的 | linux-x64；带 `native` 时每个平台 |
-| `server` | 一次构建得到 `mcppls-<version>-openkal.zip` 与 `mcppls-<version>.okb`（`mcpp pack --target openkal --mode self-contained --systems all --pkg-format zip,okb`），树的 `runs_on.self` 覆盖每个平台；以及单文件（`--pkg-format single-file --systems all`） | Linux |
+| `openkal-test` | 不产出文件：服务端单元测试的 ok 映像（`mcpp test --target openkal --no-run --archive`，由 `server` 构建）经各系统的运行器在该系统上运行 | 每个平台 |
+| `server` | 一次构建得到 `mcppls-<version>-openkal.zip` 与 `mcppls-<version>.okb`（`mcpp pack --target openkal --mode self-contained --systems all --pkg-format zip,okb`），树的 `runs_on.self` 覆盖每个平台；以及单文件（`--pkg-format single-file --systems all`）；服务端单元测试的 ok 映像归档 | Linux |
 | `kits` | 每个平台的目标工具包 `mcppls-kit-<target>-<version>.tar.gz` | Linux、Linux arm64、macOS |
 | `payload` | openkal 工具包与唯一的 payload | Linux |
 | `vsix` | 唯一的 VSIX | Linux |

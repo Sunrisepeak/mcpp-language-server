@@ -325,6 +325,36 @@ jobs:
           if [ -n "$failed" ]; then echo "::error::failed:$failed"; exit 1; fi
 
   # ---------------------------------------------------------------------------
+  # THE SERVER'S UNIT TESTS AS USERS RUN IT: the ok images `server` built, on each platform's own system through its
+  # runner, the leg of the system's architecture (mcpp SPEC-015 §4). The distributed server is the okb; these are
+  # its tests in the same form, and the native `test` rows are the tools' and the native build's.
+  openkal-test:
+    name: unit tests (${{ matrix.platform }}, openkal)
+    needs: server
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux-x64,    os: ubuntu-24.04 }
+          - { platform: linux-arm64,  os: ubuntu-24.04-arm }
+          - { platform: darwin-arm64, os: macos-15 }
+          - { platform: win32-x64,    os: windows-2022 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-mcpp
+      - uses: actions/download-artifact@v8
+        with:
+          name: tests-openkal
+          path: test-archives
+      - name: Run the archived tests through this system's runner
+        run: mcpp test --archive test-archives/mcppls.tar.gz
+
+  # ---------------------------------------------------------------------------
   # THE HOST GRAPH ON THE PLATFORM (mcpp SPEC-013 §6): with `--host-platform openkal-platform@0.24.0`
   # every build program of the graph -- openkal-platform's and openkal-musl's build.mcpp -- compiles as
   # an ok image of this machine's architecture, with one toolchain on each system, and runs through the
@@ -465,6 +495,20 @@ jobs:
         with:
           name: server
           path: server
+          retention-days: 7
+      # The server's unit tests as what users run: ok images of both architectures, built once here and run on
+      # every system by `openkal-test` (mcpp `test --archive`, SPEC-015 §4). The release profile is the one shipped.
+      - name: The server's tests, as ok images
+        run: |
+          set -euo pipefail
+          mkdir -p openkal-tests
+          mcpp test --profile release --target openkal --no-run --archive openkal-tests/mcppls.tar.gz
+          ls -l openkal-tests
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tests-openkal
+          path: openkal-tests
+          compression-level: 0
           retention-days: 7
 
   # ---------------------------------------------------------------------------
@@ -2152,6 +2196,6 @@ jobs:
 
   release-checks:
     name: release checks
-    needs: [packaging-changes, specifications, build, test, server, kits, payload, vsix, conformance, clean-machine, vscode-e2e, distribution, neovim, bench-validate]
+    needs: [packaging-changes, specifications, build, test, openkal-test, server, kits, payload, vsix, conformance, clean-machine, vscode-e2e, distribution, neovim, bench-validate]
     if: needs.packaging-changes.outputs.changed == 'true'
     uses: ./.github/workflows/release-checks.yml

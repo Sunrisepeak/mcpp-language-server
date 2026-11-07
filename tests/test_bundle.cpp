@@ -347,9 +347,13 @@ int main() {
     // written by a process that sees that user as its own, and not one file of it naming them.
     "a bundle of a user whose name is everywhere names them nowhere"_test = [] {
         std::error_code ignored;
-        const auto arguments = os::env::arguments();
-        std::string self { arguments.front() };
-        if (!base::is_absolute_path(self)) self = base::join_path(base::current_directory(), self);
+        // This program again, as the system starts it (an ok image's loader and then the image).
+        const auto self = mcppls::testing::self_command();
+        const auto child = [&](std::vector<std::string> arguments) {
+            std::vector<std::string> args { self.begin() + 1, self.end() };
+            args.insert(args.end(), arguments.begin(), arguments.end());
+            return args;
+        };
         const std::string directory { base::join_path(base::spelled(os::dirs::temp()),
                                                       std::format("mcppls-test-bundle-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
         const bool windows { os::host() == os::platform::windows };
@@ -369,7 +373,7 @@ int main() {
         environment.push_back(std::format("USERNAME={}", LONG_USER));
         environment.push_back(std::format("MCPPLS_CACHE_DIR={}", base::join_path(home, ".cache/mcppls")));
         for (const bool excerpts : { true, false }) {
-            auto run = mcpplibs::os::process::run(mcpplibs::os::process::spawn_options { .program = self, .args = { "bundle-child", directory, excerpts ? "excerpts" : "none" }, .env = mcpplibs::os::env::assignments(environment), .clear_env = true },
+            auto run = mcpplibs::os::process::run(mcpplibs::os::process::spawn_options { .program = self.front(), .args = child({ "bundle-child", directory, excerpts ? "excerpts" : "none" }), .env = mcpplibs::os::env::assignments(environment), .clear_env = true },
                                              mcpplibs::os::process::bounds { .hard = std::chrono::seconds { 60 } });
             expect(fatal(run.has_value()));
             expect(fatal(run->status.success())) << run->out << run->err;
@@ -411,7 +415,7 @@ int main() {
         }
         // Over its cap, a bundle leaves out the oldest log first, says so, and keeps what matters most.
         {
-            auto run = mcpplibs::os::process::run(mcpplibs::os::process::spawn_options { .program = self, .args = { "bundle-child", directory, "cap" }, .env = mcpplibs::os::env::assignments(environment), .clear_env = true },
+            auto run = mcpplibs::os::process::run(mcpplibs::os::process::spawn_options { .program = self.front(), .args = child({ "bundle-child", directory, "cap" }), .env = mcpplibs::os::env::assignments(environment), .clear_env = true },
                                              mcpplibs::os::process::bounds { .hard = std::chrono::seconds { 60 } });
             expect(fatal(run.has_value() && run->status.success())) << (run ? run->out + run->err : std::string {});
             const Json result = Json::parse(run->out);

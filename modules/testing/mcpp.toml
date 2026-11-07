@@ -6,3 +6,6 @@ license     = "Apache-2.0"
 
 [targets.mcppls-testing]
 kind = "lib"
+
+[dependencies]
+mcpplibs.os.workspace = true

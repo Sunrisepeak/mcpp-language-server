@@ -38,10 +38,22 @@ std::string self_path() {
     return base::normalize_path(path);
 }
 
+// This program again with `arguments`, as the system starts it: an ok image's loader and then the image.
+os::process::spawn_options self_spawn(std::vector<std::string> arguments) {
+    const auto self = mcppls::testing::self_command();
+    std::vector<std::string> args { self.begin() + 1, self.end() };
+    args.insert(args.end(), arguments.begin(), arguments.end());
+    return { .program = self.front(), .args = std::move(args) };
+}
+
 // This program again, with its input and output on pipes and its error output on this program's.
 os::process::spawn_options child(std::vector<std::string> arguments) {
-    return { .program = self_path(), .args = std::move(arguments), .in = os::process::stdio::pipe,
-             .out = os::process::stdio::pipe, .err = os::process::stdio::inherit, .bound_lifetime = true };
+    auto options = self_spawn(std::move(arguments));
+    options.in = os::process::stdio::pipe;
+    options.out = os::process::stdio::pipe;
+    options.err = os::process::stdio::inherit;
+    options.bound_lifetime = true;
+    return options;
 }
 
 int child_main(std::span<const std::string> arguments) {
@@ -134,9 +146,12 @@ int child_main(std::span<const std::string> arguments) {
         const bool ownUnit { mode == "--hold-pipe" };
         // Its output goes to this program's error output (the caller's pipe). Not bound to this program's
         // lifetime, which is what a build tool's own children are: only ending the unit reaches them.
-        auto descendant = os::process::process::spawn({ .program = self_path(), .args = { "--descendant", arguments[2] },
-                                                        .in = os::process::stdio::null, .out = os::process::stdio::error,
-                                                        .err = os::process::stdio::inherit, .own_unit = ownUnit });
+        auto options = self_spawn({ "--descendant", arguments[2] });
+        options.in = os::process::stdio::null;
+        options.out = os::process::stdio::error;
+        options.err = os::process::stdio::inherit;
+        options.own_unit = ownUnit;
+        auto descendant = os::process::process::spawn(options);
         if (descendant) descendant->detach();
         (void)os::stdio::write_output(descendant ? "started" : std::format("spawn-failed:{}", descendant.error().message()));
         if (!ownUnit) std::this_thread::sleep_for(std::chrono::seconds { 30 });
@@ -573,7 +588,7 @@ int main() {
         const auto result = mcppls::toolrun::run(request);
         expect(fatal(result.has_value()));
         expect(result->out == "<unset>") << result->out;
-        request.arguments = { "--env", "MCPPLS_TEST_VARIABLE" };
+        request.arguments = child({ "--env", "MCPPLS_TEST_VARIABLE" }).args;
         const auto kept = mcppls::toolrun::run(request);
         expect(fatal(kept.has_value()));
         expect(kept->out == "kept") << kept->out;

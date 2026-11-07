@@ -15,6 +15,7 @@
 [workspace]
 members = [
     "modules/base",
+    "modules/testing",
     "modules/toolrun",
     "modules/pack",
     "tools/devtools",

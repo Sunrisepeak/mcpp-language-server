@@ -107,7 +107,7 @@ int main() {
         const std::string ci { "jobs:\n"
                                "  build:\n" + matrix + "          - { platform: linux-x64, target: x86_64-linux-gnu, profile: dev }\n"
                                "          - { platform: linux-arm64, target: aarch64-linux-musl, profile: dev }\n"
-                               "  test:\n" + matrix + rows + "  kits:\n" + matrix + rows + "  distribution:\n" + matrix + rows +
+                               "  test:\n" + matrix + rows + "  openkal-test:\n" + matrix + rows + "  kits:\n" + matrix + rows + "  distribution:\n" + matrix + rows +
                                "  conformance:\n" + matrix + "          - platform: linux-x64\n            part: 1 of 2\n"
                                "          - platform: linux-arm64\n"
                                "  vscode-e2e:\n    name: VS Code end to end (${{ matrix.platform }})\n" + matrix + rows };

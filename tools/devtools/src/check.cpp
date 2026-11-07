@@ -517,7 +517,7 @@ base::Result<Report> platforms(const std::string& root) {
         std::string_view file;
         std::string_view job;
     };
-    for (const Job job : { Job { "ci.yml", "build" }, Job { "ci.yml", "test" }, Job { "ci.yml", "kits" }, Job { "ci.yml", "conformance" },
+    for (const Job job : { Job { "ci.yml", "build" }, Job { "ci.yml", "test" }, Job { "ci.yml", "openkal-test" }, Job { "ci.yml", "kits" }, Job { "ci.yml", "conformance" },
                            Job { "ci.yml", "vscode-e2e" }, Job { "ci.yml", "distribution" }, Job { "release-checks.yml", "install" } }) {
         const std::string path { base::join_path(root, std::format(".github/workflows/{}", job.file)) };
         auto text = os::fs::read(path);

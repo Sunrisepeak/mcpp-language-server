@@ -70,7 +70,8 @@ platform names its runner and its engine. Native programs are test tools and are
 |---|---|---|
 | `build` | every platform's test tools (`stage-<platform>`, release profile); the native server's unit tests, archived (`mcpp test --no-run --archive`), of linux-x64 in both profiles, and of every platform in a run with `native` | Linux |
 | `test` | nothing: the archived tests run on their own system (`mcpp test --archive`): linux-x64's, and every platform's in a run with `native` (a manual dispatch of CI) | linux-x64; every platform with `native` |
-| `server` | `mcppls-<version>-openkal.zip` and `mcppls-<version>.okb` from one build (`mcpp pack --target openkal --mode self-contained --systems all --pkg-format zip,okb`), the tree's `runs_on.self` being every platform; the single files (`--pkg-format single-file --systems all`) | Linux |
+| `openkal-test` | nothing: the server's unit tests as ok images (`mcpp test --target openkal --no-run --archive`, built by `server`) run on each system through its runner | every platform |
+| `server` | `mcppls-<version>-openkal.zip` and `mcppls-<version>.okb` from one build (`mcpp pack --target openkal --mode self-contained --systems all --pkg-format zip,okb`), the tree's `runs_on.self` being every platform; the single files (`--pkg-format single-file --systems all`); the server's unit tests as ok images, archived | Linux |
 | `kits` | each platform's target kit, `mcppls-kit-<target>-<version>.tar.gz` | Linux, Linux arm64, macOS |
 | `payload` | the openkal kit and the one payload | Linux |
 | `vsix` | the one VSIX | Linux |
