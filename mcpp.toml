@@ -32,9 +32,9 @@ members = [
 [workspace.target.'cfg(any(linux, macos, windows, os = "openkal"))']
 platform = "openkal-platform@0.24.3"
 
-# 2026.11.7.1: a platform stated as a series, and the version group taking part in resolution.
+# 2026.11.7.2: the platform as one release, and the archived tests of a member carrying the member's files.
 [workspace.package]
-mcpp = ">=2026.11.7.1"
+mcpp = ">=2026.11.7.2"
 
 # One version of each third-party package for every member.
 [workspace.dependencies]
