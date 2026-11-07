@@ -20,6 +20,10 @@ with zlib writes. Built with mcpp 2026.11.7.2 over openkal-platform 0.24.3 and m
   zlib is unavailable") before indexing again. The 0.0.21 image reads them, and each engine now keeps its database,
   index shards and module builds in a cache context of its own identity (`clangd-<version>-<platform>-<digest>`); the
   contexts other engines left are removed when an engine starts (docs/50-troubleshooting.md).
+- **What the image cannot tell is said.** In the ok image, mcpplibs.os 0.3 answers neither whether the cache is on a
+  Windows Dev Drive nor whether a Linux server runs under PRoot (it answers both only in a native build), and 0.0.18
+  to 0.0.20 skipped both without a word. The log now says that the build does not check them
+  (docs/50-troubleshooting.md).
 - **One closing quote after an include completion** ([#80](https://github.com/Sunrisepeak/mcpp-language-server/issues/80)).
   clangd's include completion replaces the closing quote or bracket an editor typed after the cursor. A completion
   the server answers from an earlier answer for the same word (a word's complete list, a late answer) ended every

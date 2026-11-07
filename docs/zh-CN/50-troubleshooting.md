@@ -49,6 +49,8 @@
 | `answer <kind> <file>:<line>:<column> <place> source=engine certainty=authoritative took=<ms> replaced=<来源> diff=-<n>/+<n>` | 先给出答案之后 clangd 自己的答案到了，差了这么多项（下一次按键就替换掉）；完全相同时不写 |
 | `answers: <n> kept from the last session (<n> KB), read in <ms> ms` | 启动时：答案层读回了多少 |
 | `the cache <dir> is not on a Dev Drive: …` | 只在 Windows 上，只说一次：见 [Windows：缓存放在 Dev Drive 上](#windows缓存放在-dev-drive-上) |
+| `the cache <dir> is not checked for a Dev Drive in this build …` | Windows 上的 ok 映像（所有发布版）：mcpplibs.os 0.3 只在原生 Windows 构建中回答这个问题，映像无从得知；见 [Windows：缓存放在 Dev Drive 上](#windows缓存放在-dev-drive-上) |
+| `this build does not detect a system-call translator (PRoot): …` | Linux 上的 ok 映像：mcpplibs.os 0.3 只在原生 Linux 构建中识别 PRoot；在 PRoot 下模块构建在 worker 中进行 |
 | `restarting clangd (<root>): <原因> (<cause>)` | 每次重启，以及是否计入 clangd 的重启预算 |
 | `the timers of <root> took <ms> ms, <ms> ms of them in <part>` | 是什么占住了事件循环 |
 
@@ -153,7 +155,8 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 
 在 Windows 上，确认一个模块或 preamble 是否仍然可用，每一步都是要打开文件的文件操作；Microsoft Defender 还会在 clangd
 读写缓存里的每个文件时实时扫描。缓存不在 [Dev Drive](https://learn.microsoft.com/windows/dev-drive/) 上时（Dev Drive 上
-Defender 异步扫描），服务端会在日志里说一次，编辑器的概览里也会显示。下面两种做法都有帮助，由你决定；mcppls 不会修改任何
+Defender 异步扫描），服务端会在日志里说一次，编辑器的概览里也会显示。发布的服务端是 ok 映像，目前还无法判断（mcpplibs.os 0.3
+只在原生 Windows 构建中回答这个问题），它会在日志里说明这一点；缓存不在 Dev Drive 上时，下面两种做法同样适用。下面两种做法都有帮助，由你决定；mcppls 不会修改任何
 安全设置：
 
 - 把缓存放到 Dev Drive 上：把环境变量 `MCPPLS_CACHE_DIR` 设成 Dev Drive 上的一个文件夹。
