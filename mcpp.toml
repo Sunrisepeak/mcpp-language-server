@@ -24,16 +24,16 @@ members = [
 # THE PLATFORM OF EVERY TARGET (mcpp SPEC-013): openkal-platform states the C library
 # (openkal-musl) and the C++ run-time (openkal-llvm-runtime) above openkal, the toolchain, and for
 # an ok image (`<arch>-openkal`) its tools, link, seal and runner. The ok images take it here too:
-# Platform 0.24 supplies OpenKal 0.24, musl 0.28, runtime 0.19 and tools 0.5,
-# matching OS 0.3. System triples use its hosted arrangement; images use its
-# standalone runtime. The Windows hosted target is x86_64-windows-gnu.
+# The platform is the series ^0.24 (design 2026-11-07, A4): its newest patch this mcpp admits, kept
+# in mcpp.lock until `mcpp update` (mcpp 2026.11.7.1, SPEC-013 §14). Its version group names OpenKal
+# 0.24, musl 0.28, runtime 0.19 and tools 0.5. System triples use its hosted arrangement; images
+# use its standalone runtime. The Windows hosted target is x86_64-windows-gnu.
 [workspace.target.'cfg(any(linux, macos, windows, os = "openkal"))']
-platform = "openkal-platform@0.24.0"
+platform = "openkal-platform@^0.24"
 
-# 2026.11.3.1 is the compiler floor for standard modules built with the
-# platform's flags. CI bootstraps with the published 2026.11.5.1 release.
+# 2026.11.7.1: a platform stated as a series, and the version group taking part in resolution.
 [workspace.package]
-mcpp = ">=2026.11.3.1"
+mcpp = ">=2026.11.7.1"
 
 # One version of each third-party package for every member.
 [workspace.dependencies]
@@ -46,9 +46,10 @@ tinyhttps            = "0.3.1"
 
 # The operating-system layer: mcpplibs.os over openkal (mcpp design 2026-10-26 part 2). The
 # openkal implementation of each system is os's dependency, named by it; no program here names it.
-# OS 0.3 selects OpenKal 0.24 and matching per-system backends.
+# A compatible range: 0.3.1 reads a name in Windows' long spelling as the name it spells; the graph
+# and the platform's version group choose the release.
 [workspace.dependencies.mcpplibs]
-os = "0.3.0"
+os = "^0.3.1"
 
 [workspace.dependencies.nlohmann]
 json = "3.12.0"
