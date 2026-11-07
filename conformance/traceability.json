@@ -1,5 +1,5 @@
 {
-  "$comment": "Rule identifiers of specifications S1 to S5 mapped to evidence (usable plan W10.2), checked by docs/specs/tools/validate.py. Evidence: validate (a passing check of validate.py, by label prefix), test (tests/<file>.cpp: <name>), check (<fixture>/<check id>), review (a review fixture under tools/bench/review), script (a file and a line that enforces the rule), manual (why no automated evidence can exist).",
+  "$comment": "Rule identifiers of specifications S1 to S6 mapped to evidence (usable plan W10.2), checked by docs/specs/tools/validate.py. Evidence: validate (a passing check of validate.py, by label prefix), test (tests/<file>.cpp: <name>), check (<fixture>/<check id>), review (a review fixture under tools/bench/review), script (a file and a line that enforces the rule), manual (why no automated evidence can exist).",
   "$pending": {
     "S1-7.2-10": "the server does not read `generated` yet",
     "S1-7.2-11": "the server does not read `generated` yet",
@@ -2607,6 +2607,150 @@
   "S3-8-7": [
     {
       "test": "tests/test_instance.cpp: status names the live instances of a workspace and their best state"
+    }
+  ],
+  "S6-3-1": [
+    {
+      "validate": "S6 schema rejects a path that climbs out of the payload"
+    },
+    {
+      "validate": "S6 schema rejects an absolute path"
+    },
+    {
+      "validate": "S6 schema rejects a drive path"
+    }
+  ],
+  "S6-3.1-1": [
+    {
+      "validate": "S6 schema rejects a version it does not define"
+    }
+  ],
+  "S6-3.1-2": [
+    {
+      "validate": "S6 schema rejects a manifest without server.path"
+    }
+  ],
+  "S6-3.1-3": [
+    {
+      "validate": "S6 schema rejects a manifest without kit"
+    }
+  ],
+  "S6-3.1-4": [
+    {
+      "validate": "S6 schema rejects a manifest without files"
+    }
+  ],
+  "S6-3.2-1": [
+    {
+      "validate": "S6 schema rejects version 4 without platform"
+    }
+  ],
+  "S6-3.2-2": [
+    {
+      "validate": "S6 schema rejects version 4 without engines.clangd"
+    },
+    {
+      "validate": "S6 schema rejects version 4 with an engine without its identity"
+    }
+  ],
+  "S6-3.3-1": [
+    {
+      "validate": "S6 schema rejects version 5 without platforms"
+    },
+    {
+      "test": "tests/test_instance.cpp: payload version 5: one payload, the entry of each platform"
+    }
+  ],
+  "S6-3.3-2": [
+    {
+      "validate": "S6 schema rejects an image server and a platform without a runner"
+    }
+  ],
+  "S6-3.3-3": [
+    {
+      "validate": "S6 schema rejects a platform without its engine"
+    },
+    {
+      "validate": "S6 v5 example: one engine image serves every platform"
+    }
+  ],
+  "S6-3.3-4": [
+    {
+      "validate": "S6 schema rejects a platform without its files"
+    }
+  ],
+  "S6-3.3-5": [
+    {
+      "validate": "S6 schema rejects version 5 with a top-level platform"
+    },
+    {
+      "validate": "S6 schema rejects version 5 with server.runner"
+    },
+    {
+      "validate": "S6 schema rejects version 5 with top-level engines"
+    }
+  ],
+  "S6-4-1": [
+    {
+      "script": "editors/vscode/src/payload.ts",
+      "contains": "export function platformPart(manifest: PayloadManifest, platform: string)"
+    }
+  ],
+  "S6-4-2": [
+    {
+      "script": "editors/vscode/src/payload.ts",
+      "contains": "const entry = manifest.platforms[platform];"
+    },
+    {
+      "script": "editors/vscode/test/unit/payloadScope.test.ts",
+      "contains": "the published payload manifests of versions 4 and 5 give a platform its part (S6)"
+    }
+  ],
+  "S6-4-3": [
+    {
+      "script": "editors/vscode/test/unit/payloadScope.test.ts",
+      "contains": "an image server starts through the runner payload.json names"
+    }
+  ],
+  "S6-4-4": [
+    {
+      "test": "tests/test_instance.cpp: a payload takes this platform's entry and refuses one without it"
+    }
+  ],
+  "S6-4-5": [
+    {
+      "script": "src/engine/payload.cpp",
+      "contains": "this payload carries no engine for {}, the platform this server runs on; it carries {}"
+    }
+  ],
+  "S6-4-6": [
+    {
+      "test": "tests/test_instance.cpp: payload version 5: one payload, the entry of each platform"
+    },
+    {
+      "script": "editors/vscode/src/payload.ts",
+      "contains": "has an unsupported payload-version"
+    }
+  ],
+  "S6-4-7": [
+    {
+      "test": "tests/test_instance.cpp: a payload takes this platform's entry and refuses one without it"
+    }
+  ],
+  "S6-5-1": [
+    {
+      "test": "tests/test_instance.cpp: an ok engine is started by its runner and identified as openkal"
+    }
+  ],
+  "S6-5-2": [
+    {
+      "test": "tests/test_instance.cpp: identified payloads validate their engine while explicit external engines inherit no capabilities"
+    }
+  ],
+  "S6-6-1": [
+    {
+      "script": "src/engine/clangd.cpp",
+      "contains": "\"payload-corrupt\", \"the extension's payload is corrupt or was modified; reinstall the extension\""
     }
   ]
 }

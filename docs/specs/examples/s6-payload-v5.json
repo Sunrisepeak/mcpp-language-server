@@ -1,0 +1,197 @@
+{
+ "build": {
+  "builtAt": "2026-11-06T13:20:33Z",
+  "commit": "8923698cde330586bca99534dedea012d161dcf7",
+  "dirty": true,
+  "source": "from-source"
+ },
+ "files": {
+  "kit/kit.json": {
+   "sha256": "39e6c240ad25179152f7c922f8077acf7e22b46707d4230668ef198624d1b479",
+   "size": 3885
+  }
+ },
+ "kit": {
+  "name": "mcppls-kit-openkal-0.24.0",
+  "path": "kit"
+ },
+ "payload-version": 5,
+ "platforms": {
+  "darwin-arm64": {
+   "engines": {
+    "clangd": {
+     "identity": {
+      "engine-version": "23.1.0-mcppls.9",
+      "features": [
+       "semantic-tokens-range",
+       "format-style-mcpp",
+       "module-directive-diagnostic-ranges",
+       "module-directive-recovery",
+       "const-correctness-views",
+       "unresolved-import-recovery",
+       "partial-prerequisite-modules",
+       "module-rebuild-reasons",
+       "bounded-module-wait",
+       "managed-input-roots",
+       "persistent-module-memos",
+       "retained-asts-option",
+       "module-input-recheck",
+       "interactive-actions",
+       "owned-module-cache"
+      ],
+      "fork-commit": "fa43e9343b35dafa167b097919f515230bce2265",
+      "llvm-base-version": "23.1.0",
+      "llvm-commit": "ea7d852a70e8bdfaf601d6626a760f9771b2c4b4",
+      "llvm-tree-commit": "7ea4299986aedf696b9eec63e0f149bb0aec8167",
+      "patch-series-sha256": "d051d9cfc408e69eed8302180ded39a51e49f4531af96e329fcf2e27203cb043",
+      "platform": "openkal",
+      "sha256": "9044251bc7ea2ca01a38bdd233c7fe1384e7418f388e47847d8774cb6af4f09e"
+     },
+     "path": "clangd/openkal/bin/clangd.okb",
+     "runner": "libexec/okrun/macos-aarch64/okrun",
+     "version": "23.1.0-mcppls.9"
+    }
+   },
+   "files": {
+    "clangd/openkal/bin/clangd.okb": {
+     "sha256": "9044251bc7ea2ca01a38bdd233c7fe1384e7418f388e47847d8774cb6af4f09e",
+     "size": 152766523
+    }
+   },
+   "runner": "libexec/okrun/macos-aarch64/okrun"
+  },
+  "linux-arm64": {
+   "engines": {
+    "clangd": {
+     "identity": {
+      "engine-version": "23.1.0-mcppls.9",
+      "features": [
+       "semantic-tokens-range",
+       "format-style-mcpp",
+       "module-directive-diagnostic-ranges",
+       "module-directive-recovery",
+       "const-correctness-views",
+       "unresolved-import-recovery",
+       "partial-prerequisite-modules",
+       "module-rebuild-reasons",
+       "bounded-module-wait",
+       "managed-input-roots",
+       "persistent-module-memos",
+       "retained-asts-option",
+       "module-input-recheck",
+       "interactive-actions",
+       "owned-module-cache"
+      ],
+      "fork-commit": "fa43e9343b35dafa167b097919f515230bce2265",
+      "llvm-base-version": "23.1.0",
+      "llvm-commit": "ea7d852a70e8bdfaf601d6626a760f9771b2c4b4",
+      "llvm-tree-commit": "7ea4299986aedf696b9eec63e0f149bb0aec8167",
+      "patch-series-sha256": "d051d9cfc408e69eed8302180ded39a51e49f4531af96e329fcf2e27203cb043",
+      "platform": "openkal",
+      "sha256": "9044251bc7ea2ca01a38bdd233c7fe1384e7418f388e47847d8774cb6af4f09e"
+     },
+     "path": "clangd/openkal/bin/clangd.okb",
+     "runner": "libexec/okrun/linux-aarch64/okrun",
+     "version": "23.1.0-mcppls.9"
+    }
+   },
+   "files": {
+    "clangd/openkal/bin/clangd.okb": {
+     "sha256": "9044251bc7ea2ca01a38bdd233c7fe1384e7418f388e47847d8774cb6af4f09e",
+     "size": 152766523
+    }
+   },
+   "runner": "libexec/okrun/linux-aarch64/okrun"
+  },
+  "linux-x64": {
+   "engines": {
+    "clangd": {
+     "identity": {
+      "engine-version": "23.1.0-mcppls.9",
+      "features": [
+       "semantic-tokens-range",
+       "format-style-mcpp",
+       "module-directive-diagnostic-ranges",
+       "module-directive-recovery",
+       "const-correctness-views",
+       "unresolved-import-recovery",
+       "partial-prerequisite-modules",
+       "module-rebuild-reasons",
+       "bounded-module-wait",
+       "managed-input-roots",
+       "persistent-module-memos",
+       "retained-asts-option",
+       "module-input-recheck",
+       "interactive-actions",
+       "owned-module-cache"
+      ],
+      "fork-commit": "fa43e9343b35dafa167b097919f515230bce2265",
+      "llvm-base-version": "23.1.0",
+      "llvm-commit": "ea7d852a70e8bdfaf601d6626a760f9771b2c4b4",
+      "llvm-tree-commit": "7ea4299986aedf696b9eec63e0f149bb0aec8167",
+      "patch-series-sha256": "d051d9cfc408e69eed8302180ded39a51e49f4531af96e329fcf2e27203cb043",
+      "platform": "openkal",
+      "sha256": "9044251bc7ea2ca01a38bdd233c7fe1384e7418f388e47847d8774cb6af4f09e"
+     },
+     "path": "clangd/openkal/bin/clangd.okb",
+     "runner": "libexec/okrun/linux-x86_64/okrun",
+     "version": "23.1.0-mcppls.9"
+    }
+   },
+   "files": {
+    "clangd/openkal/bin/clangd.okb": {
+     "sha256": "9044251bc7ea2ca01a38bdd233c7fe1384e7418f388e47847d8774cb6af4f09e",
+     "size": 152766523
+    }
+   },
+   "runner": "libexec/okrun/linux-x86_64/okrun"
+  },
+  "win32-x64": {
+   "engines": {
+    "clangd": {
+     "identity": {
+      "engine-version": "23.1.0-mcppls.9",
+      "features": [
+       "semantic-tokens-range",
+       "format-style-mcpp",
+       "module-directive-diagnostic-ranges",
+       "module-directive-recovery",
+       "const-correctness-views",
+       "unresolved-import-recovery",
+       "partial-prerequisite-modules",
+       "module-rebuild-reasons",
+       "bounded-module-wait",
+       "managed-input-roots",
+       "persistent-module-memos",
+       "retained-asts-option",
+       "module-input-recheck",
+       "interactive-actions",
+       "owned-module-cache"
+      ],
+      "fork-commit": "fa43e9343b35dafa167b097919f515230bce2265",
+      "llvm-base-version": "23.1.0",
+      "llvm-commit": "ea7d852a70e8bdfaf601d6626a760f9771b2c4b4",
+      "llvm-tree-commit": "7ea4299986aedf696b9eec63e0f149bb0aec8167",
+      "patch-series-sha256": "d051d9cfc408e69eed8302180ded39a51e49f4531af96e329fcf2e27203cb043",
+      "platform": "openkal",
+      "sha256": "9044251bc7ea2ca01a38bdd233c7fe1384e7418f388e47847d8774cb6af4f09e"
+     },
+     "path": "clangd/openkal/bin/clangd.okb",
+     "runner": "libexec/okrun/windows-x86_64/okrun.exe",
+     "version": "23.1.0-mcppls.9"
+    }
+   },
+   "files": {
+    "clangd/openkal/bin/clangd.okb": {
+     "sha256": "9044251bc7ea2ca01a38bdd233c7fe1384e7418f388e47847d8774cb6af4f09e",
+     "size": 152766523
+    }
+   },
+   "runner": "libexec/okrun/windows-x86_64/okrun.exe"
+  }
+ },
+ "server": {
+  "path": "bin/mcppls.okb",
+  "version": "0.0.20"
+ }
+}
