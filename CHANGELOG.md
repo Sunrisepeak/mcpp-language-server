@@ -11,7 +11,7 @@ product version unchanged.
 
 The bundled engine is [mcppls-clangd 0.0.21](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.21)
 (`23.1.0-mcppls.10`), its ok image built with zlib as the native engines are, so it reads the index shards an engine
-with zlib writes. Built with mcpp 2026.11.7.1 over openkal-platform 0.24.2 and mcpplibs.os 0.3.1.
+with zlib writes. Built with mcpp 2026.11.7.1 over openkal-platform 0.24.3 and mcpplibs.os 0.3.1.
 
 ### Fixed
 
@@ -32,8 +32,8 @@ with zlib writes. Built with mcpp 2026.11.7.1 over openkal-platform 0.24.2 and m
 
 - libarchive and xxHash are their mwrap modules (`mcpplibs.mwrap.libarchive`, `mcpplibs.mwrap.xxhash`); no source
   of the server or of `modules/` includes a header.
-- The platform is the series `openkal-platform@^0.24`, kept in `mcpp.lock`, and mcpplibs.os is `^0.3.1`; mcpp
-  2026.11.7.1 or later builds mcppls.
+- The platform is one release, `openkal-platform@0.24.3` (its okrun reserves a thread's stack for an image's main
+  thread on Windows), and mcpplibs.os is `^0.3.1`; mcpp 2026.11.7.1 or later builds mcppls.
 - The workspace's shared tables are `[workspace.toolchain]`, `[workspace.profile.release]` and
   `[workspace.xlings.workspace]`, and one `[workspace.dependencies]` holds every shared version.
 - Every file a release distributes holds ok images, the engine included, and CI tests them as such: the server's
