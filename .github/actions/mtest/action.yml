@@ -1,0 +1,24 @@
+name: mtest
+description: >
+  The mtest engine the cases run with: the release .github/versions.env pins (MTEST_VERSION), its sha256
+  checked (MTEST_SHA256), unpacked under the runner's temporary directory; MTEST names its launcher.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        . .github/versions.env
+        archive="mtest-$MTEST_VERSION-openkal-bundle-all.tar.gz"
+        # Git Bash's tar reads `D:\...` as a remote host's name: the POSIX spelling on Windows.
+        temp="$RUNNER_TEMP"; python=python3
+        if [ "$RUNNER_OS" = Windows ]; then temp=$(cygpath -u "$RUNNER_TEMP"); python=python; fi
+        curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$temp/$archive" \
+          "https://github.com/mcpp-community/mtest/releases/download/v$MTEST_VERSION/$archive"
+        actual=$("$python" -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$temp/$archive")
+        [ "$actual" = "$MTEST_SHA256" ] || { echo "::error::$archive: sha256 $actual, versions.env says $MTEST_SHA256"; exit 1; }
+        mkdir -p "$temp/mtest" && tar xzf "$temp/$archive" -C "$temp/mtest"
+        launcher="$temp/mtest/mtest-$MTEST_VERSION-openkal-bundle-all/bin/mtest"
+        [ "$RUNNER_OS" = Windows ] && launcher="$launcher.exe"
+        "$launcher" --version
+        echo "MTEST=$launcher" >> "$GITHUB_ENV"

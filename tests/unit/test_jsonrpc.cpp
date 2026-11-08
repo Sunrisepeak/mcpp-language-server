@@ -6,8 +6,9 @@ import mcppls.lsp.protocol;
 
 using namespace mcppls::lsp;
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest jsonrpc_tests{"jsonrpc", [] {
 
     "frames split across feeds"_test = [] {
         const std::string frame { encode_frame(make_request(1, "initialize", Json { { "rootUri", nullptr } })) };
@@ -101,5 +102,4 @@ int main() {
         expect(std::ranges::is_sorted(methods(), {}, &MethodInfo::name));
     };
 
-    return report();
-}
+}};

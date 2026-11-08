@@ -12,8 +12,9 @@ using mcppls::orchestrator::tokens::Legend;
 using mcppls::orchestrator::tokens::Token;
 namespace tokens = mcppls::orchestrator::tokens;
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest tokens_tests{"tokens", [] {
 
     "the base legend has the fixed types and modifiers, in order"_test = [] {
         const Legend legend { tokens::build_legend(Json::object()) };
@@ -203,5 +204,4 @@ int main() {
             << "mcppls's own engine alone answers range requests";
     };
 
-    return report();
-}
+}};

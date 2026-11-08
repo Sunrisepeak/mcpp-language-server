@@ -148,35 +148,11 @@ struct Fixture {
 };
 }
 
-int main() {
+using namespace mcpplibs::mtest;
+
+UTest save_plan_tests{"save plan", [] {
     std::error_code ignored;
-    using namespace mcpplibs::mtest;
     using namespace std::chrono_literals;
-    const auto arguments = os::env::arguments();
-    if (arguments.size() == 1) {
-        // The real workspace starts a cache sweep. Isolate the whole child process's cache,
-        // including its worker threads, so this test never sweeps a user's workspaces.
-        const std::string cache { mcppls::base::join_path(base::spelled(os::dirs::temp()),
-            std::format("mcppls-save-tests-cache-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
-        auto environment = os::env::variables();
-        std::erase_if(environment, [](const std::string& entry) { return entry.starts_with("MCPPLS_CACHE_DIR="); });
-        environment.push_back("MCPPLS_CACHE_DIR=" + cache);
-        mcppls::toolrun::Request request;
-        // This program again, as the system starts it (an ok image's loader and then the image).
-        const auto self = mcpplibs::mtest::self_command();
-        request.program = self.front();
-        request.arguments.assign(self.begin() + 1, self.end());
-        request.arguments.push_back("--isolated-save-tests");
-        request.purpose = "save-plan-test";
-        request.bounds.hard = 30s;
-        request.environment = std::move(environment);
-        const auto result = mcppls::toolrun::run(request);
-        std::filesystem::remove_all(cache, ignored);
-        if (!result) { std::println(std::cerr, "{}", result.error().message); return 1; }
-        std::print("{}", result->out);
-        std::print(std::cerr, "{}", result->err);
-        return result->timed_out ? 1 : toolrun::exit_code(result->status);
-    }
     "saving an export body preserves the already planned module graph"_test = [] {
         Fixture f { "export module app;\nexport int answer() { return 1; }\n" };
         expect(fatal(f.state->plans == 1));
@@ -229,5 +205,35 @@ int main() {
         expect(f.state->plans == 2) << "an unchanged lexical graph alone is insufficient for F13's editing-source union";
         expect(std::ranges::find(f.state->stubs, "second") != f.state->stubs.end());
     };
-    return report();
+}};
+
+int main(int argc, char** argv) {
+    std::error_code ignored;
+    using namespace std::chrono_literals;
+    const auto arguments = os::env::arguments();
+    if (std::ranges::find(arguments, "--isolated-save-tests") == arguments.end()) {
+        // The real workspace starts a cache sweep. Isolate the whole child process's cache,
+        // including its worker threads, so this test never sweeps a user's workspaces.
+        const std::string cache { mcppls::base::join_path(base::spelled(os::dirs::temp()),
+            std::format("mcppls-save-tests-cache-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
+        auto environment = os::env::variables();
+        std::erase_if(environment, [](const std::string& entry) { return entry.starts_with("MCPPLS_CACHE_DIR="); });
+        environment.push_back("MCPPLS_CACHE_DIR=" + cache);
+        mcppls::toolrun::Request request;
+        // This program again, as the system starts it (an ok image's loader and then the image).
+        const auto self = mcpplibs::mtest::self_command();
+        request.program = self.front();
+        request.arguments.assign(self.begin() + 1, self.end());
+        request.arguments.push_back("--isolated-save-tests");
+        request.purpose = "save-plan-test";
+        request.bounds.hard = 30s;
+        request.environment = std::move(environment);
+        const auto result = mcppls::toolrun::run(request);
+        std::filesystem::remove_all(cache, ignored);
+        if (!result) { std::println(std::cerr, "{}", result.error().message); return 1; }
+        std::print("{}", result->out);
+        std::print(std::cerr, "{}", result->err);
+        return result->timed_out ? 1 : toolrun::exit_code(result->status);
+    }
+    return run(argc, argv);
 }

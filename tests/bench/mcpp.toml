@@ -1,0 +1,27 @@
+# The measurements (README.md): one program, `mcppls-bench`, whose cases measure the server -- a
+# session's start (startup.cpp), the semantic tokens of a large file (tokens.cpp), the review of a
+# change (review.cpp) -- and the agent task benchmark (tasks.cpp), each stating the bounds of its
+# metrics, with the cases that check the benchmark's own data. It speaks the mtest protocol, so
+# mtest lists, selects, schedules and records the cases, and the store keeps each metric across
+# runs (`mtest analyze trend`); alone it runs them one after another.
+[package]
+name        = "mcppls-bench"
+version     = "0.1.0"
+description = "The measurements of mcpp-language-server as test cases"
+license     = "Apache-2.0"
+authors     = ["Sunrisepeak"]
+
+[build]
+sources = ["*.cpp"]
+
+[targets.mcppls-bench]
+kind = "bin"
+main = "main.cpp"
+
+[dependencies]
+mcpplibs.mtest.workspace = true
+mcpplibs.os.workspace    = true
+nlohmann.json.workspace  = true
+mcppls-base              = { path = "../../modules/base" }
+mcppls-toolrun           = { path = "../../modules/toolrun" }
+mcppls-harness           = { path = "../harness" }

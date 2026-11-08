@@ -8,8 +8,9 @@ import mcppls.toolrun;
 namespace os = mcpplibs::os;
 namespace toolrun = mcppls::toolrun;
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest sandbox_tests{"sandbox", [] {
 
     "this process answers the same way twice"_test = [] {
         expect(toolrun::sandbox() == toolrun::sandbox());
@@ -31,5 +32,4 @@ int main() {
         const auto names = os::fs::preopens();
         expect(std::ranges::find(names, std::string { "/" }) != names.end()) << names.size();
     };
-    return report();
-}
+}};

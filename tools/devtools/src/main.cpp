@@ -18,7 +18,6 @@ import mcppls.devtools.version;
 import mcppls.devtools.measure;
 import mcppls.devtools.release;
 import mcppls.devtools.check;
-import mcppls.devtools.bench;
 import mcppls.devtools.stress;
 
 namespace devtools = mcppls::devtools;
@@ -38,7 +37,6 @@ int main(int argc, char* argv[]) {
     (void) app.subcommand(devtools::measure_command(handled, status));
     (void) app.subcommand(devtools::release_command(handled, status));
     (void) app.subcommand(devtools::check_command(handled, status));
-    (void) app.subcommand(devtools::bench_command(handled, status));
     (void) app.subcommand(devtools::stress_command(handled, status));
 
     const int parsed { app.run(argc, argv) };

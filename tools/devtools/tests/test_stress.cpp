@@ -9,8 +9,9 @@ import mcppls.devtools.stress;
 namespace stress = mcppls::devtools::stress;
 using Json = nlohmann::json;
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest stress_tests{"stress", [] {
 
     "the matrix is fixtures times clients, in order, with duplicates dropped"_test = [&] {
         auto specs = stress::matrix({ "inferred", "module-faults", "inferred" }, {}, { "vscode", "plain", "vscode" });
@@ -127,5 +128,4 @@ int main() {
         expect(diff.contains("module-faults") && diff.contains("(missing from this run)")) << diff;
     };
 
-    return report();
-}
+}};

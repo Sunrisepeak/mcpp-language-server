@@ -6,8 +6,9 @@ import mcpplibs.os;
 
 namespace os = mcpplibs::os;
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest net_tests{"net", [] {
 
     "a loopback connection carries bytes both ways and ends when one side is done"_test = [] {
         auto listener = os::net::loopback_listener::listen(0);
@@ -124,5 +125,4 @@ int main() {
         expect(!os::net::connect_loopback(port).has_value());
     };
 
-    return report();
-}
+}};

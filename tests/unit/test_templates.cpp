@@ -47,8 +47,9 @@ std::vector<std::string> only(std::string_view label) { return { std::string { l
 
 } // namespace
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest templates_tests{"templates", [] {
 
     "the templates of main where a declaration begins, filtered by what was typed"_test = [] {
         for (const std::string_view typed : { "m", "ma", "mai", "main", "  ma", "\tmain" }) {
@@ -173,5 +174,4 @@ int main() {
         expect(alone["isIncomplete"] == true && labels_of(alone["items"]) == both()) << "on their own while the engine has not answered";
     };
 
-    return report();
-}
+}};

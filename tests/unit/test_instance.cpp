@@ -54,9 +54,10 @@ mcppls::spec::Kit kit_of(std::string name, std::string target, std::vector<std::
 
 } // namespace
 
-int main() {
+using namespace mcpplibs::mtest;
+
+UTest instance_tests{"instance", [] {
     std::error_code ignored;
-    using namespace mcpplibs::mtest;
 
     "the first instance owns a workspace and a second works in a private directory"_test = [] {
         std::error_code ignored;
@@ -437,5 +438,4 @@ int main() {
         expect(mcppls::cli::status_document(root, cache)["workspace"].value("state", std::string {}) == "none");
     };
 
-    return report();
-}
+}};

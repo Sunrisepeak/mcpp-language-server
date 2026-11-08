@@ -8,8 +8,9 @@ namespace os = mcpplibs::os;
 
 using namespace mcppls::base;
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest uri_tests{"uri", [] {
 
     "POSIX URIs round-trip with percent encoding"_test = [] {
         expect(uri_to_path("file:///home/u/a%20b.cpp", PathStyle::posix).value_or("") == "/home/u/a b.cpp");
@@ -38,5 +39,4 @@ int main() {
         }
     };
 
-    return report();
-}
+}};

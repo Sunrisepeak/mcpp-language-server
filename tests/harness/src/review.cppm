@@ -1,14 +1,12 @@
-// `mcppls-devtools bench review`: whether `mcppls review` finds what a change breaks, and
-// nothing a clean change does not. Ported from tools/bench/review.py; see bench/README.md
-// "Review fixtures".
-export module mcppls.devtools.bench.review;
+// The review fixtures (tests/bench/README.md, "Review fixtures"): whether `mcppls review` finds
+// what a change breaks, and nothing a clean change does not.
+export module mcppls.harness.review;
 
 import std;
 import nlohmann.json;
-import mcpplibs.cmdline;
 import mcppls.base.error;
 
-export namespace mcppls::devtools::bench {
+export namespace mcppls::harness {
 
 // Whether `finding` (a review finding, as the server's `--format json` writes it) satisfies
 // `entry` (one "must"/"must-not" item of a review.json): same "rule", and, for every field the
@@ -48,10 +46,6 @@ struct ReviewOptions {
 FixtureOutcome run_review_fixture(const std::string& fixtureDir, const std::string& repositoryRoot,
                                   const ReviewOptions& options, const std::string& scratch);
 
-// `mcppls-devtools bench review --server PATH [--payload DIR] [--mock-model PATH]
-//     [--fixture ID ...] [--timeout SECONDS] [--keep] [--report FILE]`.
-int command_review(const mcpplibs::cmdline::ParsedArgs& arguments);
-
 // True positives (a "must" entry matched), false negatives (one that was not) and false
 // positives (a finding that hit a "must-not" entry), by rule, across every fixture outcome.
 struct RuleStats {
@@ -63,4 +57,4 @@ std::map<std::string, RuleStats> review_rule_stats(const std::vector<FixtureOutc
 double review_precision(const RuleStats& stats);
 double review_recall(const RuleStats& stats);
 
-} // namespace mcppls::devtools::bench
+} // namespace mcppls::harness

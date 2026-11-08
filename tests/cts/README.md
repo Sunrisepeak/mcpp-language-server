@@ -20,22 +20,30 @@ checks fail at once with that reason instead of each waiting out its timeout.
 
 ## The fixtures as cases
 
-`conformance.cpp` is the suite: one program, `mcppls-cts` (this directory's package), whose cases
-are the fixtures, each an object that states in code what it is and how it runs:
+One program, `mcppls-cts` (this directory's package), whose cases are the fixtures, each an object
+of a topic's file that states in code what it is and how it runs. `cts.cppm` gives the case's type,
+`Fixture`, over mcppls.harness ([tests/harness](../harness)); the topics are `mcpp.cpp` (projects mcpp
+builds), `targets.cpp` (an mcpp project's target), `cmake.cpp` (compile databases, CMake's and others'),
+`xmake.cpp`, `inferred.cpp` (no build description), `engine.cpp` (clangd's failures, the cache, the
+payload) and `editing.cpp` (typing, saving, completion, formatting); `main.cpp` begins the program:
 
 ```cpp
 Fixture typing_pause{"typing-pause", on{"linux-x64", "darwin-arm64", "win32-x64"}, resource{"machine"}};
 Fixture mcpp_watch_polling{"mcpp-watch@polling", on{"linux-x64"}};
 ```
 
-- **The name** is the fixture, and after `@` the client it is: `polling` declares no dynamic
-  registration of watched files, `plain` no `experimental.cxxModules`, `vscode`, `neovim` and `zed`
-  what that editor sends ("Client profiles" below).
+- **The name** is the fixture, and after `@` how the runner drives it: the client it is -- `polling`
+  declares no dynamic registration of watched files, `plain` no `experimental.cxxModules`, `vscode`,
+  `neovim` and `zed` what that editor sends ("Client profiles" below) -- or `warm`, a second session
+  on the cache the first one left (the next session plans with the model the first cached), or
+  `linked`, a workspace reached through a symbolic link, where every macOS temporary directory is
+  (mcpp names files by their resolved path).
 - **`on`** names the platforms whose runners have what the fixture builds with; a CI row runs the
   cases of its platform (`--tag on:<platform>`), in parts where it has two (`--shard`).
 - **`resource{"machine"}`** is held by a fixture whose checks bound how long an answer takes: it runs
-  while no other case runs. The case `the cases and the fixtures agree` reads this file and fails
-  for a fixture that bounds a time and holds no machine, and for a case that names no fixture.
+  while no other case runs. The case `the cases and the fixtures agree` reads this directory's files
+  (the static manifest, with the suite type `cts.cppm` declares) and fails for a fixture that bounds a
+  time and holds no machine, and for a case that names no fixture.
 - **A failure** is each failed check, named by its id with the runner's detail. A failing case runs
   once more with the server's log (`diagnose`), which the store keeps and `mtest explain` names.
 
@@ -46,7 +54,7 @@ for CMake, puts that one first on the PATH of those steps only.
 The program speaks the mtest protocol: [mtest](https://github.com/mcpp-community/mtest) lists,
 selects, schedules and records the cases, and a second attempt of a CI job runs only the ones that
 failed (`mtest rerun`). The environment names what the cases run against (`MCPPLS_CTS_SERVER`,
-`MCPPLS_CTS_PAYLOAD`, `MCPPLS_CTS_RUNNER`, ...; the head of `conformance.cpp`).
+`MCPPLS_CTS_PAYLOAD`, `MCPPLS_CTS_RUNNER`, ...; the head of `tests/harness/src/harness.cppm`).
 
 ```bash
 mcpp build && mcpp build -p mcppls-cts
@@ -56,8 +64,10 @@ MCPPLS_CTS_SERVER=$bin/mcppls MCPPLS_CTS_PAYLOAD=target/pack/payload \
 mtest explain
 ```
 
-Jobs that run one fixture under conditions of their own -- a cold and a warm session sharing a
-cache, a server under PRoot, a release's payload -- call the runner directly with those options.
+The measurements of a fixture -- a session's start, the tokens of a large file, a real project's
+stages -- are cases of [tests/bench](../bench/README.md), over the same harness. Jobs that run a
+fixture under conditions no case states -- a server under PRoot, a release's payload, a real
+project at a fixed commit -- call the runner directly with those options.
 
 ## Fixtures
 
@@ -173,7 +183,7 @@ cache, a server under PRoot, a release's payload -- call the runner directly wit
 | `workaround-canaries` | Import-hang plan §9, 0.0.9 plan M-3: one check per registered workaround with a canary, run against the payload's clangd. WA-CLANGD-001 is a `clangd-check`; WA-CLANGD-009 (completion with `--experimental-modules-support` takes over 1.8 times as long on a file including 120 generated headers, `prepare heavy-headers`) and WA-CLANGD-010 (misc-const-correctness on a filter view and a view over one) are `clangd-lsp` checks, on Linux only. A failure here means a clangd update fixed that defect and the workaround it names can be removed. WA-CLANGD-001 and 010 are `retired-by` capabilities mcppls-clangd declares, so with the bundled engine they report themselves retired |
 | `no-modules` | 0.0.9 plan M-3, WA-CLANGD-009: sources and headers with no module in the plan: clangd runs without `--experimental-modules-support`, hover and definition work, and the report splits request time into clangd's and the server's (M-1); a module interface written into the workspace restarts clangd with the flag, the event's reason naming WA-CLANGD-009 |
 | `tidy-const-views` | 0.0.9 plan M-3, WA-CLANGD-010: a project `.clangd` with `FastCheckFilter: None` and a `.clang-tidy` for misc-const-correctness; of a filter view, a transform view over it and an int never changed, the server shows only the int (`diagnostic-code-lines`) |
-| `tokens-large-file` | mcpp design 2026-10-28 §11.1: a file of 10 000 lines that imports std and three modules (`prepare large-module-file 10000`, the semantic kit, no build system), opened with a completion and its semantic tokens asked at once, then a line inserted and the tokens asked for as a delta. Stages `cold` and `warm` on one cache (`--expect-warm` for the second). The client declares `workspace.semanticTokens.refreshSupport`. Budgets: on a warm open the compiler's tokens are not later than the first completion, an edit's answer is under 5% of the full answer's bytes, and every change reaches the client by refresh (a poll never finds a changed answer); a range request is answered with the compiler's tokens of that range (`T3-range`). `mcppls-devtools bench tokens` runs both stages and prints the medians |
+| `tokens-large-file` | mcpp design 2026-10-28 §11.1: a file of 10 000 lines that imports std and three modules (`prepare large-module-file 10000`, the semantic kit, no build system), opened with a completion and its semantic tokens asked at once, then a line inserted and the tokens asked for as a delta. Stages `cold` and `warm` on one cache (`--expect-warm` for the second). The client declares `workspace.semanticTokens.refreshSupport`. Budgets: on a warm open the compiler's tokens are not later than the first completion, an edit's answer is under 5% of the full answer's bytes, and every change reaches the client by refresh (a poll never finds a changed answer); a range request is answered with the compiler's tokens of that range (`T3-range`). The case `tokens` of [tests/bench](../bench/README.md) runs both stages and reports their numbers |
 | `ux-heavy-headers` | 0.0.9 plan M-2 (issue #37): ten sources including 400 generated headers (`prepare heavy-headers 400`), no modules, no checkout. `completion-baseline` holds completion through the server, each after an edit, to 1.3 times clangd alone's p95 plus 30 ms on the very compile_commands.json the server wrote, and to a share of answers by clangd. CI's `ux` job runs its one stage (`edits`); with `--disable-workaround WA-CLANGD-009` it fails (405 ms against 14 ms locally) |
 | `ux-modules-qt` | 0.0.12: modules mixed with Qt headers. Two module units include Qt 5 headers in their global module fragments (`<QtWidgets/QtWidgets>` among them), and a file includes Qt headers and imports both. CMake builds it with clang++ against the distribution's Qt 5 (`qtbase5-dev`). It checks answers (diagnostics, hover, definition), idle latency, typing in the importer, and typing with autosave in a module unit while an importer completes on it. Budgets cover every completion answered, no restart or crash, nothing set aside and diagnostics back within 6 s. Runs on Linux x64 |
 | `ux-modules-windows` | 0.0.12: the same with `<windows.h>`. Two module units include it in their global module fragments, and a file includes it and imports both. CMake builds it with MSVC and Ninja. Diagnostics must be back within 4 s of typing (a report had them five or six seconds behind). Completion while typing has a p95 budget of 1.1 s, not 1.0 s: a completion there costs about 0.5 s even idle, and one clangd misses its 1 s budget for is answered by mcppls, a fifth of them on that runner, so its engine share budget is 0.65. Runs on Windows |

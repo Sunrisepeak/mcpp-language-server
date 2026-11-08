@@ -21,21 +21,32 @@ patch is `## [<component> X.Y.Z]` (`server`, `vscode`, `clion`, `zed`, `claude-c
   runs: a change of the server runs everything, a change of one plugin runs that plugin's jobs over the payload
   main already built for the same server, a change of the documentation runs the documentation's checks. Main,
   nightly and release runs run everything.
-- **The conformance fixtures are cases, and the tests are written with mtest** (mtest 0.3.0). `tests/cts/conformance.cpp`
-  declares each fixture, and each variant of one, as an object that states the platforms it runs on, the machine it
-  holds when its checks bound a time, and by its name the client it is; mtest lists, selects, schedules and records
-  them, two at a time, divided between a platform's parts by the times main's last run measured. Each failed check
-  is a failure of its case, named by its id; a failing case runs once more with the server's log, which `mtest
-  explain` names; a second attempt of a CI job runs only the cases that failed. A case checks that every fixture
-  that bounds a time holds the machine. The six fixture lists of the conformance job, its wrapper script and
-  `mtest.toml` are gone. The fixtures and the specifications' traceability are under `tests/cts/`, the unit tests
-  under `tests/unit/`, all written with `mcpplibs.mtest` in place of the in-repository harness. A fixture that needs
-  CMake 4.4 states it (`requires-cmake`), and the runner puts that CMake first on the PATH of its prepare steps
-  only; the measures a run writes record each check's `optional` and checks that could not run.
+- **The tests are mtest's, from the directory to the line** (mtest 0.4.1, mcpp 2026.11.8.1). `tests/` holds them by
+  kind: `unit/` the unit tests, `cts/` the conformance cases (`mcppls-cts`), `bench/` the measurements
+  (`mcppls-bench`), `harness/` how the cases drive the server. An object is a case and its type is its kind
+  (`UTest`, `CTS`, `Bench`), and what a case needs follows its name: the platforms it runs on, the machine it holds,
+  the bounds of its metrics. A unit test file declares objects and no `main`; a file that starts copies of itself
+  writes `main` and ends it with `run(argc, argv)`. The conformance cases are written by topic (`mcpp.cpp`,
+  `targets.cpp`, `cmake.cpp`, `xmake.cpp`, `inferred.cpp`, `engine.cpp`, `editing.cpp`), each fixture and each of its
+  variants one line (`@polling`, `@plain`, `@vscode`, `@neovim`, `@zed`, `@warm` for a second session on the first
+  one's cache, `@linked` for a workspace reached through a symbolic link). mtest lists, selects, schedules and
+  records them, two at a time, divided between a platform's parts by the times main's last run measured; each failed
+  check is a failure of its case, named by its id; a failing case runs once more with the server's log, which `mtest
+  explain` names; a second attempt of a CI job runs only the cases that failed. A case checks that every fixture that
+  bounds a time holds the machine. The fixture lists of the conformance job, its wrapper script and `mtest.toml` are
+  gone, as are the in-repository harness of the unit tests and `mcppls-devtools bench`.
+- **The measurements are cases with bounded metrics.** A session's start, cold and warm on one cache, bounds its first
+  navigation (15 s and 5 s; the median of five, 12 s and 5 s, for a release); the review fixtures bound each rule's
+  precision and recall; the semantic tokens of a large file, the agent task benchmark's data, an agent's runs and the
+  user-experience scenarios' stages report what they measure. The store keeps every metric, and a CI job shows each
+  beside main's history and its bounds (`mtest analyze trend`). The runner's `--navigation-budget`,
+  `timing_evidence.py` and `mcppls-devtools measure summary` are gone: the bounds are stated by the cases.
+- A fixture that needs CMake 4.4 states it (`requires-cmake`), and the runner puts that CMake first on the PATH of its
+  prepare steps only; the measures a run writes record each check's `optional` and checks that could not run.
 
 The bundled engine is [mcppls-clangd 0.0.21](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.21)
 (`23.1.0-mcppls.10`), its ok image built with zlib as the native engines are, so it reads the index shards an engine
-with zlib writes. Built with mcpp 2026.11.7.2 over openkal-platform 0.24.4 and mcpplibs.os 0.4.0.
+with zlib writes. Built with mcpp 2026.11.8.1 over openkal-platform 0.24.4 and mcpplibs.os 0.4.0.
 
 ### Fixed
 
@@ -78,7 +89,7 @@ with zlib writes. Built with mcpp 2026.11.7.2 over openkal-platform 0.24.4 and m
   is gone; the archive writer exercises both on every system. `mcppls-devtools check os-surface` reports a header.
 - The platform is one release, `openkal-platform@0.24.4` (its okrun enters an image in its convention's
   floating-point state, so the server's image reads a JSON number on Windows as on the other systems), and every dependency is one release named by its identity in one table
-  (`mcpplibs.os = "0.3.1"`, `mcpplibs.mwrap.libarchive = "3.8.7"`); mcpp 2026.11.7.2 or later builds mcppls.
+  (`mcpplibs.os = "0.3.1"`, `mcpplibs.mwrap.libarchive = "3.8.7"`); mcpp 2026.11.8.1 or later builds mcppls.
 - The workspace's shared tables are `[workspace.toolchain]`, `[workspace.profile.release]` and
   `[workspace.xlings.workspace]`, and one `[workspace.dependencies]` holds every shared version.
 - Every file a release distributes holds ok images, the engine included, and CI tests them as such: the server's

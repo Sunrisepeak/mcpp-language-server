@@ -16,9 +16,10 @@ namespace os = mcpplibs::os;
 namespace p = mcppls::project;
 namespace b = mcppls::base;
 
-int main() {
+using namespace mcpplibs::mtest;
+
+UTest target_tests{"target", [] {
     std::error_code ignored;
-    using namespace mcpplibs::mtest;
     const std::string root { b::join_path(base::spelled(os::dirs::temp()),
         std::format("mcppls-test-target-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
     (void)std::filesystem::create_directories(root, ignored);
@@ -237,5 +238,4 @@ int main() {
     };
 
     std::filesystem::remove_all(root, ignored);
-    return report();
-}
+}};

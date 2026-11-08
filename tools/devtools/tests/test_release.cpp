@@ -83,8 +83,9 @@ std::string make_root() {
 
 } // namespace
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest release_tests{"release", [] {
 
     "release check: a staged directory matching the manifest passes, its kits named by the lock"_test = [&] {
         const std::string root { make_root() };
@@ -157,5 +158,4 @@ int main() {
         std::filesystem::remove_all(root);
     };
 
-    return report();
-}
+}};

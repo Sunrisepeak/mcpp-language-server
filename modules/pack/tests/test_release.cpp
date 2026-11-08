@@ -41,17 +41,17 @@ constexpr std::string_view MANIFEST = R"({
 
 } // namespace
 
-int main() {
+using namespace mcpplibs::mtest;
+
+UTest release_tests{"release", [] {
     std::error_code ignored;
-    using namespace mcpplibs::mtest;
 
     const std::string work { scratch("work") };
     const std::string manifestPath { base::join_path(work, "release.manifest.json") };
     expect(os::fs::write(manifestPath, MANIFEST).has_value());
 
     auto manifest = release::load_manifest(manifestPath);
-    expect(manifest.has_value());
-    if (!manifest) return 1;
+    expect(fatal(manifest.has_value()));
 
     "expected_files expands per-platform assets across every platform"_test = [&] {
         const auto files = release::expected_files(*manifest, release::one_version("2026.9.16.1"));
@@ -164,5 +164,4 @@ int main() {
     };
 
     std::filesystem::remove_all(work);
-    return report();
-}
+}};

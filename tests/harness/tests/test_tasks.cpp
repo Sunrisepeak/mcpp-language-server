@@ -1,15 +1,15 @@
-// Task loading, the declarative content check, and the project copy -- the pure logic behind
-// `bench tasks validate` (tools/bench/README.md "Checks").
+// Task loading, the declarative content check, and the project copy: the logic the task cases of
+// tests/bench/tasks.cpp run (tests/bench/README.md, "Checks").
 import std;
 import nlohmann.json;
 import mcpplibs.mtest;
 import mcppls.base.path;
-import mcppls.devtools.bench.tasks;
+import mcppls.harness.tasks;
 import mcpplibs.os;
 
 namespace os = mcpplibs::os;
 
-namespace bench = mcppls::devtools::bench;
+namespace harness = mcppls::harness;
 namespace base = mcppls::base;
 
 namespace {
@@ -23,11 +23,12 @@ std::string temp_dir(std::string_view name) {
 
 } // namespace
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest tasks_tests{"tasks", [] {
 
     "a command check parses as an argv list"_test = [] {
-        auto check = bench::parse_check(nlohmann::json::parse(R"(["mcpp", "build"])"));
+        auto check = harness::parse_check(nlohmann::json::parse(R"(["mcpp", "build"])"));
         expect(check.has_value());
         if (!check) return;
         expect(check->command.size() == 2);
@@ -36,12 +37,12 @@ int main() {
     };
 
     "an empty command list is rejected"_test = [] {
-        auto check = bench::parse_check(nlohmann::json::parse(R"([])"));
+        auto check = harness::parse_check(nlohmann::json::parse(R"([])"));
         expect(!check.has_value());
     };
 
     "file-contains parses files/all/none"_test = [] {
-        auto check = bench::parse_check(nlohmann::json::parse(
+        auto check = harness::parse_check(nlohmann::json::parse(
             R"({"file-contains": {"files": ["a", "b"], "all": ["x"], "none": ["y"]}})"));
         expect(check.has_value());
         if (!check) return;
@@ -52,17 +53,17 @@ int main() {
     };
 
     "file-contains needs at least one of all/none"_test = [] {
-        auto check = bench::parse_check(nlohmann::json::parse(R"({"file-contains": {"files": ["a"]}})"));
+        auto check = harness::parse_check(nlohmann::json::parse(R"({"file-contains": {"files": ["a"]}})"));
         expect(!check.has_value());
     };
 
     "file-contains needs a non-empty files list"_test = [] {
-        auto check = bench::parse_check(nlohmann::json::parse(R"({"file-contains": {"files": [], "all": ["x"]}})"));
+        auto check = harness::parse_check(nlohmann::json::parse(R"({"file-contains": {"files": [], "all": ["x"]}})"));
         expect(!check.has_value());
     };
 
     "an unrecognized check shape is rejected"_test = [] {
-        auto check = bench::parse_check(nlohmann::json::parse(R"({"unknown": {}})"));
+        auto check = harness::parse_check(nlohmann::json::parse(R"({"unknown": {}})"));
         expect(!check.has_value());
     };
 
@@ -70,8 +71,8 @@ int main() {
         const std::string dir { temp_dir("all") };
         (void) os::fs::write(base::join_path(dir, "one.txt"), "hello ");
         (void) os::fs::write(base::join_path(dir, "two.txt"), "world");
-        bench::Check check { .command = {}, .content = bench::ContentCheck { .files = { "one.txt", "two.txt" }, .all = { "hello world" } } };
-        const auto outcome = bench::run_checks({ check }, dir, 10);
+        harness::Check check { .command = {}, .content = harness::ContentCheck { .files = { "one.txt", "two.txt" }, .all = { "hello world" } } };
+        const auto outcome = harness::run_checks({ check }, dir, 10);
         expect(outcome.ok) << outcome.detail;
         std::filesystem::remove_all(dir);
     };
@@ -79,8 +80,8 @@ int main() {
     "file-contains.all: a missing substring fails the check"_test = [&] {
         const std::string dir { temp_dir("all-missing") };
         (void) os::fs::write(base::join_path(dir, "one.txt"), "hello");
-        bench::Check check { .command = {}, .content = bench::ContentCheck { .files = { "one.txt" }, .all = { "salute" } } };
-        const auto outcome = bench::run_checks({ check }, dir, 10);
+        harness::Check check { .command = {}, .content = harness::ContentCheck { .files = { "one.txt" }, .all = { "salute" } } };
+        const auto outcome = harness::run_checks({ check }, dir, 10);
         expect(!outcome.ok);
         std::filesystem::remove_all(dir);
     };
@@ -88,8 +89,8 @@ int main() {
     "file-contains.none: a present-but-forbidden substring fails the check"_test = [&] {
         const std::string dir { temp_dir("none") };
         (void) os::fs::write(base::join_path(dir, "main.cpp"), "import hello.greet:format;\n");
-        bench::Check check { .command = {}, .content = bench::ContentCheck { .files = { "main.cpp" }, .none = { ":format" } } };
-        const auto outcome = bench::run_checks({ check }, dir, 10);
+        harness::Check check { .command = {}, .content = harness::ContentCheck { .files = { "main.cpp" }, .none = { ":format" } } };
+        const auto outcome = harness::run_checks({ check }, dir, 10);
         expect(!outcome.ok);
         std::filesystem::remove_all(dir);
     };
@@ -97,8 +98,8 @@ int main() {
     "file-contains.none: absence of the forbidden substring passes"_test = [&] {
         const std::string dir { temp_dir("none-ok") };
         (void) os::fs::write(base::join_path(dir, "main.cpp"), "import hello.greet;\n");
-        bench::Check check { .command = {}, .content = bench::ContentCheck { .files = { "main.cpp" }, .none = { ":format" } } };
-        const auto outcome = bench::run_checks({ check }, dir, 10);
+        harness::Check check { .command = {}, .content = harness::ContentCheck { .files = { "main.cpp" }, .none = { ":format" } } };
+        const auto outcome = harness::run_checks({ check }, dir, 10);
         expect(outcome.ok) << outcome.detail;
         std::filesystem::remove_all(dir);
     };
@@ -106,9 +107,9 @@ int main() {
     "run_checks stops at the first failing check, like a chain"_test = [&] {
         const std::string dir { temp_dir("chain") };
         (void) os::fs::write(base::join_path(dir, "f.txt"), "abc");
-        bench::Check failing { .command = {}, .content = bench::ContentCheck { .files = { "f.txt" }, .all = { "zzz" } } };
-        bench::Check wouldPass { .command = {}, .content = bench::ContentCheck { .files = { "f.txt" }, .all = { "abc" } } };
-        const auto outcome = bench::run_checks({ failing, wouldPass }, dir, 10);
+        harness::Check failing { .command = {}, .content = harness::ContentCheck { .files = { "f.txt" }, .all = { "zzz" } } };
+        harness::Check wouldPass { .command = {}, .content = harness::ContentCheck { .files = { "f.txt" }, .all = { "abc" } } };
+        const auto outcome = harness::run_checks({ failing, wouldPass }, dir, 10);
         expect(!outcome.ok);
         std::filesystem::remove_all(dir);
     };
@@ -123,7 +124,7 @@ int main() {
         (void) os::fs::write(base::join_path(src, "src/main.cpp"), "int main(){}");
         const std::string dest { temp_dir("copy-dest") };
         std::filesystem::remove_all(dest);
-        auto copied = bench::copy_project(src, dest);
+        auto copied = harness::copy_project(src, dest);
         expect(copied.has_value());
         expect(std::filesystem::is_regular_file(base::join_path(dest, "src/main.cpp"), ignored));
         expect(!std::filesystem::exists(base::join_path(dest, "target"), ignored));
@@ -140,7 +141,7 @@ int main() {
         (void) os::fs::write(base::join_path(src, "drop/inside.txt"), "dropped");
         const std::string dest { temp_dir("skip-dest") };
         std::filesystem::remove_all(dest);
-        auto copied = bench::copy_tree(src, dest, [](std::string_view name) { return name == "drop"; });
+        auto copied = harness::copy_tree(src, dest, [](std::string_view name) { return name == "drop"; });
         expect(copied.has_value());
         expect(std::filesystem::is_regular_file(base::join_path(dest, "keep.txt"), ignored));
         expect(!std::filesystem::exists(base::join_path(dest, "drop"), ignored));
@@ -159,7 +160,7 @@ int main() {
             "id": "not-my-task", "title": "t", "prompt": "p", "project": "project",
             "check": [["mcpp", "build"]], "reference": "reference.patch", "shape": "split"
         })");
-        auto task = bench::load_task(taskDir);
+        auto task = harness::load_task(taskDir);
         expect(!task.has_value());
         std::filesystem::remove_all(dir);
     };
@@ -176,7 +177,7 @@ int main() {
             "check": [["mcpp", "build"], {"file-contains": {"files": ["src/x.cppm"], "all": ["y"]}}],
             "reference": "reference.patch", "shape": "all-cppm", "toolchain": "llvm@22.1.8"
         })");
-        auto task = bench::load_task(taskDir);
+        auto task = harness::load_task(taskDir);
         expect(task.has_value());
         if (!task) return;
         expect(task->checks.size() == 2);
@@ -185,5 +186,4 @@ int main() {
         std::filesystem::remove_all(dir);
     };
 
-    return report();
-}
+}};

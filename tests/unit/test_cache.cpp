@@ -69,9 +69,10 @@ std::size_t count_pcm(const std::string& directory) {
 
 } // namespace
 
-int main() {
+using namespace mcpplibs::mtest;
+
+UTest cache_tests{"cache", [] {
     std::error_code ignored;
-    using namespace mcpplibs::mtest;
 
     "a copy is a stamped name whose canonical BMI sits beside it; a module named like a stamp is not a copy"_test = [] {
         std::error_code ignored;
@@ -338,5 +339,4 @@ int main() {
         expect(issue.contains("/cache/bundles"));
     };
 
-    return report();
-}
+}};

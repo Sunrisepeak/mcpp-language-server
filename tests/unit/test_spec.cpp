@@ -78,9 +78,9 @@ std::vector<std::string> producer(std::vector<std::string> arguments) {
 
 } // namespace
 
-int main(int argc, char* argv[]) {
-    using namespace mcpplibs::mtest;
-    if (argc >= 3 && std::string_view { argv[1] } == "--producer") return producer_main(argv[2], argc >= 4 ? argv[3] : "");
+using namespace mcpplibs::mtest;
+
+UTest spec_tests{"spec", [] {
     const std::string root { repository_root() };
 
     "the level 3 GCC example loads"_test = [&] {
@@ -384,5 +384,9 @@ int main(int argc, char* argv[]) {
         expect(!spec::effects_acceptable(writes)) << "a command that writes into the project is not run";
     };
 
-    return report();
+}};
+
+int main(int argc, char* argv[]) {
+    if (argc >= 3 && std::string_view { argv[1] } == "--producer") return producer_main(argv[2], argc >= 4 ? argv[3] : "");
+    return run(argc, argv);
 }

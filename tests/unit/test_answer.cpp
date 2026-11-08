@@ -53,8 +53,9 @@ answer::Entry completion_entry(std::vector<std::string> labels) {
 
 } // namespace
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest answer_tests{"answer", [] {
 
     "the place a completion is asked at, and what it is asked about"_test = [] {
         const auto [member, at] = cursor("void f() {\n    fileOverview.push_b|\n}\n");
@@ -398,5 +399,4 @@ int main() {
         expect(outline::declarations(text, "use").size() == 1u);
     };
 
-    return report();
-}
+}};

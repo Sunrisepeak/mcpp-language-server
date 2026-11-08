@@ -1,24 +1,19 @@
-module mcppls.devtools.bench.review;
+module mcppls.harness.review;
 
 import std;
 import nlohmann.json;
-import mcpplibs.cmdline;
 import mcppls.base.error;
 import mcppls.base.path;
 import mcppls.base.sha256;
 import mcppls.base.text;
-import mcppls.devtools.common;
 import mcpplibs.os;
 import mcppls.toolrun;
 
 namespace os = mcpplibs::os;
 
-namespace mcppls::devtools::bench {
+namespace mcppls::harness {
 namespace {
 namespace toolrun = mcppls::toolrun;
-namespace cmdline = mcpplibs::cmdline;
-
-constexpr std::string_view REVIEW_SUBDIR { "tools/bench/review" };
 
 std::string host_name() {
     switch (os::host()) {
@@ -67,7 +62,7 @@ base::Result<void> copy_one_file(const std::filesystem::path& source, const std:
 }
 
 // Copies `source` over `destination`, skipping any entry named `skipName` anywhere in the tree
-// (review.py's `shutil.ignore_patterns("scenario.json")`).
+// (a fixture's own scenario.json is not the project's).
 base::Result<void> copy_tree_skip_named(const std::filesystem::path& source, const std::filesystem::path& destination,
                                         std::string_view skipName) {
     std::error_code error;
@@ -101,12 +96,6 @@ base::Result<void> copy_tree_over(const std::filesystem::path& source, const std
     return {};
 }
 
-// toolrun needs an absolute program path; `--server`/`--payload`/`--mock-model` may be given
-// relative to the caller's own working directory (Python's `Path(...).resolve()`).
-std::string resolve_absolute(const std::string& path) {
-    const std::string absolute { base::is_absolute_path(path) ? path : base::join_path(base::current_directory(), path) };
-    return base::normalize_path(absolute);
-}
 
 std::vector<std::string> environment_with(std::initializer_list<std::pair<std::string, std::string>> overrides) {
     auto variables = os::env::variables();
@@ -357,101 +346,4 @@ double review_precision(const RuleStats& stats) {
 double review_recall(const RuleStats& stats) {
     return (stats.tp + stats.fn) ? static_cast<double>(stats.tp) / (stats.tp + stats.fn) : 1.0;
 }
-
-int command_review(const cmdline::ParsedArgs& arguments) {
-    std::error_code ignored;
-    const std::string root { repository_root() };
-    const auto serverOpt = arguments.value("server");
-    if (!serverOpt || serverOpt->empty()) {
-        std::println(std::cerr, "mcppls-devtools: bench review needs --server PATH");
-        return 2;
-    }
-    ReviewOptions options;
-    options.server = resolve_absolute(*serverOpt);
-    if (auto payload = arguments.value("payload"); payload && !payload->empty()) options.payload = resolve_absolute(*payload);
-    if (auto mock = arguments.value("mock-model"); mock && !mock->empty()) options.mockModel = resolve_absolute(*mock);
-    if (auto timeout = arguments.value("timeout"); timeout && !timeout->empty()) options.timeoutSeconds = std::stoi(*timeout);
-    const bool keep { arguments.is_flag_set("keep") };
-    const std::string reportPath { arguments.value("report").value_or("") };
-
-    std::vector<std::string> only;
-    if (auto opt = arguments.option("fixture")) only = opt->get().values;
-
-    const std::string fixturesDir { base::join_path(root, std::string { REVIEW_SUBDIR }) };
-    std::vector<std::string> fixtureDirs;
-    for (const auto& child : base::children(fixturesDir)) {
-        if (std::filesystem::is_regular_file(base::join_path(child, "review.json"), ignored)) fixtureDirs.push_back(child);
-    }
-    std::ranges::sort(fixtureDirs);
-    if (!only.empty()) {
-        std::erase_if(fixtureDirs, [&](const std::string& d) {
-            return std::ranges::find(only, base::file_name(base::normalize_path(d))) == only.end();
-        });
-    }
-
-    const std::string scratch { base::join_path(root, "target/bench-review") };
-    std::filesystem::remove_all(scratch, ignored);
-    (void)std::filesystem::create_directories(scratch, ignored);
-
-    std::vector<FixtureOutcome> results;
-    for (const auto& fixtureDir : fixtureDirs) {
-        auto outcome = run_review_fixture(fixtureDir, root, options, scratch);
-        if (outcome.skipped) {
-            std::println("SKIP {} ({})", outcome.id, *outcome.skipped);
-        } else {
-            std::println("{} {} ({:.1f}s, {} finding(s))", outcome.ok ? "PASS" : "FAIL", outcome.id,
-                         outcome.seconds, outcome.findings.size());
-            for (const auto& problem : outcome.problems) std::println("  {}", problem);
-        }
-        results.push_back(std::move(outcome));
-    }
-    if (!keep) std::filesystem::remove_all(scratch, ignored);
-
-    const auto perRule = review_rule_stats(results);
-    std::println("");
-    std::println("rule                                  precision  recall   tp fn fp");
-    for (const auto& [rule, stats] : perRule) {
-        std::println("{:<38}{:>8.0f}%{:>7.0f}%  {:>3}{:>3}{:>3}", rule, review_precision(stats) * 100,
-                     review_recall(stats) * 100, stats.tp, stats.fn, stats.fp);
-    }
-
-    std::vector<std::string> failed;
-    for (const auto& outcome : results) if (!outcome.skipped && !outcome.ok) failed.push_back(outcome.id);
-    std::println("");
-    std::println("{}/{} review fixtures passed", results.size() - failed.size(), results.size());
-
-    if (!reportPath.empty()) {
-        nlohmann::ordered_json report;
-        report["fixtures"] = nlohmann::json::array();
-        for (const auto& outcome : results) {
-            nlohmann::ordered_json record;
-            record["id"] = outcome.id;
-            record["ok"] = outcome.ok;
-            if (outcome.skipped) record["skipped"] = *outcome.skipped;
-            record["seconds"] = outcome.seconds;
-            record["problems"] = outcome.problems;
-            record["findings"] = outcome.findings;
-            if (outcome.full) {
-                record["matched"] = outcome.matchedMust;
-                record["false-positives"] = outcome.falsePositives;
-                record["complete"] = outcome.complete;
-            }
-            report["fixtures"].push_back(std::move(record));
-        }
-        nlohmann::ordered_json rules;
-        for (const auto& [rule, stats] : perRule) {
-            nlohmann::ordered_json entry;
-            entry["tp"] = stats.tp;
-            entry["fn"] = stats.fn;
-            entry["fp"] = stats.fp;
-            entry["precision"] = review_precision(stats);
-            entry["recall"] = review_recall(stats);
-            rules[rule] = std::move(entry);
-        }
-        report["rules"] = rules;
-        (void) os::fs::write(reportPath, report.dump(2));
-    }
-    return failed.empty() ? 0 : 1;
-}
-
-} // namespace mcppls::devtools::bench
+} // namespace mcppls::harness

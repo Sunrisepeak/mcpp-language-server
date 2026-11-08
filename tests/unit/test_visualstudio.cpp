@@ -47,8 +47,9 @@ void sdk(const std::string& root, std::string_view version, bool complete) {
 
 } // namespace
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest visualstudio_tests{"visualstudio", [] {
 
     "paths a build records"_test = [] {
         expect(vs::tools_directory_of_cl("C:/VS/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe") == "C:/VS/VC/Tools/MSVC/14.44.35207")
@@ -150,5 +151,4 @@ int main() {
         std::filesystem::remove_all(root, ignored);
     };
 
-    return report();
-}
+}};

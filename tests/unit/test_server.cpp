@@ -347,9 +347,10 @@ idx::ModuleIndex fixture_index() {
 
 } // namespace
 
-int main() {
+using namespace mcpplibs::mtest;
+
+UTest server_tests{"server", [] {
     std::error_code ignored;
-    using namespace mcpplibs::mtest;
 
     "incremental changes use UTF-16 positions"_test = [] {
         orch::DocumentStore store;
@@ -2948,5 +2949,4 @@ int main() {
         expect(orch::to_string(orch::State::degraded) == "degraded" && orch::to_string(orch::State::preparing) == "preparing");
     };
 
-    return report();
-}
+}};

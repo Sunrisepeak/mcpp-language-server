@@ -162,12 +162,9 @@ int child_main(std::span<const std::string> arguments) {
 
 } // namespace
 
-int main() {
-    const auto arguments = os::env::arguments();
-    // A child leaves without running the test framework's report at exit.
-    if (arguments.size() >= 2 && arguments[1].starts_with("--")) std::_Exit(child_main(arguments));
+using namespace mcpplibs::mtest;
 
-    using namespace mcpplibs::mtest;
+UTest process_tests{"process", [] {
     const std::string self { self_path() };
 
     "self path is an existing absolute file"_test = [&] {
@@ -714,5 +711,11 @@ int main() {
         expect(os::fs::locate(std::filesystem::path { self }).has_value()) << self;
     };
 
-    return report();
+}};
+
+int main(int argc, char** argv) {
+    const auto arguments = os::env::arguments();
+    // A child leaves without running the cases.
+    if (arguments.size() >= 2 && arguments[1].starts_with("--")) std::_Exit(child_main(arguments));
+    return run(argc, argv);
 }

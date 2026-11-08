@@ -19,8 +19,8 @@ archives = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(archives)
 REPO = Path(__file__).resolve().parents[2]
 TARGET = 'x86_64-windows-gnu'
-TEST_DIRS = dict(mcppls='tests', pack='modules/pack/tests', devtools='tools/devtools/tests',
-                 **{'model-gateway': 'tools/model-gateway/tests'})
+TEST_DIRS = dict(mcppls='tests/unit', pack='modules/pack/tests', devtools='tools/devtools/tests',
+                 harness='tests/harness/tests', **{'model-gateway': 'tools/model-gateway/tests'})
 
 
 class ArchiveTests(unittest.TestCase):
@@ -145,7 +145,7 @@ class ArchiveTests(unittest.TestCase):
                         self.assertTrue(all(path.exists() for path in latest), 'invalid group was reclaimed')
                 else:
                     self.assertEqual(sorted(path.name for path in output.iterdir()),
-                                     ['coverage.json', 'devtools.tar.gz', 'mcppls.tar.gz',
+                                     ['coverage.json', 'devtools.tar.gz', 'harness.tar.gz', 'mcppls.tar.gz',
                                       'model-gateway.tar.gz', 'pack.tar.gz'])
                     receipt = json.loads((output / 'coverage.json').read_text())
                     self.assertEqual(sum(len(row['tests']) for row in receipt), sum(map(len, names.values())))

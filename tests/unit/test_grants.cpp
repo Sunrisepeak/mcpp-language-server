@@ -48,8 +48,9 @@ const cld::Grant* find(std::span<const cld::Grant> grants, std::string_view path
 
 } // namespace
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest grants_tests{"grants", [] {
 
     "mcppls.grants: a path is read-only, rw:<path> writable, all the runner's own, and a relative name a problem"_test = [] {
         const std::string absolute { base::join_path(base::spelled(os::dirs::temp()), "x") };
@@ -252,5 +253,4 @@ int main() {
         if (os::host() != os::platform::windows) expect(!cld::system_roots().empty()) << "/usr at least";
     };
 
-    return report();
-}
+}};

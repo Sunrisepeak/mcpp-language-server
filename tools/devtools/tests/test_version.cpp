@@ -55,8 +55,9 @@ std::string make_consistent_root() {
 
 } // namespace
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest version_tests{"version", [] {
 
     "extension_version is the product version, a three-part semantic version"_test = [&] {
         auto v = version::extension_version("0.0.1");
@@ -196,5 +197,4 @@ int main() {
         std::filesystem::remove_all(root);
     };
 
-    return report();
-}
+}};

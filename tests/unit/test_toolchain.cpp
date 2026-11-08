@@ -41,8 +41,9 @@ toolchain::Runner recorded(std::map<std::string, std::string> answers, std::map<
 
 } // namespace
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest toolchain_tests{"toolchain", [] {
 
     "POSIX command splitting"_test = [] {
         using project::CommandSyntax;
@@ -247,5 +248,4 @@ int main() {
         expect(restored->toolchain.stdlib->moduleMetadata == "/m.json");
     };
 
-    return report();
-}
+}};

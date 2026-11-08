@@ -115,7 +115,8 @@ int layer_of_path(std::string_view path) {
     if (path == "modules/base") return 1;
     if (path == "modules/toolrun") return 2;
     if (path == "modules/pack") return 3;
-    return 4;   // root "." and every tools/* member: the application layer
+    if (path == "tests/harness") return 3;   // what the test programs drive the server with, beside packaging
+    return 4;   // root ".", every tools/* member and the test programs: the application layer
 }
 
 } // namespace

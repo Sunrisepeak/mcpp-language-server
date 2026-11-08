@@ -19,8 +19,9 @@ std::optional<cld::DeclaredFunction> declared(std::string_view text, std::string
 
 } // namespace
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest definition_tests{"definition", [] {
 
     "a declaration's enclosing scopes and parameters, as written"_test = [] {
         const auto d = declared("export namespace hello {\n    int add(int a, int b);\n}\n", "add");
@@ -258,5 +259,4 @@ int main() {
             << "at most `limit`, still a defining unit first";
     };
 
-    return report();
-}
+}};

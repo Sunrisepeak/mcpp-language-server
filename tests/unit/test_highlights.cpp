@@ -31,8 +31,9 @@ std::vector<std::pair<int, int>> places(const std::vector<Token>& tokens) {
 
 } // namespace
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest highlights_tests{"highlights", [] {
 
     "a range change is its own edit, with the inserted text's shape"_test = [] {
         const auto edits = highlights::edits_of("a\nb\n", Json::array({ range_change(1, 0, 1, 1, "x\nyz") }));
@@ -188,5 +189,4 @@ int main() {
         expect(highlights::cache_file_name("/a/b.cpp").ends_with(".tokens"));
     };
 
-    return report();
-}
+}};

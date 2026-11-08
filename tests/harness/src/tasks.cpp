@@ -1,4 +1,4 @@
-module mcppls.devtools.bench.tasks;
+module mcppls.harness.tasks;
 
 import std;
 import nlohmann.json;
@@ -7,9 +7,10 @@ import mcppls.base.path;
 import mcppls.base.text;
 import mcpplibs.os;
 import mcppls.toolrun;
+import mcppls.harness.patch;
 
 namespace os = mcpplibs::os;
-namespace mcppls::devtools::bench {
+namespace mcppls::harness {
 namespace {
 namespace toolrun = mcppls::toolrun;
 
@@ -248,4 +249,37 @@ base::Result<void> copy_project(const std::string& projectDir, const std::string
     return {};
 }
 
-} // namespace mcppls::devtools::bench
+ValidateOutcome validate_task(const Task& task, const std::string& scratchRoot, int timeoutSeconds) {
+    std::error_code ignored;
+    const std::string baseline { base::join_path(scratchRoot, task.id + "-baseline") };
+    const std::string patched { base::join_path(scratchRoot, task.id + "-patched") };
+    std::filesystem::remove_all(baseline, ignored);
+    std::filesystem::remove_all(patched, ignored);
+
+    if (auto copied = copy_project(task.projectDir, baseline); !copied) {
+        return { false, copied.error().message };
+    }
+    const auto baselineOutcome = run_checks(task.checks, baseline, timeoutSeconds);
+    std::filesystem::remove_all(baseline, ignored);
+    if (baselineOutcome.ok) {
+        return { false, "baseline already satisfies every check (it must fail at least one)" };
+    }
+
+    if (auto copied = copy_project(task.projectDir, patched); !copied) {
+        return { false, copied.error().message };
+    }
+    auto applied = apply_patch(task.referencePath, patched);
+    if (!applied) {
+        const std::string detail { std::format("reference patch did not apply: {}", applied.error().message) };
+        std::filesystem::remove_all(patched, ignored);
+        return { false, detail };
+    }
+    const auto patchedOutcome = run_checks(task.checks, patched, timeoutSeconds);
+    std::filesystem::remove_all(patched, ignored);
+    if (!patchedOutcome.ok) {
+        return { false, std::format("reference patch applied but checks still fail: {}", patchedOutcome.detail) };
+    }
+    return { true, "baseline fails, patched passes" };
+}
+
+} // namespace mcppls::harness

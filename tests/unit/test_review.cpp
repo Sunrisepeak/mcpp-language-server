@@ -15,8 +15,9 @@ namespace spec = mcppls::spec;
 namespace review = mcppls::ai::review;
 namespace verify = mcppls::ai::verify;
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest review_tests{"review", [] {
 
     "hunks are the lines that differ"_test = [] {
         expect(review::line_hunks("a\nb\nc\n", "a\nb\nc\n").empty());
@@ -126,5 +127,4 @@ int main() {
         expect(markdown.find("F1 error — module/export-removed-in-use") != std::string::npos) << markdown;
     };
 
-    return report();
-}
+}};

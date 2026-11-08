@@ -4,8 +4,9 @@ import mcppls.base.path;
 
 using namespace mcppls::base;
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest path_tests{"path", [] {
     constexpr auto WIN { PathStyle::windows };
     constexpr auto POSIX { PathStyle::posix };
 
@@ -45,5 +46,4 @@ int main() {
         expect(same_path("/a/B", "/a/B", false) && !same_path("/a/B", "/a/b", false));
     };
 
-    return report();
-}
+}};

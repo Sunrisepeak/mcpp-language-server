@@ -53,8 +53,9 @@ nlohmann::json database(const std::string& store, const std::string& project, st
 
 } // namespace
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest openkal_tests{"openkal", [] {
     const std::string work { scratch_dir() };
     const std::string store { base::join_path(work, "xpkgs") };
     const std::string project { base::join_path(work, "project") };
@@ -107,5 +108,4 @@ int main() {
 
     std::error_code ignored;
     std::filesystem::remove_all(work, ignored);
-    return report();
-}
+}};

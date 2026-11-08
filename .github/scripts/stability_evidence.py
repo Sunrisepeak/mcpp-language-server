@@ -3,6 +3,7 @@
 import argparse
 from collections import deque
 import hashlib
+import itertools
 import json
 import os
 from pathlib import Path
@@ -11,7 +12,49 @@ import shutil
 import subprocess
 import time
 
-from timing_evidence import capture_logs, identity
+MAX_LOGS = 8
+LOG_BYTES = 128 * 1024
+
+
+def identity(path):
+    digest = hashlib.sha256()
+    with path.open('rb') as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(block)
+    return {'path': str(path.resolve()), 'sha256': digest.hexdigest()}
+
+
+def capture_logs(cache, destination):
+    """Only direct regular log files; never traverse the cache or follow symlinks."""
+    captured = []
+    logs = cache / 'logs'
+    if not logs.is_dir() or logs.is_symlink():
+        return captured
+    with os.scandir(logs) as entries:
+        for entry in itertools.islice(entries, 32):
+            if len(captured) == MAX_LOGS:
+                break
+            if not entry.is_file(follow_symlinks=False):
+                continue
+            expected = entry.stat(follow_symlinks=False)
+            fd = os.open(entry.path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0))
+            with os.fdopen(fd, 'rb') as stream:
+                info = os.fstat(stream.fileno())
+                if (not stat.S_ISREG(info.st_mode) or
+                        (info.st_dev, info.st_ino) != (expected.st_dev, expected.st_ino)):
+                    continue
+                prefix = stream.read(LOG_BYTES // 2)
+                offset = max(len(prefix), info.st_size - LOG_BYTES // 2)
+                stream.seek(offset)
+                tail = stream.read(LOG_BYTES // 2)
+            output = f'log-{len(captured)}.txt'
+            (destination / output).write_bytes(prefix + (b'\n--- omitted middle ---\n' if offset > len(prefix) else b'') + tail)
+            captured.append({'source': entry.path, 'device': info.st_dev, 'inode': info.st_ino,
+                             'size': info.st_size, 'mtime_ns': info.st_mtime_ns, 'artifact': output,
+                             'prefix_bytes': len(prefix), 'tail_offset': offset, 'tail_bytes': len(tail),
+                             'retained_sha256': hashlib.sha256((destination / output).read_bytes()).hexdigest()})
+    return captured
+
 
 TEXT_BYTES = 128 * 1024
 MEASURE_BYTES = 1024 * 1024

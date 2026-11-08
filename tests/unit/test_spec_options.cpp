@@ -43,8 +43,9 @@ s::TranslationUnit unit_of(std::string source, std::vector<std::string> argument
 
 } // namespace
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest spec_options_tests{"spec options", [] {
 
     "GCC and Clang arguments structure into options; what only a build needs does not"_test = [] {
         const std::vector<std::string> arguments {
@@ -207,5 +208,4 @@ int main() {
         }
     };
 
-    return report();
-}
+}};

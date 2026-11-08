@@ -290,37 +290,11 @@ constexpr std::string_view A { "#include <x>\nvoid f() {\n    doc.size();\n    s
 
 } // namespace
 
-int main() {
-    std::error_code ignored;
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
 
-    const auto arguments = os::env::arguments();
-    if (arguments.size() == 1) {
-        // The workspaces keep their answers under the cache: isolated, so a user's cache is never touched.
-        const std::string cache { mcppls::base::join_path(base::spelled(os::dirs::temp()),
-                                                          std::format("mcppls-answer-tests-cache-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
-        auto environment = os::env::variables();
-        std::erase_if(environment, [](const std::string& entry) { return entry.starts_with("MCPPLS_CACHE_DIR="); });
-        environment.push_back("MCPPLS_CACHE_DIR=" + cache);
-        mcppls::toolrun::Request request;
-        // This program again, as the system starts it (an ok image's loader and then the image).
-        const auto self = mcpplibs::mtest::self_command();
-        request.program = self.front();
-        request.arguments.assign(self.begin() + 1, self.end());
-        request.arguments.push_back("--isolated-answer-tests");
-        request.purpose = "answer-routing-test";
-        request.bounds.hard = 120s;
-        request.environment = std::move(environment);
-        const auto result = mcppls::toolrun::run(request);
-        std::filesystem::remove_all(cache, ignored);
-        if (!result) {
-            std::println(std::cerr, "{}", result.error().message);
-            return 1;
-        }
-        std::print("{}", result->out);
-        std::print(std::cerr, "{}", result->err);
-        return result->timed_out ? 1 : toolrun::exit_code(result->status);
-    }
+UTest answer_routing_tests{"answer routing", [] {
+    std::error_code ignored;
+
     "watched source acknowledgement covers successful run-start inputs, not failures or later disk edits"_test = [] {
         for (const int scenario : { 0, 1, 2, 3, 4, 5 }) {
             const bool failed { scenario == 1 }, restored { scenario == 2 };
@@ -1061,5 +1035,37 @@ int main() {
         expect(f.workspace->report()["answers"]["entries"] == 0);
     };
 
-    return report();
+}};
+
+int main(int argc, char** argv) {
+    std::error_code ignored;
+    using namespace std::chrono_literals;
+    const auto arguments = os::env::arguments();
+    if (std::ranges::find(arguments, "--isolated-answer-tests") == arguments.end()) {
+        // The workspaces keep their answers under the cache: isolated, so a user's cache is never touched.
+        const std::string cache { mcppls::base::join_path(base::spelled(os::dirs::temp()),
+                                                          std::format("mcppls-answer-tests-cache-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
+        auto environment = os::env::variables();
+        std::erase_if(environment, [](const std::string& entry) { return entry.starts_with("MCPPLS_CACHE_DIR="); });
+        environment.push_back("MCPPLS_CACHE_DIR=" + cache);
+        mcppls::toolrun::Request request;
+        // This program again, as the system starts it (an ok image's loader and then the image).
+        const auto self = mcpplibs::mtest::self_command();
+        request.program = self.front();
+        request.arguments.assign(self.begin() + 1, self.end());
+        request.arguments.push_back("--isolated-answer-tests");
+        request.purpose = "answer-routing-test";
+        request.bounds.hard = 120s;
+        request.environment = std::move(environment);
+        const auto result = mcppls::toolrun::run(request);
+        std::filesystem::remove_all(cache, ignored);
+        if (!result) {
+            std::println(std::cerr, "{}", result.error().message);
+            return 1;
+        }
+        std::print("{}", result->out);
+        std::print(std::cerr, "{}", result->err);
+        return result->timed_out ? 1 : toolrun::exit_code(result->status);
+    }
+    return run(argc, argv);
 }

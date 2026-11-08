@@ -1,14 +1,14 @@
-// The unified-diff fallback applier (bench_patch.cppm), exercised directly so it does not need
-// git on PATH -- see run.py's module docstring for the a/a/, b/b/ path convention this expects.
+// The unified-diff fallback applier (src/patch.cppm), exercised directly so it does not need git on
+// PATH; src/patch.cppm states the a/a/, b/b/ path convention it expects.
 import std;
 import mcpplibs.mtest;
 import mcppls.base.path;
-import mcppls.devtools.bench.patch;
+import mcppls.harness.patch;
 import mcpplibs.os;
 
 namespace os = mcpplibs::os;
 
-namespace bench = mcppls::devtools::bench;
+namespace harness = mcppls::harness;
 namespace base = mcppls::base;
 
 namespace {
@@ -22,8 +22,9 @@ std::string temp_dir(std::string_view name) {
 
 } // namespace
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest patch_tests{"patch", [] {
 
     "a one-line change applies, a/a b/b prefixes stripped by -p2"_test = [&] {
         const std::string dir { temp_dir("rename") };
@@ -38,7 +39,7 @@ int main() {
             "+salute\n"
             " world\n"
         };
-        auto applied = bench::apply_unified_diff(patch, dir);
+        auto applied = harness::apply_unified_diff(patch, dir);
         expect(applied.has_value()) << (applied ? "" : applied.error().message);
         auto content = os::fs::read(base::join_path(dir, "greet.txt"));
         expect(content.has_value());
@@ -58,7 +59,7 @@ int main() {
             "+line one\n"
             "+line two\n"
         };
-        auto applied = bench::apply_unified_diff(patch, dir);
+        auto applied = harness::apply_unified_diff(patch, dir);
         expect(applied.has_value()) << (applied ? "" : applied.error().message);
         auto content = os::fs::read(base::join_path(dir, "new.txt"));
         expect(content.has_value() && *content == "line one\nline two\n");
@@ -78,7 +79,7 @@ int main() {
             "@@ -1 +0,0 @@\n"
             "-bye\n"
         };
-        auto applied = bench::apply_unified_diff(patch, dir);
+        auto applied = harness::apply_unified_diff(patch, dir);
         expect(applied.has_value()) << (applied ? "" : applied.error().message);
         expect(!std::filesystem::exists(base::join_path(dir, "gone.txt"), ignored));
         std::filesystem::remove_all(dir);
@@ -95,7 +96,7 @@ int main() {
             "-hello\n"
             "+salute\n"
         };
-        auto applied = bench::apply_unified_diff(patch, dir);
+        auto applied = harness::apply_unified_diff(patch, dir);
         expect(!applied.has_value());
         std::filesystem::remove_all(dir);
     };
@@ -112,12 +113,11 @@ int main() {
             "-alpha\n"
             "+ALPHA\n"
             " beta\n");
-        auto applied = bench::apply_patch(patchPath, dir);
+        auto applied = harness::apply_patch(patchPath, dir);
         expect(applied.has_value()) << (applied ? "" : applied.error().message);
         auto content = os::fs::read(base::join_path(dir, "src.txt"));
         expect(content.has_value() && *content == "ALPHA\nbeta\n");
         std::filesystem::remove_all(dir);
     };
 
-    return report();
-}
+}};

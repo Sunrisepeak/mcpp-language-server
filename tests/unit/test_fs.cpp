@@ -6,9 +6,10 @@ import mcpplibs.os;
 namespace os = mcpplibs::os;
 namespace base = mcppls::base;
 
-int main() {
+using namespace mcpplibs::mtest;
+
+UTest fs_tests{"fs", [] {
     std::error_code ignored;
-    using namespace mcpplibs::mtest;
     const std::string root { base::join_path(base::spelled(os::dirs::temp()),
         std::format("mcppls-test-fs-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
 
@@ -183,5 +184,4 @@ int main() {
         expect(!std::filesystem::exists(root, ignored));
     };
 
-    return report();
-}
+}};

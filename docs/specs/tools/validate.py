@@ -479,7 +479,7 @@ def evidence_ok(entry):
     if "check" in entry:
         return entry["check"] in fixture_checks, f"no conformance check {entry['check']!r}"
     if "review" in entry:
-        return (repository / "tools" / "bench" / "review" / entry["review"] / "review.json").is_file(), f"no review fixture {entry['review']!r}"
+        return (repository / "tests" / "bench" / "review" / entry["review"] / "review.json").is_file(), f"no review fixture {entry['review']!r}"
     if "script" in entry:
         path = repository / entry["script"]
         return path.is_file() and entry.get("contains", "\0") in path.read_text(encoding="utf-8"), \

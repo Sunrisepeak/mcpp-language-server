@@ -39,8 +39,9 @@ std::vector<std::string> keywords_at_end(std::string_view text, bool scanned = t
 
 } // namespace
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest completion_tests{"completion", [] {
 
     "the space gate passes an import directive's keyword and one blank, and nothing else"_test = [] {
         for (const std::string_view passes : { "import ", "export import ", "  import ", "\timport\t", "export  import ", "\texport\timport " }) {
@@ -366,5 +367,4 @@ int main() {
         expect(detail["items"][0]["detail"] == "primary module interface unit") << detail.dump();
     };
 
-    return report();
-}
+}};

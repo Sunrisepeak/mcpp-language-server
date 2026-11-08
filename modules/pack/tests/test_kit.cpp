@@ -33,8 +33,9 @@ void write(const std::string& path, std::string_view content) {
 
 } // namespace
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest kit_tests{"kit", [] {
 
     // ---- file selection: recipe_libcxx_source's SOURCE_SUBTREES prefix test -------------------
 
@@ -294,5 +295,4 @@ int main() {
         std::filesystem::remove_all(kitDir);
     };
 
-    return report();
-}
+}};

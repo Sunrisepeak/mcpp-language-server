@@ -11,18 +11,9 @@ namespace toolrun = mcppls::toolrun;
 namespace os = mcpplibs::os;
 namespace base = mcppls::base;
 
-int main() {
-    // Stands in for `mcppls print-environment`: the login shell runs this, and what it prints
-    // between the markers is the environment the shell had. A child leaves before the suite runs.
-    {
-        const auto arguments = os::env::arguments();
-        if (arguments.size() == 3 && arguments[1] == "print-environment") {
-            std::print("{}", mcppls::toolenv::print_environment_text(arguments[2]));
-            std::_Exit(0);
-        }
-    }
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
 
+UTest env_tests{"env", [] {
     "the environment is visible"_test = [] {
         expect(!os::env::variables().empty());
         expect(os::env::get("PATH").has_value());
@@ -237,5 +228,15 @@ int main() {
         }
     };
 
-    return report();
+}};
+
+// Stands in for `mcppls print-environment`: the login shell runs this, and what it prints between
+// the markers is the environment the shell had. A child leaves before the cases run.
+int main(int argc, char** argv) {
+    const auto arguments = os::env::arguments();
+    if (arguments.size() == 3 && arguments[1] == "print-environment") {
+        std::print("{}", mcppls::toolenv::print_environment_text(arguments[2]));
+        std::_Exit(0);
+    }
+    return run(argc, argv);
 }

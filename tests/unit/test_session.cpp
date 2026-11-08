@@ -13,9 +13,10 @@ namespace os = mcpplibs::os;
 using Json = nlohmann::json;
 namespace b = mcppls::base;
 
-int main() {
+using namespace mcpplibs::mtest;
+
+UTest session_tests{"session", [] {
     std::error_code ignored;
-    using namespace mcpplibs::mtest;
     const std::string root { b::join_path(base::spelled(os::dirs::temp()),
         std::format("mcppls-test-session-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
     const std::string directory { b::join_path(root, "src/greet") };
@@ -60,5 +61,4 @@ int main() {
     };
 
     std::filesystem::remove_all(root, ignored);
-    return report();
-}
+}};

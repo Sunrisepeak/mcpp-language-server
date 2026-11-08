@@ -109,8 +109,9 @@ s::Database build_program_database(std::string hostToolchain, std::string hostBo
 
 } // namespace
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest normalize_tests{"normalize", [] {
 
     "P1: GCC on Linux"_test = [] {
         const auto facts = gcc_facts();
@@ -856,7 +857,7 @@ int main() {
     // Borrowing the nearest unit's arguments for it, as the test above does for a target the same
     // project's own build did not enable, would fold that other project's modules into this one's
     // plan instead -- exactly what showed up as spurious unresolved/ambiguous-module issues against
-    // mcppls's own repository (conformance fixtures and tools/bench each have their own manifest).
+    // mcppls's own repository (conformance fixtures and the benchmark's tasks each have their own manifest).
     "an opened file inside a nested project's own manifest is not folded into this plan"_test = [] {
         std::error_code ignored;
         const std::string root { mcppls::base::join_path(base::spelled(os::dirs::temp()),
@@ -1415,5 +1416,4 @@ int main() {
                && !n::standard_library_macro("_GLIBCXX_VECTOR") && !n::standard_library_macro("_RANGES_"));
     };
 
-    return report();
-}
+}};

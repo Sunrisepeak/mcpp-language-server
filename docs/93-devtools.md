@@ -8,7 +8,7 @@ on openkal, the same source for Linux, macOS and Windows.
 |---|---|---|
 | `mcpp` | Build, test, run, and the environment | `mcpp build`, `mcpp test --workspace`, `mcpp run -p devtools -- …` |
 | `mcppls` | What a user debugging their own machine needs | `mcppls cache`, `mcppls check FILE`, `mcppls report`, `mcppls print-environment` |
-| `mcppls-devtools` | What only someone working on this repository needs | packaging, releases, repository checks, benchmarks |
+| `mcppls-devtools` | What only someone working on this repository needs | packaging, releases, repository checks, stress, the scenarios' distributions |
 
 **Which one a new command belongs to.** If a user looking at their own problem would run it, it is
 the server's. If only someone working on this repository would, it is devtools'. If mcpp already
@@ -77,9 +77,8 @@ each row names its kit (`mcppls-devtools check platforms`).
 | Unit tests | `mcpp test`, `mcpp test --workspace` |
 | Repository invariants | `mcpp run -p devtools -- check all` |
 | A conformance fixture | `mcppls-conformance run --server … --payload … --fixture tests/cts/fixtures/<name>` ([tests/cts/README.md](../tests/cts/README.md)) |
-| Review fixtures (precision, recall) | `mcpp run -p devtools -- bench review --server … --payload … --mock-model …` |
-| Agent task benchmark, baseline and reference | `mcpp run -p devtools -- bench tasks validate` |
-| Semantic tokens of a large file against its first completion, and the bytes of an edit | `mcpp run -p devtools -- bench tokens --server … --payload … [--out NEW.json] [--compare OLD.json]` |
+| The conformance cases, selected, scheduled and recorded | `mtest run --isolate --jobs 2 [--case 'inferred*'] mcppls-cts` ([tests/cts/README.md](../tests/cts/README.md)) |
+| The measurements: a session's start, the review fixtures, the semantic tokens of a large file, the agent task benchmark's data, the user-experience scenarios | `mtest run [--case startup] mcppls-bench`, then `mtest analyze trend` ([tests/bench/README.md](../tests/bench/README.md)) |
 | The specifications' schemas | `python3 docs/specs/tools/validate.py` — the one Python left, see [below](#what-is-not-c) |
 | Real-project stress testing, a matrix of fixtures and client profiles | `mcpp run -p devtools -- stress --payload … --fixture module-faults --client vscode --client neovim` |
 | The same, against a pinned real project this checkout carries a fixture for | `mcpp run -p devtools -- stress --payload … --project self` (`mcpp`, `xlings` or `self`; `self` is `self-mcppls`, this repository) |
@@ -91,8 +90,8 @@ each row names its kit (`mcppls-devtools check platforms`).
 | What the module caches hold, classified, and clearing one | `mcppls cache [--modules] [--instances] [--format json]`, `mcppls cache --clean <name>`, `mcppls cache --prune [--dry-run] [--older-than 7d] [--max-size 4G]`, `mcppls cache --prompt agent\|issue` |
 | What the server makes of one file | `mcppls check FILE` |
 | Everything a bug report needs | `mcppls report` |
-| Startup timings over several runs, optionally against a budget | `mcpp run -p devtools -- measure summary DIR [--max-cold S] [--max-warm S]` |
 | Each scenario's numbers over many runs (median, p95, largest, 1.3 x p95), for setting its budgets | `mcpp run -p devtools -- measure budgets DIR` |
+| A candidate's scenario numbers beside a baseline's, measured on the same machines | `mcpp run -p devtools -- measure compare CANDIDATE BASELINE [--fail-worse]` |
 
 ### Package and release
 

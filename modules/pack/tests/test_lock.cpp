@@ -68,8 +68,9 @@ constexpr std::string_view FIXTURE = R"JSON({
 
 } // namespace
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest lock_tests{"lock", [] {
 
     const std::string work { scratch_dir() };
     const std::string lockPath { base::join_path(work, "payload.lock.json") };
@@ -170,5 +171,4 @@ int main() {
     };
 
     std::filesystem::remove_all(work);
-    return report();
-}
+}};

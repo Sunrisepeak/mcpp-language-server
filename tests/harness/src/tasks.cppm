@@ -1,17 +1,13 @@
-// Agent task benchmark: task loading and its checks (design doc §10.2, work item A2), ported
-// from tools/bench/run.py (see bench/README.md for the task and result formats).
-//
-// A task's `check` list is heterogeneous, the same as the Python original's argv commands, plus
-// one addition: a declarative content check in place of what used to be a `python3 -c ...`
-// one-liner grepping a changed source file (tools/bench/README.md "Checks"). Both kinds run in
-// the same `&&`-chain order as before.
-export module mcppls.devtools.bench.tasks;
+// The agent task benchmark's tasks (tests/bench/README.md): a task and its checks. A check is an
+// argv command or a declarative content check (`file-contains`); a task's checks run in order and
+// stop at the first that fails.
+export module mcppls.harness.tasks;
 
 import std;
 import nlohmann.json;
 import mcppls.base.error;
 
-export namespace mcppls::devtools::bench {
+export namespace mcppls::harness {
 
 // A declarative content check: every listed file's contents, concatenated in order (no
 // separator, matching how the Python checks it replaces concatenated more than one file), must
@@ -70,8 +66,17 @@ base::Result<void> copy_project(const std::string& projectDir, const std::string
 // creating directories as needed; an entry (file or directory) whose bare name makes `skip`
 // return true is left out entirely, recursively for a directory. Built on mcpplibs.os `fs`
 // rather than `std::filesystem::copy`/`copy_file` (measured: a no-op, without an error, under
-// `mcpp test`'s sandboxing -- see tools/devtools/tests/test_bench_tasks.cpp).
+// `mcpp test`'s sandboxing -- see tests/harness/tests/test_tasks.cpp).
 base::Result<void> copy_tree(const std::string& source, const std::string& destination,
                              const std::function<bool(std::string_view name)>& skip = {});
 
-} // namespace mcppls::devtools::bench
+struct ValidateOutcome {
+    bool ok { false };
+    std::string detail;
+};
+
+// Whether a task's data holds: its baseline fails at least one check and its reference-patched
+// copy passes every check. Both copies are made under `scratchRoot` and removed again.
+ValidateOutcome validate_task(const Task& task, const std::string& scratchRoot, int timeoutSeconds);
+
+} // namespace mcppls::harness

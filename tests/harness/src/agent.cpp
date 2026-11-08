@@ -1,30 +1,19 @@
-module mcppls.devtools.bench.agent;
+module mcppls.harness.agent;
 
 import std;
 import nlohmann.json;
-import mcpplibs.cmdline;
 import mcppls.base.error;
 import mcppls.base.path;
 import mcppls.base.text;
-import mcppls.devtools.common;
-import mcppls.devtools.bench.tasks;
+import mcppls.harness.tasks;
 import mcpplibs.os;
 import mcppls.toolrun;
 
 namespace os = mcpplibs::os;
 
-namespace mcppls::devtools::bench {
+namespace mcppls::harness {
 namespace {
 namespace toolrun = mcppls::toolrun;
-namespace cmdline = mcpplibs::cmdline;
-
-constexpr std::array<std::string_view, 2> VALID_AGENTS { "claude-code", "copilot-cli" };
-constexpr std::array<std::string_view, 4> VALID_ARMS { "grep", "clangd-lsp", "mcppls-lsp", "mcppls-mcp" };
-constexpr std::string_view DEFAULT_TASKS_SUBDIR { "tools/bench/tasks" };
-
-bool one_of(std::string_view value, std::span<const std::string_view> valid) {
-    return std::ranges::any_of(valid, [&](std::string_view v) { return v == value; });
-}
 
 // A copilot-cli lsp.json server entry (design 8.2: mcppls-lsp vs. clangd-lsp), trimmed to the
 // common fields (see editors/copilot-cli/lsp.json for the documented-fields-only full list).
@@ -146,9 +135,9 @@ std::vector<std::string> agent_run_changed_outside_scope(
 }
 
 RunRecord run_one_agent_task(const std::string& agent, const std::string& arm, const Task& task,
-                             int repeatIndex, int timeoutSeconds, const std::string& scratchRoot) {
+                             int repeatIndex, int timeoutSeconds, const std::string& scratchRoot,
+                             const std::string& root) {
     std::error_code ignored;
-    const std::string root { repository_root() };
     const std::string runDir { base::join_path(scratchRoot, std::format("{}-run-{}", task.id, repeatIndex)) };
     std::filesystem::remove_all(runDir, ignored);
     const std::string projectCopy { base::join_path(runDir, "project") };
@@ -202,8 +191,7 @@ RunRecord run_one_agent_task(const std::string& agent, const std::string& arm, c
                 if (payload.contains("total_cost_usd")) record.costUsd = payload.at("total_cost_usd").get<double>();
             }
         } catch (const std::exception&) {
-            // copilot-cli/claude-code: no parseable JSON result line -- fields stay unset,
-            // matching run.py's `except (json.JSONDecodeError, IndexError): pass`.
+            // No JSON result line: the counts stay unset.
         }
     }
 
@@ -219,108 +207,4 @@ RunRecord run_one_agent_task(const std::string& agent, const std::string& arm, c
     record.agentStderrTail = base::join(tail, "\n");
     return record;
 }
-
-int command_run(const cmdline::ParsedArgs& arguments) {
-    std::error_code ignored;
-    if (!arguments.is_flag_set(SAFETY_FLAG)) {
-        std::println(std::cerr,
-            "error: refusing to run -- pass --{} to confirm you understand\n"
-            "this invokes a real coding agent, which spends API credits or model\n"
-            "usage on every task/arm/repeat. Nothing in this repository's own\n"
-            "tooling or CI passes this flag; run it yourself, deliberately.", SAFETY_FLAG);
-        return 2;
-    }
-    const auto agentOpt = arguments.value("agent");
-    const auto armOpt = arguments.value("arm");
-    if (!agentOpt || !one_of(*agentOpt, VALID_AGENTS)) {
-        std::println(std::cerr, "error: --agent must be one of claude-code, copilot-cli");
-        return 2;
-    }
-    if (!armOpt || !one_of(*armOpt, VALID_ARMS)) {
-        std::println(std::cerr, "error: --arm must be one of grep, clangd-lsp, mcppls-lsp, mcppls-mcp");
-        return 2;
-    }
-    const std::string agent { *agentOpt };
-    const std::string arm { *armOpt };
-    const int repeat { arguments.value("repeat") ? std::stoi(*arguments.value("repeat")) : 5 };
-    const auto outOpt = arguments.value("out");
-    if (!outOpt || outOpt->empty()) {
-        std::println(std::cerr, "error: --out FILE is required");
-        return 2;
-    }
-    const int timeoutSeconds { arguments.value("timeout") ? std::stoi(*arguments.value("timeout")) : 900 };
-
-    const std::string root { repository_root() };
-    const std::string tasksDir { arguments.value("tasks").value_or(base::join_path(root, std::string { DEFAULT_TASKS_SUBDIR })) };
-    std::optional<std::string> only;
-    if (auto value = arguments.value("only"); value && !value->empty()) only = *value;
-    auto tasks = discover_tasks(tasksDir, only);
-    if (!tasks) {
-        std::println(std::cerr, "error: {}", tasks.error().message);
-        return 2;
-    }
-
-    const std::string agentBinaryName { agent == "claude-code" ? "claude" : "copilot" };
-    if (!toolrun::find_program(agentBinaryName)) {
-        std::println(std::cerr, "error: `{}` is not on PATH", agentBinaryName);
-        return 2;
-    }
-
-    const std::string scratchRoot { base::join_path(root, "target/bench-run") };
-    std::filesystem::remove_all(scratchRoot, ignored);
-    (void)std::filesystem::create_directories(scratchRoot, ignored);
-
-    std::vector<RunRecord> runs;
-    for (const auto& task : *tasks) {
-        for (int repeatIndex { 1 }; repeatIndex <= repeat; ++repeatIndex) {
-            std::println(std::cerr, "running {} arm={} agent={} repeat={}/{}...", task.id, arm, agent, repeatIndex, repeat);
-            auto record = run_one_agent_task(agent, arm, task, repeatIndex, timeoutSeconds, scratchRoot);
-            std::println(std::cerr, "  -> {} in {:.1f}s", record.success ? "PASS" : "FAIL", record.wallTimeSeconds);
-            runs.push_back(std::move(record));
-        }
-    }
-    std::filesystem::remove_all(scratchRoot, ignored);
-
-    const std::size_t successes { static_cast<std::size_t>(std::ranges::count_if(runs, &RunRecord::success)) };
-    nlohmann::ordered_json out;
-    out["agent"] = agent;
-    out["arm"] = arm;
-    {
-        const auto now = std::chrono::system_clock::now();
-        out["generated_at"] = std::format("{:%Y-%m-%dT%H:%M:%SZ}", std::chrono::floor<std::chrono::seconds>(now));
-    }
-    out["run_id"] = [] {
-        std::random_device rd;
-        return std::format("{:016x}{:016x}", static_cast<std::uint64_t>(rd()) << 32 | rd(),
-                           static_cast<std::uint64_t>(rd()) << 32 | rd());
-    }();
-    out["tasks_dir"] = tasksDir;
-    out["repeat"] = repeat;
-    out["summary"] = { { "runs", runs.size() }, { "successes", successes },
-                       { "success_rate", runs.empty() ? 0.0 : static_cast<double>(successes) / runs.size() } };
-    out["runs"] = nlohmann::json::array();
-    for (const auto& r : runs) {
-        nlohmann::ordered_json entry;
-        entry["task"] = r.task;
-        entry["shape"] = r.shape;
-        entry["agent"] = r.agent;
-        entry["arm"] = r.arm;
-        entry["repeat"] = r.repeat;
-        entry["success"] = r.success;
-        entry["wall_time_s"] = r.wallTimeSeconds;
-        entry["agent_exit_code"] = r.agentExitCode ? nlohmann::json(*r.agentExitCode) : nlohmann::json();
-        entry["turns"] = r.turns ? nlohmann::json(*r.turns) : nlohmann::json();
-        entry["input_tokens"] = r.inputTokens ? nlohmann::json(*r.inputTokens) : nlohmann::json();
-        entry["output_tokens"] = r.outputTokens ? nlohmann::json(*r.outputTokens) : nlohmann::json();
-        entry["cost_usd"] = r.costUsd ? nlohmann::json(*r.costUsd) : nlohmann::json();
-        entry["files_changed_outside_scope"] = r.filesChangedOutsideScope;
-        entry["check_detail"] = r.checkDetail;
-        entry["agent_stderr_tail"] = r.agentStderrTail;
-        out["runs"].push_back(std::move(entry));
-    }
-    (void) os::fs::write(*outOpt, out.dump(2));
-    std::println("wrote {}: {}/{} runs succeeded", *outOpt, successes, runs.size());
-    return 0;
-}
-
-} // namespace mcppls::devtools::bench
+} // namespace mcppls::harness

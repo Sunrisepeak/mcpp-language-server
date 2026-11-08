@@ -2,8 +2,9 @@ import std;
 import mcpplibs.mtest;
 import nlohmann.json;
 import mcppls.base.channel;
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest task_tests{"task", [] {
     using mcppls::base::Channel;
 
     "values cross threads in order"_test = [] {
@@ -60,5 +61,4 @@ int main() {
         expect(!channel.push(1));
     };
 
-    return report();
-}
+}};

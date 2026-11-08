@@ -12,7 +12,7 @@ import subprocess
 import tarfile
 
 
-PACKAGES = ('mcppls', 'pack', 'devtools', 'model-gateway')
+PACKAGES = ('mcppls', 'pack', 'devtools', 'model-gateway', 'harness')
 MANIFEST = 'mcpp-tests.json'
 
 

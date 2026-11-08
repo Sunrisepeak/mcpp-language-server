@@ -1,4 +1,4 @@
-module mcppls.devtools.bench.patch;
+module mcppls.harness.patch;
 
 import std;
 import mcppls.base.error;
@@ -8,7 +8,7 @@ import mcpplibs.os;
 import mcppls.toolrun;
 
 namespace os = mcpplibs::os;
-namespace mcppls::devtools::bench {
+namespace mcppls::harness {
 namespace {
 namespace toolrun = mcppls::toolrun;
 
@@ -51,7 +51,7 @@ struct Hunk {
     std::vector<std::string> body;   // each line still tagged with its leading ' '/'-'/'+'
 };
 
-// `@@ -oldStart[,oldCount] +newStart[,newCount] @@`; only oldStart is used (matching run.py).
+// `@@ -oldStart[,oldCount] +newStart[,newCount] @@`; only oldStart is used.
 std::optional<int> parse_hunk_header(std::string_view line) {
     if (!line.starts_with("@@ -")) return std::nullopt;
     std::size_t i { 4 };
@@ -200,4 +200,4 @@ base::Result<void> apply_patch(const std::string& patchPath, const std::string& 
     return base::fail("bench-patch", detail);
 }
 
-} // namespace mcppls::devtools::bench
+} // namespace mcppls::harness

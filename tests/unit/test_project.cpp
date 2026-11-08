@@ -60,9 +60,10 @@ void write_fixture(const std::string& root) {
 
 } // namespace
 
-int main() {
+using namespace mcpplibs::mtest;
+
+UTest project_tests{"project", [] {
     std::error_code ignored;
-    using namespace mcpplibs::mtest;
 
     "detection order"_test = [] {
         std::error_code ignored;
@@ -1477,7 +1478,6 @@ version = "1"
         std::filesystem::remove_all(loose, ignored);
     };
 
-    return report();
 
     "sources nothing describes are read with the newest standard their compiler takes (C++26 alignment)"_test = [] {
         namespace project = mcppls::project;
@@ -1494,4 +1494,4 @@ version = "1"
         expect(project::inferred_language_standard(facts(mcppls::spec::Family::clang, "18.1.3")) == "c++2c");
         expect(project::inferred_language_standard(facts(mcppls::spec::Family::clang, "16.0.6")) == "c++23");
     };
-}
+}};

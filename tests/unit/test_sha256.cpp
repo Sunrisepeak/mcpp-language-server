@@ -5,8 +5,9 @@ import mcppls.base.sha256;
 
 namespace b = mcppls::base;
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest sha256{"sha256", [] {
 
     "known digests"_test = [] {
         expect(b::sha256_hex("") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
@@ -38,5 +39,4 @@ int main() {
         expect(whole == "44f8354494a5ba03ba1792a8d3e9c534c47a9181980fde7a3f44b06ef2ae7c7f");
     };
 
-    return report();
-}
+}};

@@ -41,8 +41,9 @@ void print_problems(const check::Report& report) {
 
 } // namespace
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest check_tests{"check", [] {
     const std::string root { repository_root() };
 
     "os-surface: no source of this tree includes a header or branches on the platform in the preprocessor"_test = [&] {
@@ -199,5 +200,4 @@ int main() {
         expect(good->ok);
     };
 
-    return report();
-}
+}};

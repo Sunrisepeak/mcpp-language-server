@@ -253,11 +253,12 @@ jobs:
           mcpp build --profile ${{ matrix.profile }} --target ${{ matrix.target }}
           mcpp build -p devtools --profile ${{ matrix.profile }} --target ${{ matrix.target }}
           mcpp build -p mcppls-cts --profile ${{ matrix.profile }} --target ${{ matrix.target }}
+          mcpp build -p mcppls-bench --profile ${{ matrix.profile }} --target ${{ matrix.target }}
       - name: The executables are programs of ${{ matrix.target }}
         run: |
           set -euo pipefail
           mkdir -p stage
-          for exe in mcppls mcppls-conformance mcppls-cts mcppls-lspgen mcppls-mock-mcpp mcppls-mock-model mcppls-devtools; do
+          for exe in mcppls mcppls-conformance mcppls-cts mcppls-bench mcppls-lspgen mcppls-mock-mcpp mcppls-mock-model mcppls-devtools; do
             path=$(find target/${{ matrix.target }} -type f -name "$exe${{ matrix.exe }}" -path '*/bin/*' | head -1)
             [ -n "$path" ] || { echo "::error::no $exe was built"; exit 1; }
             file "$path"
@@ -300,7 +301,7 @@ jobs:
           echo "::group::mcppls"
           mcpp test "${common[@]}" --archive test-archives/mcppls.tar.gz
           echo "::endgroup::"
-          for package in pack devtools model-gateway; do
+          for package in pack devtools model-gateway harness; do
             echo "::group::$package"
             mcpp test -p "$package" "${common[@]}" --archive "test-archives/$package.tar.gz"
             echo "::endgroup::"
@@ -829,10 +830,9 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # The specifications' executable part, against real toolchains (tests/cts/README.md). The cases are the objects of
-  # tests/cts/conformance.cpp: each states the platforms it runs on (`on:<platform>`), what it holds and the client it
-  # is; a row runs the cases of its platform, Linux and Windows in two parts side by side (`--shard`, by the times the
-  # store keeps). `extras` marks the part that also runs the job's other checks (review fixtures, startup timing, the
-  # cached model, a linked workspace), which need running only once.
+  # tests/cts's topic files: each states the platforms it runs on (`on:<platform>`), what it holds and how the runner
+  # drives it; a row runs the cases of its platform, Linux and Windows in two parts side by side (`--shard`, by the
+  # times the store keeps).
   conformance:
     name: conformance (${{ matrix.platform }}${{ matrix.part && format(', {0}', matrix.part) || '' }})
     needs: [payload, kits]
@@ -846,13 +846,13 @@ jobs:
       matrix:
         include:
           - { platform: linux-x64, part: 1 of 2, shard: 1/2, os: ubuntu-24.04 }
-          - { platform: linux-x64, part: 2 of 2, shard: 2/2, os: ubuntu-24.04, extras: true }
-          - { platform: darwin-arm64, os: macos-15, extras: true }
+          - { platform: linux-x64, part: 2 of 2, shard: 2/2, os: ubuntu-24.04 }
+          - { platform: darwin-arm64, os: macos-15 }
           # The arm64 row takes no mcpp: the server and mock producers are built on Linux. Most fixtures use the
           # semantic kit; the SDK-free target fixtures probe distribution clang, installed below.
           - { platform: linux-arm64, os: ubuntu-24.04-arm, cross-tools: true }
           - { platform: win32-x64, part: 1 of 2, shard: 1/2, os: windows-2022 }
-          - { platform: win32-x64, part: 2 of 2, shard: 2/2, os: windows-2022, extras: true }
+          - { platform: win32-x64, part: 2 of 2, shard: 2/2, os: windows-2022 }
     defaults:
       run:
         shell: bash
@@ -867,23 +867,7 @@ jobs:
           platform: ${{ matrix.platform }}
           kit: 'true'
       # mtest runs the cases: the release .github/versions.env pins, its sha256 checked.
-      - name: mtest
-        run: |
-          set -euo pipefail
-          . .github/versions.env
-          archive="mtest-$MTEST_VERSION-openkal-bundle-all.tar.gz"
-          # Git Bash's tar reads `D:\...` as a remote host's name: the POSIX spelling on Windows.
-          temp="$RUNNER_TEMP"; python=python3
-          if [ "$RUNNER_OS" = Windows ]; then temp=$(cygpath -u "$RUNNER_TEMP"); python=python; fi
-          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$temp/$archive" \
-            "https://github.com/mcpp-community/mtest/releases/download/v$MTEST_VERSION/$archive"
-          actual=$("$python" -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$temp/$archive")
-          [ "$actual" = "$MTEST_SHA256" ] || { echo "::error::$archive: sha256 $actual, versions.env says $MTEST_SHA256"; exit 1; }
-          mkdir -p "$temp/mtest" && tar xzf "$temp/$archive" -C "$temp/mtest"
-          launcher="$temp/mtest/mtest-$MTEST_VERSION-openkal-bundle-all/bin/mtest"
-          [ "$RUNNER_OS" = Windows ] && launcher="$launcher.exe"
-          "$launcher" --version
-          echo "MTEST=$launcher" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/mtest
       # The store of the first attempt, so that a second runs only what failed.
       - uses: actions/cache/restore@v6
         id: attempt-store
@@ -907,7 +891,7 @@ jobs:
           if ! gh run download "$run" -R "$GITHUB_REPOSITORY" -p "conformance-mtest-${{ matrix.platform }}-*" -D "$RUNNER_TEMP/cts-stores" 2>/dev/null; then
             echo "main's run $run kept no store for ${{ matrix.platform }}: the cases are divided by count"; exit 0
           fi
-          for store in "$RUNNER_TEMP"/cts-stores/*/.mtest; do "$MTEST" store import --from "$store"; done
+          for store in "$RUNNER_TEMP"/cts-stores/*/; do "$MTEST" store import --from "$store"; done
       # The cases of this row: its platform's, in its part. The steps below install what they build with.
       - name: The cases of this row
         run: |
@@ -925,11 +909,9 @@ jobs:
       - name: Toolchains the fixtures build with
         run: |
           set -euo pipefail
-          # GCC 16 for the fixtures that build with it, and for the part that runs the review fixtures
-          # (toolchain-divergence builds with GCC and Clang).
+          # GCC 16 for the fixtures that build with it.
           gcc=no
           case "$CTS_FIXTURES" in *" mcpp-gcc "*|*" mcpp-split-gcc "*|*" mingw "*) gcc=yes ;; esac
-          [ "${{ matrix.extras }}" = true ] && [ "$RUNNER_OS" = Linux ] && gcc=yes
           [ "$gcc" = no ] || mcpp toolchain install gcc 16.1.0
           if [ "$RUNNER_OS" = Linux ]; then sudo apt-get update -q && sudo apt-get install -y -q ninja-build; fi
           # The native mock target fixtures need only a compiler probe and SDK-free module sources.
@@ -1114,13 +1096,19 @@ jobs:
         with:
           path: .mtest
           key: conformance-mtest-${{ github.run_id }}-${{ matrix.platform }}-${{ matrix.part || 'full' }}-${{ github.run_attempt }}
+      # The store alone, so its files are the artifact's (a hidden directory is uploaded only when asked).
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: conformance-mtest-${{ matrix.platform }}-${{ matrix.part || 'full' }}
-          path: |
-            .mtest
-            ${{ runner.temp }}/conformance.xml
+          path: .mtest
+          include-hidden-files: true
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: conformance-junit-${{ matrix.platform }}-${{ matrix.part || 'full' }}
+          path: ${{ runner.temp }}/conformance.xml
           if-no-files-found: ignore
 
       # Preserve the first producer envelopes even when schema validation stops
@@ -1172,76 +1160,6 @@ jobs:
           name: diagnostic-bundle-${{ matrix.platform }}
           path: ${{ runner.temp }}/bundles/*.zip
           if-no-files-found: ignore
-
-      # The review of changes (overall design 7.4, 10.3, work item RV5): every tools/bench/review fixture's change
-      # reviewed by the payload's server; a missing finding or one a fixture rules out fails the job, and
-      # the precision and recall of each rule are printed.
-      - name: Review fixtures
-        if: matrix.extras
-        run: |
-          set -euo pipefail
-          exe=''; [ "$RUNNER_OS" = Windows ] && exe='.exe'
-          "stage/mcppls-devtools$exe" bench review --server "payload/bin/mcppls.okb" --payload payload --mock-model "stage/mcppls-mock-model$exe" \
-              --report "$RUNNER_TEMP/review-${{ matrix.platform }}.json"
-
-      # Startup timing (usable plan W7): the timing fixture cold, then warm with the same
-      # workspace and cache. A warm start must reuse the std module the cold one built
-      # (SC4). Only severe regressions fail here; nightly.yml records the medians. The
-      # budgets hold on every host: first runs measured cold 6.2, 4.5 and 8.7 s and warm
-      # 1.8, 1.9 and 3.5 s on Linux, macOS and Windows runners.
-      # Build description design 4.1: the second session plans with the model the first one cached,
-      # before the producer has said anything, and only then confirms it. The check reads which of
-      # the two the session started from, so "it felt fast" is not the evidence.
-      - name: The cached model is what the next session starts from
-        if: matrix.extras && runner.os == 'Linux'
-        run: |
-          set -euo pipefail
-          cached="$RUNNER_TEMP/cached"
-          rm -rf "$cached"
-          start() {
-            stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload \
-                --fixture tests/cts/fixtures/mcpp-emit --workspace-dir "$cached/workspace" \
-                --cache-dir "$cached/cache" --timeout 180 "$@"
-          }
-          start
-          start --expect-warm
-
-      - name: Cold and warm start
-        if: matrix.extras
-        run: |
-          set -euo pipefail
-          exe=''; [ "$RUNNER_OS" = Windows ] && exe='.exe'
-          timing="$RUNNER_TEMP/timing"
-          rm -rf "$timing"
-          start() {
-            "stage/mcppls-conformance$exe" run --server "payload/bin/mcppls.okb" --payload payload --fixture tests/cts/fixtures/timing \
-                --workspace-dir "$timing/workspace" --cache-dir "$timing/cache" --timeout 120 "$@"
-          }
-          start --measure "$timing/cold.json" --navigation-budget 15
-          start --measure "$timing/warm.json" --navigation-budget 5 --expect-warm
-          cat "$timing/cold.json" "$timing/warm.json"
-      - uses: actions/upload-artifact@v7
-        if: always() && matrix.extras
-        with:
-          name: timing-${{ matrix.platform }}
-          path: ${{ runner.temp }}/timing/*.json
-          if-no-files-found: ignore
-
-      # A workspace reached through a symbolic link, which is where every macOS
-      # temporary directory is (/var is /private/var): mcpp names files by their
-      # resolved path, and an unsaved edit must still reach the modules that
-      # import it (check C7), and a root the client names that way is still the server's
-      # own (mcppls.resetCache with the folder's URI, reset-cache R2).
-      - name: A workspace reached through a symbolic link
-        if: matrix.extras && runner.os == 'Linux'
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/real"
-          ln -sfn "$RUNNER_TEMP/real" "$RUNNER_TEMP/link"
-          for fixture in mcpp-llvm reset-cache; do
-            TMPDIR="$RUNNER_TEMP/link" stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload \
-                --fixture "tests/cts/fixtures/$fixture" --timeout 180
-          done
 
   # ---------------------------------------------------------------------------
   # termux / PRoot is a supported environment (issue #32, 0.0.7 plan §1, §10.2), so it is tested,
@@ -1458,49 +1376,18 @@ jobs:
         with:
           platform: linux-x64
           kit: 'true'
+      - uses: ./.github/actions/mtest
+      # The scenario's stages, each a case of mcppls-bench (tests/bench/ux.cpp), in order on one workspace.
       - name: The stages
         run: |
           set -euo pipefail
           nproc
           cat /proc/loadavg
-          results="$RUNNER_TEMP/ux-results"
-          work="$RUNNER_TEMP/ux-work"
-          mkdir -p "$results" "$work"
-          failed=''
-          # The workspace is fetched and prepared once, by the first stage, and every stage after it
-          # uses it as it is. A stage puts back the files it changed before it ends.
-          run_stage() {
-            local name="$1" cache="$2"; shift 2
-            echo "::group::${{ matrix.fixture }} $name"
-            if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload \
-                --fixture tests/cts/fixtures/${{ matrix.fixture }} --workspace-dir "$work/workspace" --cache-dir "$work/$cache" \
-                --stage "$name" --timeout 900 --measure "$results/${{ matrix.fixture }}-$name.json" "$@"; then
-              failed="$failed $name"
-            fi
-            echo "::endgroup::"
-          }
-          if [ "${{ matrix.fixture }}" = ux-heavy-headers ]; then
-            # 0.0.9 plan M-2: one run, of a generated project: completion through the server against clangd alone.
-            run_stage edits cache-a
-          else
-            run_stage cold cache-a
-            run_stage warm cache-a --expect-warm
-            run_stage edits cache-a --expect-warm
-            run_stage faults cache-b
-          fi
-          {
-            echo "### ${{ matrix.fixture }}"
-            echo
-            echo '| stage | check | ok | seconds | detail |'
-            echo '|---|---|---|---|---|'
-            for file in "$results"/*.json; do
-              jq -r --arg stage "$(basename "$file" .json)" '.checks[] | "| \($stage) | \(.id) | \(.ok) | \(.seconds * 10 | round / 10) | \(.detail | tostring | .[0:150] | gsub("\\|"; "/")) |"' "$file"
-            done
-          } >> "$GITHUB_STEP_SUMMARY"
-          if [ -n "$failed" ]; then
-            echo "::error::stages over budget or failing:$failed"
-            exit 1
-          fi
+          export MCPPLS_CTS_MEASURES="$RUNNER_TEMP/ux-results" MCPPLS_CTS_EVIDENCE="$RUNNER_TEMP/ux-work"
+          status=0
+          "$MTEST" run --case '${{ matrix.fixture }}' stage/mcppls-bench || status=$?
+          "$MTEST" analyze trend --runs 1 | tee -a "$GITHUB_STEP_SUMMARY" || true
+          [ "$status" = 0 ] || { "$MTEST" explain || true; exit 1; }
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -1513,8 +1400,8 @@ jobs:
         with:
           name: ux-${{ matrix.fixture }}-server
           path: |
-            ${{ runner.temp }}/ux-work/cache-*/logs
-            ${{ runner.temp }}/ux-work/cache-*/workspaces/*/incidents
+            ${{ runner.temp }}/ux-work/*/cache-*/logs
+            ${{ runner.temp }}/ux-work/*/cache-*/workspaces/*/incidents
           if-no-files-found: ignore
           retention-days: 7
 
@@ -2212,41 +2099,85 @@ jobs:
       plugin_artifact: mcppls-clion-zip
 
   # ---------------------------------------------------------------------------
-  # The agent task benchmark's baseline/reference pairs (tools/bench/README.md, design
-  # §10.2, work item A2): no agent and no API key, just `mcpp build`/`mcpp test`
-  # (and a declarative content check) against each task's baseline project copy,
-  # expected to fail at least one check, and its reference-patched copy,
-  # expected to pass every check.
-  #
-  # And the semantic-token timing of a large file (mcpp design 2026-10-28 §11.1): the release payload's server on
-  # tokens-large-file, cold and warm on one cache. Its budgets are the design's criteria -- on a warm open the
-  # compiler's tokens come no later than the first completion, an edit's answer is a delta under 5% of the file's,
-  # and updates come by refresh -- and `bench tokens` exits 1 when one is over.
-  bench-validate:
-    name: bench-validate
+  # The measurements (tests/bench/README.md): the cases of mcppls-bench this platform runs (`on:<platform>`), the
+  # release's own (`release`) and the user-experience scenarios (`ux`, the job below) left out: a session's start, cold and warm on one cache, with its first navigation
+  # bounded; the review fixtures, each rule's precision and recall bounded; on Linux the semantic tokens of a large
+  # file, whose checks are the design's criteria, and the agent task benchmark's data (each task's baseline fails a
+  # check and its reference passes them, with mcpp and GCC 16 and no agent). The store takes main's last one, so
+  # each metric is shown beside its history and its bounds (`mtest analyze trend`).
+  bench:
+    name: bench (${{ matrix.platform }})
     needs: [payload, kits]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read   # the store main's last run kept, each metric's history
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux-x64,    os: ubuntu-24.04 }
+          - { platform: darwin-arm64, os: macos-15 }
+          - { platform: win32-x64,    os: windows-2022 }
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mcpp
-      - name: GCC toolchain (two of the ten tasks pin gcc@16.1.0)
+      - name: GCC 16 (two of the ten tasks, and the review fixture toolchain-divergence, build with it)
+        if: runner.os == 'Linux'
         run: mcpp toolchain install gcc 16.1.0
-      - name: Validate every task's baseline/reference pair
-        run: mcpp run -p devtools -- bench tasks validate
       - uses: ./.github/actions/payload
         with:
-          platform: linux-x64
+          platform: ${{ matrix.platform }}
           kit: 'true'
-      - name: Semantic tokens of a large file
+      - uses: ./.github/actions/mtest
+      - name: The store of main's last run
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          stage/mcppls-devtools bench tokens --server payload/bin/mcppls.okb --payload payload --rounds 2 --out "$RUNNER_TEMP/tokens.json"
+          run=$(gh run list -R "$GITHUB_REPOSITORY" --workflow ci.yml --branch main --status success --limit 1 \
+                  --json databaseId -q '.[0].databaseId' 2>/dev/null || true)
+          [ -n "$run" ] || { echo "no successful run of main: no history"; exit 0; }
+          rm -rf "$RUNNER_TEMP/bench-store"
+          if ! gh run download "$run" -R "$GITHUB_REPOSITORY" -n "bench-mtest-${{ matrix.platform }}" -D "$RUNNER_TEMP/bench-store" 2>/dev/null; then
+            echo "main's run $run kept no store for ${{ matrix.platform }}: no history"; exit 0
+          fi
+          "$MTEST" store import --from "$RUNNER_TEMP/bench-store"
+      - name: The measurements
+        run: |
+          set -euo pipefail
+          exe=''; [ "$RUNNER_OS" != Windows ] || exe='.exe'
+          export MCPPLS_CTS_MEASURES="$RUNNER_TEMP/bench-measures"
+          status=0
+          "$MTEST" run --junit "$RUNNER_TEMP/bench.xml" --tag "on:${{ matrix.platform }}" --exclude-tag release --exclude-tag ux \
+              "stage/mcppls-bench$exe" || status=$?
+          "$MTEST" analyze trend --runs 10 | tee -a "$GITHUB_STEP_SUMMARY" || true
+          if [ "$status" != 0 ]; then
+            "$MTEST" explain || true
+            for out in .mtest/runs/*/diagnoses/*/out.txt; do
+              [ -f "$out" ] || continue
+              echo "::group::diagnosis $(dirname "$out")"; tail -200 "$out"; echo "::endgroup::"
+            done
+            exit 1
+          fi
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: bench-tokens
-          path: ${{ runner.temp }}/tokens.json
+          name: bench-mtest-${{ matrix.platform }}
+          path: .mtest
+          include-hidden-files: true
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: bench-results-${{ matrix.platform }}
+          path: |
+            ${{ runner.temp }}/bench.xml
+            ${{ runner.temp }}/bench-measures/*.json
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
@@ -2255,7 +2186,7 @@ jobs:
   # staged candidate.
   release-checks:
     name: release checks
-    needs: [changes, specifications, build, test, openkal-test, server, kits, payload, vsix, conformance, clean-machine, vscode-e2e, distribution, neovim, bench-validate]
+    needs: [changes, specifications, build, test, openkal-test, server, kits, payload, vsix, conformance, clean-machine, vscode-e2e, distribution, neovim, bench]
     if: needs.changes.outputs.packaging == 'true'
     uses: ./.github/workflows/release-checks.yml
 
@@ -2284,7 +2215,7 @@ jobs:
     needs: [changes, invariants, specifications, engine-candidate-parts, mcpp, build, test, openkal-test, host-platform,
             server, kits, payload, vsix, conformance, proot, ux, clean-machine, vscode-e2e, distribution, code-oss-e2e,
             neovim, zed-unit, zed-smoke, clion-verify, clion-e2e, clion-adapter-baseline-package, clion-stable-adapter,
-            clion-stable, bench-validate, release-checks]
+            clion-stable, bench, release-checks]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

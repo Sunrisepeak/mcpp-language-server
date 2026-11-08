@@ -5,8 +5,9 @@ import mcppls.base.version;
 
 using namespace mcppls::base;
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest text_tests{"text", [] {
     "only a valid maintained-engine suffix selects its LLVM base"_test = [] {
         expect(mcppls::base::llvm_base_version("23.1.0-mcppls.1") == "23.1.0");
         expect(mcppls::base::llvm_base_version("23.1.0") == "23.1.0");
@@ -72,5 +73,4 @@ int main() {
         expect(is_identifier_char('1') && !is_identifier_char('.'));
     };
 
-    return report();
-}
+}};

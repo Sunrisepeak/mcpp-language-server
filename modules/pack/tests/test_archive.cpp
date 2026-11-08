@@ -149,8 +149,9 @@ bool contains(const std::vector<std::string>& all, std::string_view one) {
 
 } // namespace
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest archive_tests{"archive", [] {
 
     const std::string work { temp_dir("work") };
 
@@ -413,5 +414,4 @@ int main() {
     // by its exit code, and nothing here fed a failed expectation into one; the new write() tests
     // added alongside this fix are the first ones in this file that would actually have caught
     // anything, so the gap is closed rather than carried forward.
-    return report();
-}
+}};

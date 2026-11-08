@@ -125,13 +125,9 @@ int write_bundle_as_child(const std::string& directory, std::string_view mode) {
 
 } // namespace
 
-int main() {
-    {
-        const auto arguments = os::env::arguments();
-        if (arguments.size() == 4 && arguments[1] == "bundle-child") std::_Exit(write_bundle_as_child(arguments[2], arguments[3]));
-    }
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
 
+UTest bundle_tests{"bundle", [] {
     "a home directory is ~ in every spelling of a POSIX path"_test = [] {
         bundle::Redactor redactor { linux_user() };
         expect(redactor.redact("/home/alicewonder/src/main.cpp") == "~/src/main.cpp");
@@ -434,5 +430,11 @@ int main() {
         std::filesystem::remove_all(directory, ignored);
     };
 
-    return report();
+}};
+
+// A copy this program starts as another user writes a bundle and leaves before the cases run.
+int main(int argc, char** argv) {
+    const auto arguments = os::env::arguments();
+    if (arguments.size() == 4 && arguments[1] == "bundle-child") std::_Exit(write_bundle_as_child(arguments[2], arguments[3]));
+    return run(argc, argv);
 }

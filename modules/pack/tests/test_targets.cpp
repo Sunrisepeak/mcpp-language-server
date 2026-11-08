@@ -7,8 +7,9 @@ import mcppls.pack.targets;
 
 namespace targets = mcppls::pack::targets;
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest targets_tests{"targets", [] {
 
     "every platform the lock has today reads as its os and arch"_test = [] {
         const auto linuxX64 = targets::parse("linux-x64");
@@ -45,5 +46,4 @@ int main() {
         expect(targets::apple_arch(targets::Arch::x64) == "x86_64");
     };
 
-    return report();
-}
+}};

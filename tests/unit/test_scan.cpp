@@ -9,8 +9,9 @@ using mcppls::base::Position;
 using mcppls::base::Range;
 using mcppls::spec::Role;
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest scan_tests{"scan", [] {
 
     "source acknowledgement preserves preprocessor inputs independently of lexical import names"_test = [] {
         const auto disabled = scan_source("/* prefix */ #if /* condition\n continued */ 0\nimport hidden;\n#endif\nint value() { return 1; }\n", true);
@@ -290,7 +291,6 @@ import real;
         }
     };
 
-    return report();
 
     "an import whose line ends before its ';' is still a module the file needs (fix plan F13)"_test = [] {
         const auto scan = scan_source("import std;\nimport hello.greet;\nimport hello.e\n\nint main() {}\n");
@@ -310,4 +310,4 @@ import real;
         expect(fatal(tokens.size() == 1u));
         expect(tokens[0].kind == SyntaxTokenKind::keyword && tokens[0].range.start.line == 1 && tokens[0].range.start.character == 4);
     };
-}
+}};

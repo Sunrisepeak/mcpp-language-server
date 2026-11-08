@@ -7,8 +7,9 @@ using namespace mcppls::index;
 using mcppls::base::Position;
 using mcppls::base::Range;
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest exports_tests{"exports", [] {
 
     "module declarations are not declarations"_test = [] {
         expect(exported_declarations("export module m;\n").empty());
@@ -415,5 +416,4 @@ int main() {
         expect(result[1].declaration == "std::string format_pair(double x, double y)");
     };
 
-    return report();
-}
+}};

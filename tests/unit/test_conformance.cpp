@@ -242,29 +242,22 @@ int serve() {
 }
 } // namespace
 
-int main() {
+using namespace mcpplibs::mtest;
+
+UTest conformance_tests{"conformance", [] {
     std::error_code ignored;
-    const auto arguments = os::env::arguments();
-    if (arguments.size() > 1 && arguments[1] == "serve") return serve();
-    if (arguments.size() > 1 && arguments[1] == "--invalid-output") {
-        (void)os::stdio::write_output("external-\xFF-output");
-        return 0;
-    }
-    using namespace mcpplibs::mtest;
     // In an ok image the runner, and the server this program stands in for, are images as well,
     // which a loader starts and neither names; the native rows run the regression.
-    if (self_command().size() > 1) {
-        std::println("note: an ok image; the native rows run the runner's UTF-8 artifact regression");
-        return report();
-    }
+    if (self_command().size() > 1)
+        skip("an ok image: the native rows run the runner's UTF-8 artifact regression");
     const auto runner = runner_path();
     if (!runner) {
         if (os::env::get("CI").value_or("") == "true") {
             expect(false) << "CI requires a built mcppls-conformance runner for the artifact regression";
         } else {
-            std::println("note: build mcppls-conformance before mcpp test to exercise its UTF-8 artifact regression");
+            skip("build mcppls-conformance before mcpp test to exercise its UTF-8 artifact regression");
         }
-        return report();
+        return;
     }
     const std::string root { base::join_path(base::spelled(os::dirs::temp()),
         std::format("mcppls-test-conformance-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
@@ -650,5 +643,15 @@ int main() {
         expect(measured.value("editUpdated", 0.0) >= 0.6) << measured.dump();
     };
     std::filesystem::remove_all(root, ignored);
-    return report();
+}};
+
+// The runner starts this program as the server it measures, and as a tool whose output is not UTF-8.
+int main(int argc, char** argv) {
+    const auto arguments = os::env::arguments();
+    if (arguments.size() > 1 && arguments[1] == "serve") return serve();
+    if (arguments.size() > 1 && arguments[1] == "--invalid-output") {
+        (void)os::stdio::write_output("external-\xFF-output");
+        return 0;
+    }
+    return run(argc, argv);
 }

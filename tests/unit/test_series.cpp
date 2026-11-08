@@ -7,7 +7,7 @@ import mcppls.base.series;
 using namespace mcpplibs::mtest;
 namespace base = mcppls::base;
 
-int main() {
+UTest series_tests{"series", [] {
     "the series of a three-part version"_test = [] {
         expect(base::series_of("0.21.3") == std::optional<std::string> { "0.21" });
         expect(base::series_of("1.2.0-rc1") == std::optional<std::string> { "1.2" });
@@ -26,5 +26,4 @@ int main() {
     "a version of another shape is not refused"_test = [] {
         expect(!base::plugin_series_problem("nvim", "dev", "0.21.0").has_value());
     };
-    return report();
-}
+}};

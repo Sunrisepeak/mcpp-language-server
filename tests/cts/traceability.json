@@ -1,5 +1,5 @@
 {
-  "$comment": "Rule identifiers of specifications S1 to S6 mapped to evidence (usable plan W10.2), checked by docs/specs/tools/validate.py. Evidence: validate (a passing check of validate.py, by label prefix), test (tests/<file>.cpp: <name>), check (<fixture>/<check id>), review (a review fixture under tools/bench/review), script (a file and a line that enforces the rule), manual (why no automated evidence can exist).",
+  "$comment": "Rule identifiers of specifications S1 to S6 mapped to evidence (usable plan W10.2), checked by docs/specs/tools/validate.py. Evidence: validate (a passing check of validate.py, by label prefix), test (tests/<file>.cpp: <name>), check (<fixture>/<check id>), review (a review fixture under tests/bench/review), script (a file and a line that enforces the rule), manual (why no automated evidence can exist).",
   "$pending": {
     "S1-7.2-10": "the server does not read `generated` yet",
     "S1-7.2-11": "the server does not read `generated` yet",
@@ -1802,7 +1802,7 @@
   ],
   "S5-5.2-2": [
     {
-      "script": "tools/devtools/src/bench_review.cpp",
+      "script": "tests/harness/src/review.cpp",
       "contains": "\"the review changed the workspace: {}\""
     }
   ],

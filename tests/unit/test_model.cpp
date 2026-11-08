@@ -116,8 +116,9 @@ std::optional<std::string> find_tool(std::string_view name) {
 
 } // namespace
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest model_tests{"model", [] {
 
     const std::optional<std::string> mockModel { find_tool("mcppls-mock-model") };
     if (!mockModel) {
@@ -592,5 +593,4 @@ int main() {
         expect(!started.has_value());
     };
 
-    return report();
-}
+}};

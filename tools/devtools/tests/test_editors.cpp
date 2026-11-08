@@ -35,8 +35,9 @@ std::string zed_source(const std::string& root, std::string_view id = "mcppls") 
 
 } // namespace
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest editors_tests{"editors", [] {
 
     "zed: install leaves the extension under installed/, remove takes it and its work directory"_test = [&] {
         std::error_code ignored;
@@ -146,5 +147,4 @@ int main() {
         expect(editors::server_directory() == base::join_path(editors::user_data_directory(), "mcppls/payload"));
     };
 
-    return report();
-}
+}};

@@ -1,19 +1,17 @@
-// `mcppls-devtools bench tasks run`: points a real coding agent CLI at every task, headless,
-// and records whether the checks pass afterward. Ported from tools/bench/run.py's `run` command
-// (see its module docstring and bench/README.md "run" for what is verified vs. assumed).
-//
-// Spends API credits / model usage on every invocation; refuses to run without
-// --i-understand-this-uses-api-credits. Nothing in this repository's own tooling, CI included,
-// passes that flag.
-export module mcppls.devtools.bench.agent;
+// The agent task benchmark's runs (tests/bench/README.md, "Agent runs"): a real coding agent CLI
+// pointed at a task, headless, and whether the task's checks pass afterwards. A run spends API
+// credits or model usage: the Bench that makes runs (tests/bench/tasks.cpp) is skipped unless
+// MCPPLS_BENCH_AGENT names an agent, and CI names none.
+export module mcppls.harness.agent;
 
 import std;
-import mcpplibs.cmdline;
-import mcppls.devtools.bench.tasks;
+import mcppls.harness.tasks;
 
-export namespace mcppls::devtools::bench {
+export namespace mcppls::harness {
 
-inline constexpr std::string_view SAFETY_FLAG { "i-understand-this-uses-api-credits" };
+// The agents and the arms a run names.
+inline constexpr std::array<std::string_view, 2> AGENTS { "claude-code", "copilot-cli" };
+inline constexpr std::array<std::string_view, 4> ARMS { "grep", "clangd-lsp", "mcppls-lsp", "mcppls-mcp" };
 
 // The argv a headless agent CLI is started with for one task/arm, before the project copy's
 // path and prompt are substituted in (both builders write files into `projectCopy` for the
@@ -48,11 +46,10 @@ std::vector<std::string> agent_run_changed_outside_scope(
     const std::map<std::string, std::pair<std::uint64_t, std::int64_t>>& before,
     const std::map<std::string, std::pair<std::uint64_t, std::int64_t>>& after);
 
+// One run of `agent` on `task` with `arm`, in a copy of its project under `scratchRoot`; `root` is
+// the repository, whose editors/ the arms that load a plugin name.
 RunRecord run_one_agent_task(const std::string& agent, const std::string& arm, const Task& task,
-                             int repeatIndex, int timeoutSeconds, const std::string& scratchRoot);
+                             int repeatIndex, int timeoutSeconds, const std::string& scratchRoot,
+                             const std::string& root);
 
-// `mcppls-devtools bench tasks run --agent ... --arm ... --repeat N --out FILE
-//     [--tasks DIR] [--only ID] [--timeout SECONDS] --i-understand-this-uses-api-credits`.
-int command_run(const mcpplibs::cmdline::ParsedArgs& arguments);
-
-} // namespace mcppls::devtools::bench
+} // namespace mcppls::harness

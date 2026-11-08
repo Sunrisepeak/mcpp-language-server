@@ -13,8 +13,9 @@ import mcppls.cli.options;
 
 namespace cld = mcppls::engine::clangd;
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest workarounds_tests{"workarounds", [] {
 
     "every workaround is registered once, says why, and says when it can go"_test = [] {
         std::set<std::string_view> ids;
@@ -311,5 +312,4 @@ int main() {
         expect(cld::retained_asts(8 * GIB) == std::nullopt && cld::retained_asts(std::nullopt) == std::nullopt);
     };
 
-    return report();
-}
+}};

@@ -61,8 +61,9 @@ std::string between_markers(std::string_view text, std::string_view begin, std::
 
 } // namespace
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest settings_tests{"settings", [] {
 
     "every row's key is unique, its aliases name no other row, and its default is inside its own vocabulary"_test = [] {
         std::set<std::string_view, std::less<>> keys;
@@ -345,5 +346,4 @@ int main() {
         expect(std::ranges::find(result.reloadKeys, std::string { "buildDiscovery.mode" }) != result.reloadKeys.end());
     };
 
-    return report();
-}
+}};

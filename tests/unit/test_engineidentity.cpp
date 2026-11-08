@@ -6,8 +6,9 @@ import mcppls.base.engineidentity;
 using Json = nlohmann::json;
 namespace base = mcppls::base;
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest engineidentity_tests{"engineidentity", [] {
     const Json sample { { "engine-version", "23.1.0-mcppls.1" }, { "llvm-base-version", "23.1.0" },
                         { "llvm-commit", std::string(40, 'a') }, { "fork-commit", std::string(40, 'b') },
                         { "patch-series-sha256", std::string(64, 'c') }, { "platform", "linux-x64" },
@@ -44,5 +45,4 @@ int main() {
         expect(!base::decode_engine_identity(changed));
     };
 
-    return report();
-}
+}};

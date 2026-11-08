@@ -9,6 +9,9 @@
 #   modules/pack                     packaging only: tinyhttps, libarchive
 #   tools/devtools                   mcppls-devtools, the one entry for project work (docs/93-devtools.md)
 #   tools/model-gateway              mcppls-model
+#   tests/harness                    how a case drives the server through mcppls-conformance
+#   tests/cts                        mcppls-cts, the conformance cases (tests/cts/README.md)
+#   tests/bench                      mcppls-bench, the measurements (tests/bench/README.md)
 #
 # The root package stays the server, so `mcpp build` and `mcpp test` mean what they meant; a
 # member is reached with `-p` (`mcpp run -p devtools -- payload`), and `--workspace` reaches all.
@@ -19,7 +22,9 @@ members = [
     "modules/pack",
     "tools/devtools",
     "tools/model-gateway",
+    "tests/harness",
     "tests/cts",
+    "tests/bench",
 ]
 
 # THE PLATFORM OF EVERY TARGET (mcpp SPEC-013): openkal-platform states the C library
@@ -32,9 +37,10 @@ members = [
 [workspace.target.'cfg(any(linux, macos, windows, os = "openkal"))']
 platform = "openkal-platform@0.24.4"
 
-# 2026.11.7.2: the platform as one release, and the archived tests of a member carrying the member's files.
+# 2026.11.8.1: a test file of mtest's objects needs no `main` (mtest's entry begins it), and a framework
+# that is a dependency and a dev-dependency offers its beginning once.
 [workspace.package]
-mcpp = ">=2026.11.7.2"
+mcpp = ">=2026.11.8.1"
 
 # One version of each third-party package for every member, each named by its identity (namespace,
 # then name) and an exact release.
@@ -52,8 +58,8 @@ mcpplibs.os               = "0.4.0"
 nlohmann.json             = "3.12.0"
 # The test library every package's tests are written with, and the conformance cases (tests/cts):
 # mcpp-community/mtest, which speaks the mtest protocol to mcpp, mtest and the editors.
-mcpplibs.mtest            = "0.3.0"
-"mcpplibs.mtest.manifest" = "0.3.0"
+mcpplibs.mtest            = "0.4.1"
+"mcpplibs.mtest.manifest" = "0.4.1"
 
 [package]
 name        = "mcpp-language-server"

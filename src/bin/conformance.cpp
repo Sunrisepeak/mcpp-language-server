@@ -4,7 +4,7 @@
 //   mcppls-conformance run --server <mcppls> --fixture <dir> [--payload DIR] [--clangd PATH] [--kit DIR]
 //                            [--msvc-env FILE] [--timeout SECONDS] [--keep] [--verbose]
 //                            [--workspace-dir DIR] [--cache-dir DIR] [--measure FILE] [--expect-warm]
-//                            [--navigation-budget SECONDS] [--stage NAME]
+//                            [--stage NAME]
 //   mcppls-conformance prepare <kind> [argument]      a fixture's own prepare step (scenario.json)
 //   mcppls-conformance version
 import std;
@@ -111,7 +111,6 @@ struct Options {
     bool verbose { false };
     std::string workspaceDirectory;   // reused across runs: the fixture is copied and prepared there once
     bool expectWarm { false };        // module-cache-reused checks require module files from an earlier run
-    std::optional<double> navigationBudget;   // seconds from initialize to the first navigation that answers; more fails the run
     std::string cacheDirectory;       // the server's cache; empty: a fresh one beside the workspace
     std::string measureFile;          // where the checks' timings are written as JSON
     std::string timingEvidenceFile;   // bounded post-check report, only for the tiny timing fixture
@@ -5975,12 +5974,6 @@ int run(Options options) {
             break;
         }
     }
-    if (options.navigationBudget) {
-        const bool within { firstNavigation.is_number() && firstNavigation.get<double>() <= *options.navigationBudget };
-        if (!within) ++failures;
-        say("{} navigation-budget first navigation {} within {:.1f}s", within ? "PASS" : "FAIL",
-            firstNavigation.is_number() ? std::format("{:.2f}s", firstNavigation.get<double>()) : std::string { "never answered" }, *options.navigationBudget);
-    }
     const double total { std::chrono::duration<double>(Clock::now() - begin).count() - evidenceSeconds };
     // The point of plain-client mode: a client with no custom capability must still be told that
     // work is happening. Standard `$/progress` is the only channel it has, and before the
@@ -6777,7 +6770,6 @@ int main(int argc, char* argv[]) {
     (void)runCommand.option("measure").takes_value().help("File the checks' timings are written to, as JSON");
     (void)runCommand.option("timing-evidence").takes_value().help("Bounded report after timing fixture checks; excluded from timing budgets");
     (void)runCommand.option("expect-warm").help("module-cache-reused checks fail unless an earlier run left module files in --cache-dir");
-    (void)runCommand.option("navigation-budget").takes_value().help("Seconds the first navigation may take from initialize; more fails the run");
     (void)runCommand.option("no-dynamic-watch").help("Do not advertise didChangeWatchedFiles.dynamicRegistration, exercising the polling fallback");
     (void)runCommand.option("plain-client").help("Alias for --client plain");
     (void)runCommand.option("client").takes_value().help("The capabilities a real editor sends: vscode, neovim, zed or plain (default: this runner's own, the full experimental.cxxModules block)");
@@ -6820,15 +6812,6 @@ int main(int argc, char* argv[]) {
                 options.stressSeed = static_cast<std::uint64_t>(std::stoull(*stressSeed));
             } catch (...) {
                 say("run: --stress-seed takes an integer");
-                status = 2;
-                return;
-            }
-        }
-        if (auto budget = args.value("navigation-budget")) {
-            try {
-                options.navigationBudget = std::stod(*budget);
-            } catch (...) {
-                say("run: --navigation-budget takes seconds");
                 status = 2;
                 return;
             }

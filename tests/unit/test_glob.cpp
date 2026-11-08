@@ -5,8 +5,9 @@ import mcppls.base.glob;
 
 using mcppls::base::glob_match;
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest glob_tests{"glob", [] {
 
     "segments, stars and double stars"_test = [] {
         expect(glob_match("mcpp.toml", "mcpp.toml", false));
@@ -30,5 +31,4 @@ int main() {
         expect(glob_match("SRC/*.CPPM", "src/a.cppm", true));
     };
 
-    return report();
-}
+}};

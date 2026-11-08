@@ -107,14 +107,10 @@ std::string scratch_dir() {
 
 } // namespace
 
-int main(int argc, char* argv[]) {
+using namespace mcpplibs::mtest;
+
+UTest clangd_tests{"clangd", [] {
     std::error_code ignored;
-    // Started as the fixture's clangd (runnable_clangd): answer the one question asked of it.
-    if (argc > 1 && std::string_view { argv[1] } == "--version") {
-        std::println("clangd version 23.1.0 (fixture)");
-        return 0;
-    }
-    using namespace mcpplibs::mtest;
 
     const std::string work { scratch_dir() };
     const auto lockData = platforms_lock();
@@ -387,5 +383,13 @@ int main(int argc, char* argv[]) {
     };
 
     std::filesystem::remove_all(work);
-    return report();
+}};
+
+int main(int argc, char* argv[]) {
+    // Started as the fixture's clangd (runnable_clangd): answer the one question asked of it.
+    if (argc > 1 && std::string_view { argv[1] } == "--version") {
+        std::println("clangd version 23.1.0 (fixture)");
+        return 0;
+    }
+    return run(argc, argv);
 }

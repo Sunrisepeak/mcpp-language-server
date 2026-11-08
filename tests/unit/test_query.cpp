@@ -11,8 +11,9 @@ using Json = nlohmann::json;
 namespace spec = mcppls::spec;
 namespace query = mcppls::ai::query;
 
-int main() {
-    using namespace mcpplibs::mtest;
+using namespace mcpplibs::mtest;
+
+UTest query_tests{"query", [] {
 
     "columns count Unicode scalar values, LSP characters UTF-16 code units"_test = [] {
         // "int a😀 = 1;": the emoji is one column and two UTF-16 units.
@@ -78,5 +79,4 @@ int main() {
         expect(query::name_from_usr("c:@N@hello") == "hello");
     };
 
-    return report();
-}
+}};
