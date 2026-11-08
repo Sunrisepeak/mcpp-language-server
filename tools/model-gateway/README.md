@@ -108,7 +108,7 @@ mcpp build -p model-gateway --target x86_64-windows-gnu  # from any host
 
 `mcpp test -p model-gateway` — no real provider and no API key (PROTOCOL.md's
 error paths need a provider that misbehaves on command, which no real one
-offers to do). `tests/test_gateway.cpp` holds both halves:
+offers to do). `tests/unit/test_gateway.cpp` holds both halves:
 
 - **A mock provider**: an OpenAI-compatible `POST /v1/chat/completions` on
   `127.0.0.1`, port chosen by the system (mcpplibs.os `net`). The reply is

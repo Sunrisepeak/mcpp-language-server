@@ -1,14 +1,14 @@
 // `bench tokens`: the medians over rounds of the tokens-large-file measures, and the table beside a baseline.
 import std;
 import nlohmann.json;
-import mcppls.testing;
+import mcpplibs.mtest;
 import mcppls.devtools.bench.tokens;
 
 namespace bench = mcppls::devtools::bench;
 using Json = nlohmann::json;
 
 int main() {
-    using namespace mcppls::testing;
+    using namespace mcpplibs::mtest;
 
     "the medians are per stage and metric, over the rounds that measured it"_test = [] {
         const Json rounds = Json::array({

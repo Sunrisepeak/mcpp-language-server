@@ -56,7 +56,7 @@ mcpp run -p devtools -- extension --editor vscode --install  # payload、VS Code
 |---|---|
 | 单元测试 | `mcpp test`、`mcpp test --workspace` |
 | 仓库不变量检查 | `mcpp run -p devtools -- check all` |
-| 一致性测试用例 | `mcppls-conformance run --server … --payload … --fixture conformance/fixtures/<name>`（[conformance/README.md](../../conformance/README.md)） |
+| 一致性测试用例 | `mcppls-conformance run --server … --payload … --fixture tests/cts/fixtures/<name>`（[tests/cts/README.md](../../tests/cts/README.md)） |
 | 审查测试用例（精确率、召回率） | `mcpp run -p devtools -- bench review --server … --payload … --mock-model …` |
 | Agent 任务基准测试，基线与参考结果 | `mcpp run -p devtools -- bench tasks validate` |
 | 大文件的语义高亮相对首个补全的时延，以及一次编辑的字节数 | `mcpp run -p devtools -- bench tokens --server … --payload … [--out NEW.json] [--compare OLD.json]` |

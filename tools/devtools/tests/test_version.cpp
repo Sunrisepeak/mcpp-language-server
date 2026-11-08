@@ -2,7 +2,7 @@
 // minimal file set every site reads, so this does not depend on -- or risk writing into -- the
 // real checkout.
 import std;
-import mcppls.testing;
+import mcpplibs.mtest;
 import mcppls.base.path;
 import mcppls.devtools.version;
 import mcpplibs.os;
@@ -56,7 +56,7 @@ std::string make_consistent_root() {
 } // namespace
 
 int main() {
-    using namespace mcppls::testing;
+    using namespace mcpplibs::mtest;
 
     "extension_version is the product version, a three-part semantic version"_test = [&] {
         auto v = version::extension_version("0.0.1");

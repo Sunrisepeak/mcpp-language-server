@@ -2,7 +2,7 @@
 // detect "the review changed the workspace" (tools/bench/README.md "Review fixtures").
 import std;
 import nlohmann.json;
-import mcppls.testing;
+import mcpplibs.mtest;
 import mcppls.base.path;
 import mcppls.devtools.bench.review;
 import mcpplibs.os;
@@ -35,7 +35,7 @@ const nlohmann::json& finding() {
 } // namespace
 
 int main() {
-    using namespace mcppls::testing;
+    using namespace mcpplibs::mtest;
 
     "a finding matches an entry naming only its rule"_test = [] {
         expect(bench::review_finding_matches(finding(), nlohmann::json::parse(R"({"rule": "module/export-removed-in-use"})")));

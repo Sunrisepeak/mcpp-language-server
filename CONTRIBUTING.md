@@ -35,14 +35,14 @@ git diff --exit-code src/lsp
 ## Conformance fixtures
 
 Conformance fixtures drive a real server through LSP and check what comes back
-([`conformance/README.md`](conformance/README.md) has the full fixture list and scenario format).
+([`tests/cts/README.md`](tests/cts/README.md) has the full fixture list and scenario format).
 Running them needs a **payload** — the server alone isn't enough, since fixtures also exercise
 clangd and the semantic kit:
 
 ```bash
 mcpp build
 bin=target/<triple>/<fingerprint>/bin
-$bin/mcppls-conformance run --server $bin/mcppls --fixture conformance/fixtures/inferred \
+$bin/mcppls-conformance run --server $bin/mcppls --fixture tests/cts/fixtures/inferred \
     --payload editors/vscode/payload            # or --clangd PATH --kit DIR
 ```
 
@@ -69,7 +69,7 @@ does); see the header of `editors/vscode/test/runTest.ts` for every mode.
 
 Changes to `docs/specs/s1`–`s5` must update the spec text, its schema, its examples and the affected
 conformance fixtures together. Every normative rule (MUST, SHOULD, ...) carries an identifier
-(`S<n>-<section>-<ordinal>`) with evidence recorded in `conformance/traceability.json`. Check both:
+(`S<n>-<section>-<ordinal>`) with evidence recorded in `tests/cts/traceability.json`. Check both:
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install --quiet 'jsonschema>=4.18'

@@ -10,11 +10,10 @@ description: Use when contributing to mcpp-language-server (mcppls) — building
 | Directory | What is in it |
 |---|---|
 | `src/` | The server. C++23 modules only, no headers, no macros. `src/<dir>/<name>.cppm` is `mcppls.<dir>.<name>` |
-| `tests/` | Unit tests, one `test_<subject>.cpp` each, run by `mcpp test` |
-| `modules/testing/` | The in-repo test harness package `mcppls.testing` that `tests/` depends on |
+| `tests/unit/` | Unit tests, one `test_<subject>.cpp` each, written with mtest (`mcpplibs.mtest`), run by `mcpp test` |
+| `tests/cts/` | The conformance fixtures (`fixtures/`) and the cases that run them (`conformance.cpp`: one `Fixture` object each, stating its platforms, resources and client) |
 | `modules/os/` | Three platform-constant packages; one is chosen by the build target and used with `if constexpr` |
 | `docs/specs/` | The five normative specifications, their schemas and examples |
-| `conformance/` | Fixtures that drive a real server over LSP and check the answers |
 | `tools/bench/` | Review fixtures with expected findings: precision and recall for the review rules |
 | `editors/` | The VS Code extension and the coding-agent integrations |
 | `packaging/` | How the shipped payload (server + clangd + semantic kit) is assembled |
@@ -38,9 +37,9 @@ Conformance needs a payload; `CONTRIBUTING.md` has the exact command and how to 
 | Change | Prove it with |
 |---|---|
 | Server behaviour | A unit test, and a conformance fixture if an editor would see it |
-| Anything about how a project is detected or planned | A conformance fixture — they drive the real LSP |
+| Anything about how a project is detected or planned | A conformance fixture — they drive the real LSP: a directory of `tests/cts/fixtures/` and its `Fixture` object in `tests/cts/conformance.cpp` |
 | A review rule | A `bench/review/` fixture with its expected findings |
-| A specification | The text, its schema, its examples, the fixtures, and `conformance/traceability.json` together |
+| A specification | The text, its schema, its examples, the fixtures, and `tests/cts/traceability.json` together |
 
 ## Rules that are not negotiable
 

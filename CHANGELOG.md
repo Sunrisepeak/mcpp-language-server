@@ -21,11 +21,17 @@ patch is `## [<component> X.Y.Z]` (`server`, `vscode`, `clion`, `zed`, `claude-c
   runs: a change of the server runs everything, a change of one plugin runs that plugin's jobs over the payload
   main already built for the same server, a change of the documentation runs the documentation's checks. Main,
   nightly and release runs run everything.
-- **The conformance fixtures run under mtest** (mtest 0.2.0). Each fixture is a program
-  (`.github/scripts/run-fixture.sh`), its run is kept in a store with each fixture's verdict and output, a
-  failure is explained with the command that repeats it, and a second attempt of a CI job runs only the
-  fixtures that failed in the first. A fixture that states a time holds `serial:perf` (`mtest.toml`), so a run
-  of several fixtures at once measures each one's own work.
+- **The conformance fixtures are cases, and the tests are written with mtest** (mtest 0.3.0). `tests/cts/conformance.cpp`
+  declares each fixture, and each variant of one, as an object that states the platforms it runs on, the machine it
+  holds when its checks bound a time, and by its name the client it is; mtest lists, selects, schedules and records
+  them, two at a time, divided between a platform's parts by the times main's last run measured. Each failed check
+  is a failure of its case, named by its id; a failing case runs once more with the server's log, which `mtest
+  explain` names; a second attempt of a CI job runs only the cases that failed. A case checks that every fixture
+  that bounds a time holds the machine. The six fixture lists of the conformance job, its wrapper script and
+  `mtest.toml` are gone. The fixtures and the specifications' traceability are under `tests/cts/`, the unit tests
+  under `tests/unit/`, all written with `mcpplibs.mtest` in place of the in-repository harness. A fixture that needs
+  CMake 4.4 states it (`requires-cmake`), and the runner puts that CMake first on the PATH of its prepare steps
+  only; the measures a run writes record each check's `optional` and checks that could not run.
 
 The bundled engine is [mcppls-clangd 0.0.21](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.21)
 (`23.1.0-mcppls.10`), its ok image built with zlib as the native engines are, so it reads the index shards an engine

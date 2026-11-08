@@ -7,7 +7,7 @@
 // have something to check, so a real assemble+verify round trip runs clean.
 import std;
 import nlohmann.json;
-import mcppls.testing;
+import mcpplibs.mtest;
 import mcppls.base.path;
 import mcppls.pack.lock;
 import mcppls.pack.fetch;
@@ -172,7 +172,7 @@ int main(int argc, char* argv[]) {
         std::println("clangd version 23.1.0-mcppls.5 (fixture)");
         return 0;
     }
-    using namespace mcppls::testing;
+    using namespace mcpplibs::mtest;
 
     const std::string work { scratch_dir() };
     const Fixture fixture { work, base::join_path(work, "repo"), base::join_path(work, "mcppls.okb") };

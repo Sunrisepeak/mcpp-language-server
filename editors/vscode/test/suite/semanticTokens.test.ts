@@ -81,7 +81,7 @@ suite('module-syntax highlighting: server semantic tokens (design §7 layer 2)',
         tokens = raw ? decode(raw.data, legend) : [];
     });
 
-    // Fixture (test/runTest.ts / conformance/fixtures/inferred/src/main.cpp):
+    // Fixture (test/runTest.ts / tests/cts/fixtures/inferred/src/main.cpp):
     //   line 0: import std;
     //   line 1: import hello.greet;
 

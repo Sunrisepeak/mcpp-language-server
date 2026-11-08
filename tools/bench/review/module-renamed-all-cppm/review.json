@@ -2,7 +2,7 @@
   "id": "module-renamed-all-cppm",
   "title": "A module is renamed while the primary interface still re-exports it by its old name",
   "category": "missed-importer",
-  "project": "conformance/fixtures/mcpp-all-cppm",
+  "project": "tests/cts/fixtures/mcpp-all-cppm",
   "remove": [],
   "must": [
     {

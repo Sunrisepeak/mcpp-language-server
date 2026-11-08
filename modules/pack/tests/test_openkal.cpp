@@ -2,7 +2,7 @@
 // directories are shared and which a target reads alone, what a unit reads with, and the libc++ the headers are.
 import std;
 import nlohmann.json;
-import mcppls.testing;
+import mcpplibs.mtest;
 import mcppls.base.path;
 import mcppls.pack.openkal;
 import mcpplibs.os;
@@ -54,7 +54,7 @@ nlohmann::json database(const std::string& store, const std::string& project, st
 } // namespace
 
 int main() {
-    using namespace mcppls::testing;
+    using namespace mcpplibs::mtest;
     const std::string work { scratch_dir() };
     const std::string store { base::join_path(work, "xpkgs") };
     const std::string project { base::join_path(work, "project") };

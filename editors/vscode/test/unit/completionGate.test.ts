@@ -1,6 +1,6 @@
 // The editor side of the space trigger (fix plan 2026-09-26 F9, D4 layer 1), in plain Node: no VS
 // Code, same reason test/unit/serverLog.test.ts is. The cases are the server's own
-// (tests/test_completion.cpp), so the two gates cannot drift apart unnoticed.
+// (tests/unit/test_completion.cpp), so the two gates cannot drift apart unnoticed.
 import * as assert from 'assert';
 import { completionStillWanted, isImportLinePrefix, sendTriggeredCompletion } from '../../src/completionGate';
 

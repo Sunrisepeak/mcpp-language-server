@@ -1,7 +1,7 @@
 # Agent task benchmark
 
 Whether mcppls is worth a coding agent's time, not whether it answers LSP requests
-correctly (that's [conformance/](../conformance/)). Design:
+correctly (that's [tests/cts/](../../tests/cts/)). Design:
 [.agents/docs/design.md](../../.agents/docs/design.md) §5.
 
 ```bash
@@ -29,8 +29,8 @@ Each `bench/tasks/<id>/` is:
 - `title`, `prompt` — `prompt` is verbatim the instruction an agent gets; `title` is for humans (this README, results).
 - `project` — the project directory's name, relative to the task directory (always `"project"` here).
 - `shape` — `"split"` (interface units and an interface partition in `.cppm`, implementation units in `.cpp`, an
-  implementation partition — see `conformance/fixtures/mcpp-split`) or `"all-cppm"` (every module unit in `.cppm`,
-  partitions, a re-exported module — see `conformance/fixtures/mcpp-all-cppm`). Every task starts from one of those
+  implementation partition — see `tests/cts/fixtures/mcpp-split`) or `"all-cppm"` (every module unit in `.cppm`,
+  partitions, a re-exported module — see `tests/cts/fixtures/mcpp-all-cppm`). Every task starts from one of those
   two fixtures' sources, copied and then modified for the task (never referenced in place).
 - `toolchain` — mirrors the `[toolchain]` table in `project/mcpp.toml` (informational: `mcpp build`/`mcpp test`
   already read it from there). `llvm@23.1.3` for most tasks; two tasks (`add-parameter-split`,

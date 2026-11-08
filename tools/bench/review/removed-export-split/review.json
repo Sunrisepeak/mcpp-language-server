@@ -2,7 +2,7 @@
   "id": "removed-export-split",
   "title": "An exported declaration of an interface partition is removed while an implementation unit calls it",
   "category": "interface-break",
-  "project": "conformance/fixtures/mcpp-split",
+  "project": "tests/cts/fixtures/mcpp-split",
   "remove": [],
   "must": [
     {

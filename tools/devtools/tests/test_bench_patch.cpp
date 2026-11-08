@@ -1,7 +1,7 @@
 // The unified-diff fallback applier (bench_patch.cppm), exercised directly so it does not need
 // git on PATH -- see run.py's module docstring for the a/a/, b/b/ path convention this expects.
 import std;
-import mcppls.testing;
+import mcpplibs.mtest;
 import mcppls.base.path;
 import mcppls.devtools.bench.patch;
 import mcpplibs.os;
@@ -23,7 +23,7 @@ std::string temp_dir(std::string_view name) {
 } // namespace
 
 int main() {
-    using namespace mcppls::testing;
+    using namespace mcpplibs::mtest;
 
     "a one-line change applies, a/a b/b prefixes stripped by -p2"_test = [&] {
         const std::string dir { temp_dir("rename") };

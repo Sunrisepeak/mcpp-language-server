@@ -1,0 +1,370 @@
+// Completion routing (fix plan 2026-09-26 F9, F15, D4, D5): the space-trigger gate and who is told
+// about the space, the module-syntax keywords and where each one fits, their merge with the core
+// engine's answer, and the module names import completion keeps between edits.
+import std;
+import nlohmann.json;
+import mcpplibs.mtest;
+import mcppls.base.text;
+import mcppls.project.scan;
+import mcppls.engine.native.index;
+import mcppls.engine.native.keywords;
+import mcppls.orchestrator.completion;
+import mcppls.orchestrator.routing;
+
+using Json = nlohmann::json;
+using mcppls::base::Position;
+namespace completion = mcppls::orchestrator::completion;
+namespace idx = mcppls::index;
+
+namespace {
+
+std::vector<std::string> labels_of(const Json& result) {
+    std::vector<std::string> labels;
+    const Json items = result.is_object() ? result.value("items", Json::array()) : result;
+    if (!items.is_array()) return labels;
+    for (const auto& item : items) labels.push_back(item.value("label", std::string {}));
+    return labels;
+}
+
+bool has(const std::vector<std::string>& labels, std::string_view label) { return std::ranges::find(labels, label) != labels.end(); }
+
+// The keywords offered with the cursor at the end of `text`.
+std::vector<std::string> keywords_at_end(std::string_view text, bool scanned = true) {
+    const auto lines = mcppls::base::split_lines(text);
+    const int line { static_cast<int>(lines.empty() ? 0 : lines.size() - 1) };
+    const int character { static_cast<int>(lines.empty() ? 0 : lines.back().size()) };
+    const auto scan = mcppls::project::scan_source(text);
+    return labels_of(idx::keyword_completion(text, Position { line, character }, scanned ? &scan : nullptr));
+}
+
+} // namespace
+
+int main() {
+    using namespace mcpplibs::mtest;
+
+    "the space gate passes an import directive's keyword and one blank, and nothing else"_test = [] {
+        for (const std::string_view passes : { "import ", "export import ", "  import ", "\timport\t", "export  import ", "\texport\timport " }) {
+            expect(completion::is_import_line_prefix(passes)) << passes;
+        }
+        for (const std::string_view fails : { "import  ", "import", "import a", "import a ", "int x = ", "", " ", "exportimport ",
+                                              "export ", "export module ", "module ", "importer ", "// import ", "x import " }) {
+            expect(!completion::is_import_line_prefix(fails)) << fails;
+        }
+    };
+
+    "the line before the cursor, by LSP position"_test = [] {
+        const std::string text { "int a;\nexport import \nb" };
+        expect(completion::line_prefix(text, Position { 1, 14 }).value_or("?") == "export import ");
+        expect(completion::line_prefix(text, Position { 1, 7 }).value_or("?") == "export ");
+        expect(completion::line_prefix(text, Position { 0, 0 }).value_or("?").empty());
+        expect(completion::line_prefix(text, Position { 2, 1 }).value_or("?") == "b");
+        expect(!completion::line_prefix(text, Position { 9, 0 }).has_value());
+    };
+
+    "a space-triggered request is told from every other"_test = [] {
+        expect(completion::is_space_trigger(Json::parse(R"({"context": {"triggerKind": 2, "triggerCharacter": " "}})")));
+        expect(!completion::is_space_trigger(Json::parse(R"({"context": {"triggerKind": 2, "triggerCharacter": "."}})")));
+        expect(!completion::is_space_trigger(Json::parse(R"({"context": {"triggerKind": 1}})")));
+        expect(!completion::is_space_trigger(Json::parse(R"({"position": {"line": 0, "character": 0}})")));
+    };
+
+    "the space is advertised to VS Code and its forks, or to a client that asks"_test = [] {
+        const auto client = [](std::string_view name, const Json& options = nullptr) {
+            Json params { { "clientInfo", Json { { "name", std::string { name } }, { "version", "1.100.0" } } } };
+            if (!options.is_null()) params["initializationOptions"] = options;
+            return params;
+        };
+        for (const std::string_view name : { "Visual Studio Code", "Visual Studio Code - Insiders", "Code - OSS", "VSCodium", "Cursor", "Windsurf", "Trae" }) {
+            expect(completion::vscode_like(client(name))) << name;
+            expect(completion::space_trigger_wanted(client(name))) << name;
+        }
+        for (const std::string_view name : { "Neovim", "Zed", "helix", "CLion", "mcppls-conformance", "" }) {
+            expect(!completion::space_trigger_wanted(client(name))) << name;
+        }
+        expect(!completion::space_trigger_wanted(Json::object())) << "no clientInfo";
+        expect(completion::space_trigger_wanted(client("Neovim", Json::parse(R"({"completion": {"triggerOnSpace": true}})"))));
+        expect(!completion::space_trigger_wanted(client("Visual Studio Code", Json::parse(R"({"completion": {"triggerOnSpace": false}})"))));
+        expect(completion::space_trigger_wanted(client("Visual Studio Code", Json::parse(R"({"completion": {}})"))));
+
+        Json clangd = Json::parse(R"({"completionProvider": {"triggerCharacters": [".", "<", ">", ":", "\"", "/", "*"], "resolveProvider": false}})");
+        completion::add_space_trigger(clangd);
+        completion::add_space_trigger(clangd);
+        const Json& triggers = clangd["completionProvider"]["triggerCharacters"];
+        expect(triggers.size() == 8u && triggers.back() == " ") << triggers.dump();
+        expect(clangd["completionProvider"]["resolveProvider"] == false);
+        Json own = mcppls::orchestrator::merge_capabilities(Json::object());
+        completion::add_space_trigger(own);
+        expect(own["completionProvider"]["triggerCharacters"] == Json::parse(R"([".", ":", " "])"));
+    };
+
+    "module keywords where a declaration can begin, filtered by what was typed"_test = [] {
+        // A plain file: import only; the module declarations while it has none; module; while nothing precedes.
+        const auto first = keywords_at_end("i");
+        expect(first == std::vector<std::string> { "import" }) << first.size();
+        const auto m = keywords_at_end("m");
+        expect(has(m, "module;") && has(m, "module") && !has(m, "module :private;"));
+        const auto e = keywords_at_end("e");
+        expect(has(e, "export module") && !has(e, "export import")) << "no interface unit, nothing to export";
+        expect(keywords_at_end("#include <x>\nm") == std::vector<std::string> { "module" }) << "module; comes first or not at all";
+        expect(has(keywords_at_end("// a comment\n/* another */\nm"), "module;"));
+        // Everything, invoked on an empty line of an empty file.
+        expect(keywords_at_end("").size() == 4u);   // import, module;, export module, module
+
+        // An interface unit: export import, and the private fragment once.
+        const std::string interface { "export module hello;\nimport std;\n" };
+        const auto afterDeclaration = keywords_at_end(interface + "e");
+        expect(afterDeclaration == std::vector<std::string> { "export import" }) << "the declaration is there already";
+        expect(keywords_at_end(interface + "export i") == std::vector<std::string> { "export import" });
+        expect(keywords_at_end(interface + "export  i") == std::vector<std::string> { "export import" });
+        expect(keywords_at_end(interface + "export") == std::vector<std::string> { "export import" });
+        expect(keywords_at_end(interface + "mod") == std::vector<std::string> { "module :private;" });
+        expect(keywords_at_end(interface + "module :private;\nint x;\nmod").empty());
+        expect(keywords_at_end("export module hello:part;\nmod").empty()) << "a partition has no private fragment";
+        // An implementation unit exports nothing.
+        expect(keywords_at_end("module hello;\ne").empty());
+        expect(keywords_at_end("module hello;\ni") == std::vector<std::string> { "import" });
+    };
+
+    "no keywords inside braces, comments, literals, or the middle of a word"_test = [] {
+        const Json none = idx::keyword_completion("int f() {\n  i", Position { 1, 3 }, nullptr);
+        expect(none.is_null()) << none.dump();
+        expect(idx::keyword_completion("namespace n {\ni", Position { 1, 1 }, nullptr).is_null());
+        expect(!idx::keyword_completion("namespace n {\n}\ni", Position { 2, 1 }, nullptr).is_null());
+        expect(idx::keyword_completion("/* open\ni", Position { 1, 1 }, nullptr).is_null());
+        expect(!idx::keyword_completion("const char* s = \"{\";\nchar c = '{';\n// {\ni", Position { 3, 1 }, nullptr).is_null());
+        expect(!idx::keyword_completion("auto r = R\"x({ \")x\";\ni", Position { 1, 1 }, nullptr).is_null());
+        expect(!idx::keyword_completion("#define OPEN {\ni", Position { 1, 1 }, nullptr).is_null()) << "a macro's brace is not the file's";
+        expect(!idx::keyword_completion("int n = 1'000;\ni", Position { 1, 1 }, nullptr).is_null());
+        expect(idx::keyword_completion("import", Position { 0, 3 }, nullptr).is_null()) << "the cursor inside a word";
+        expect(idx::keyword_completion("x = i", Position { 0, 5 }, nullptr).is_null());
+        expect(idx::keyword_completion("import ", Position { 0, 7 }, nullptr).is_null()) << "the module names' place, not the keywords'";
+        expect(idx::keyword_completion("export module ", Position { 0, 14 }, nullptr).is_null()) << "D5: no name is suggested";
+        expect(idx::keyword_completion("q", Position { 0, 1 }, nullptr).is_null()) << "no keyword starts with it";
+    };
+
+    "a keyword replaces what was typed, and opens the module list where the client can"_test = [] {
+        const std::string text { "export module a;\n  export im" };
+        const auto scan = mcppls::project::scan_source(text);
+        const Json plain = idx::keyword_completion(text, Position { 1, 11 }, &scan);
+        expect(fatal(plain.is_array() && plain.size() == 1u)) << plain.dump();
+        const Json& item = plain[0];
+        expect(item["label"] == "export import" && item["kind"] == 14 && item["filterText"] == "export import");
+        expect(item["textEdit"]["newText"] == "export import ");
+        expect(item["textEdit"]["range"]["start"] == Json::parse(R"({"line": 1, "character": 2})"));
+        expect(item["textEdit"]["range"]["end"] == Json::parse(R"({"line": 1, "character": 11})"));
+        expect(!item.contains("command"));
+        const Json vscode = idx::keyword_completion(text, Position { 1, 11 }, &scan, idx::KeywordOptions { .suggestModulesAfterImport = true });
+        expect(vscode[0]["command"]["command"] == "editor.action.triggerSuggest");
+        const Json module = idx::keyword_completion("m", Position { 0, 1 }, nullptr, idx::KeywordOptions { .suggestModulesAfterImport = true });
+        for (const auto& entry : module) expect(!entry.contains("command")) << entry.dump();
+    };
+
+    "keywords merge with the core engine's answer without duplicates"_test = [] {
+        const Json keywords = idx::keyword_completion("i", Position { 0, 1 }, nullptr);
+        const Json list = Json::parse(R"({"isIncomplete": true, "items": [{"label": " int"}, {"label": "import"}]})");
+        const Json merged = completion::merge(list, keywords);
+        expect(merged["isIncomplete"] == true);
+        expect(labels_of(merged) == std::vector<std::string> { " int", "import" }) << "clangd's own `import` item is kept, not doubled";
+        const Json array = completion::merge(Json::parse(R"([{"label": "if"}])"), keywords);
+        expect(array["isIncomplete"] == false && labels_of(array) == std::vector<std::string> { "if", "import" });
+        const Json withDefaults = completion::merge(Json::parse(R"({"isIncomplete": false, "itemDefaults": {"insertTextFormat": 2}, "items": []})"), keywords);
+        expect(withDefaults.contains("itemDefaults") && labels_of(withDefaults) == std::vector<std::string> { "import" });
+        expect(completion::merge(nullptr, Json::array()).is_null());
+        expect(completion::merge(list, Json(nullptr)) == list);
+        const Json alone = completion::keywords_only(keywords);
+        expect(alone["isIncomplete"] == true && labels_of(alone) == std::vector<std::string> { "import" });
+        expect(completion::empty_list() == Json::parse(R"({"isIncomplete": false, "items": []})"));
+    };
+
+    "while the core engine is late, the file's words, nearest first, as a list the client asks again for (R-7)"_test = [] {
+        const std::string text {
+            "import std;\n"
+            "int counter_total = 0; // counter_in_comment\n"
+            "const char* s = \"counter_in_string\";\n"
+            "auto r = R\"x(counter_in_raw)x\";\n"
+            "int Counter2 = 0x1Cu;\n"
+            "int main() { counter_total += cou; }\n"
+            "void g() { obj.co; ns::co; p->co; }\n" };
+        const auto at = [&](std::string_view needle, std::size_t skip) {
+            const std::size_t offset { text.find(needle) + skip };
+            return mcppls::base::position_at(text, offset);
+        };
+        const Json words = completion::document_words(text, at("cou;", 3));
+        expect(labels_of(Json { { "items", words } }) == std::vector<std::string> { "counter_total", "co", "Counter2", "char", "const" })
+            << words.dump() << ": nearest first, comments and literals unread, the word being typed left out";
+        expect(words[0]["kind"] == 1);
+        expect(completion::document_words(text, at("obj.co", 6)).empty()) << "a member: only the core engine knows";
+        expect(completion::document_words(text, at("ns::co", 6)).empty()) << "a qualified name: only the core engine knows";
+        expect(completion::document_words(text, at("p->co", 5)).empty());
+        expect(completion::document_words(text, at("cou;", 0)).empty()) << "nothing typed yet";
+        expect(completion::document_words(text, at("cou;", 3), 1).size() == 1U);
+        const std::string halfTyped { "auto s = R\"not a raw string;\nint counter_after = 0;\ncou" };
+        expect(labels_of(Json { { "items", completion::document_words(halfTyped, mcppls::base::position_at(halfTyped, halfTyped.size())) } })
+               == std::vector<std::string> { "counter_after" }) << "a half-typed raw string does not swallow the rest of the file";
+        const Json list = completion::without_engine(words);
+        expect(list["isIncomplete"] == true && list["items"] == words);
+        const Json withKeywords = completion::merge(completion::without_engine(Json::array()), idx::keyword_completion("i", Position { 0, 1 }, nullptr));
+        expect(withKeywords["isIncomplete"] == true && labels_of(withKeywords) == std::vector<std::string> { "import" }) << "the keywords join it";
+    };
+
+    "a completion the core engine did not answer is told apart, and an import line keeps to module names (M-2)"_test = [] {
+        expect(completion::is_empty(Json(nullptr)));
+        expect(completion::is_empty(Json::array()));
+        expect(completion::is_empty(completion::empty_list()));
+        expect(completion::is_empty(Json { { "isIncomplete", true } })) << "a list without items";
+        expect(!completion::is_empty(Json::array({ Json { { "label", "x" } } })));
+        expect(!completion::is_empty(completion::without_engine(Json::array({ Json { { "label", "x" } } }))));
+        for (const std::string_view prefix : { "import ", "import h", "  import hello.", "export import :part", "import <vector", "import \"a.h", "import" }) {
+            expect(completion::in_import_directive(prefix)) << prefix;
+        }
+        for (const std::string_view prefix : { "", "int i", "importer", "  important", "x = import", "exportimport h", "// import h", "    ret" }) {
+            expect(!completion::in_import_directive(prefix)) << prefix;
+        }
+    };
+
+    "what a person waits on waits for the core engine within a budget, and the rest wait for its timeout (R-7)"_test = [] {
+        using namespace std::chrono_literals;
+        namespace routing = mcppls::orchestrator;
+        expect(routing::answer_budget("textDocument/completion") == 1000ms);
+        expect(routing::answer_budget("textDocument/signatureHelp") == 1000ms);
+        expect(routing::answer_budget("textDocument/hover") == 2000ms);
+        expect(routing::answer_budget("textDocument/definition") == 10000ms);
+        expect(!routing::answer_budget("textDocument/references").has_value()) << "a long operation the person started";
+        expect(!routing::answer_budget("textDocument/semanticTokens/full").has_value()) << "nobody waits on it: it arrives when it is ready";
+        expect(!routing::answer_budget("textDocument/documentSymbol").has_value());
+    };
+
+    "the budget follows the file whose engine answers keep landing just past it, and only that one (UP-25)"_test = [] {
+        using namespace std::chrono_literals;
+        const auto cap { 2500ms };
+        completion::EnginePace pace;
+        const auto t = std::chrono::steady_clock::now();
+        expect(pace.budget(t, 1000ms, cap) == 1000ms) << "nothing answered yet: the flat budget";
+        pace.answered(t - 1500ms, 1050ms, cap);
+        expect(pace.budget(t, 1000ms, cap) == 1000ms) << "one answer is not a pattern";
+        pace.answered(t - 1000ms, 1100ms, cap);
+        expect(pace.budget(t, 1000ms, cap) == 1600ms) << "two recent answers past the budget: wait for them";
+        pace.answered(t - 100ms, 300ms, cap);
+        expect(pace.budget(t, 1000ms, cap) == 1000ms) << "a fast answer among them: the engine is quick here";
+        expect(pace.budget(t + 45s, 1000ms, cap) == 1000ms) << "a fast answer in the window keeps the flat budget";
+
+        completion::EnginePace paused;
+        paused.answered(t - 40s, 1400ms, cap);
+        paused.answered(t - 20s, 1500ms, cap);
+        expect(paused.budget(t, 1000ms, cap) == 2000ms) << "a think pause inside the window does not reset the file";
+        expect(paused.budget(t + 61s, 1000ms, cap) == 1000ms) << "after the window the file relearns";
+
+        completion::EnginePace busy;
+        busy.answered(t - 2s, 4000ms, cap);
+        busy.answered(t - 1s, 5000ms, cap);
+        expect(busy.budget(t, 1000ms, cap) == 1000ms) << "answers no budget within the cap could meet are not counted";
+        expect(busy.budget(t, 1000ms, cap) == 1000ms) << "and they do not come back through the ring's tail";
+
+        completion::EnginePace capped;
+        capped.answered(t - 2s, 1950ms, cap);
+        capped.answered(t - 1s, 2000ms, cap);
+        expect(capped.budget(t, 1000ms, cap) == cap) << "at the cap the budget is the cap, not more";
+    };
+
+    "a late answer is recognized by its word and given to a later position in it (C-2)"_test = [] {
+        const std::string text { "int main() {\n    auto v = obj.si\n}\n" };
+        const auto early = completion::word_key(text, Position { 1, 18 });   // after "obj.s"
+        const auto later = completion::word_key(text, Position { 1, 19 });   // after "obj.si"
+        expect(early.has_value() && later.has_value() && completion::typed_on(*early, *later)) << "one word, typed on";
+        expect(!completion::typed_on(*later, *early)) << "typed back: an answer for 'si' does not cover 's'";
+        expect(later->before == "    auto v = obj." && later->typed == "si") << later->before << "|" << later->typed;
+        expect(!completion::typed_on(*completion::word_key(text, Position { 1, 9 }), *later)) << "another word on the line";
+        expect(completion::word_key(text, Position { 9, 0 }) == std::nullopt);
+        expect(completion::word_key("si", Position { 0, 2 })->before.empty()) << "a word at the start of the text";
+
+        const Json answer { { "isIncomplete", false }, { "items", Json::array({
+            Json { { "label", "size" }, { "textEdit", Json { { "newText", "size" }, { "range", Json { { "start", Json { { "line", 1 }, { "character", 17 } } },
+                                                                                                        { "end", Json { { "line", 1 }, { "character", 18 } } } } } } } },
+            Json { { "label", "swap" } },
+            Json { { "label", "elsewhere" }, { "textEdit", Json { { "newText", "x" }, { "range", Json { { "start", Json { { "line", 0 }, { "character", 0 } } },
+                                                                                                          { "end", Json { { "line", 0 }, { "character", 1 } } } } } } } },
+            Json { { "label", "both" }, { "textEdit", Json { { "newText", "both" },
+                { "insert", Json { { "start", Json { { "line", 1 }, { "character", 17 } } }, { "end", Json { { "line", 1 }, { "character", 18 } } } } },
+                { "replace", Json { { "start", Json { { "line", 1 }, { "character", 17 } } }, { "end", Json { { "line", 1 }, { "character", 18 } } } } } } } },
+        }) } };
+        const Json moved = completion::retarget(answer, *early, *later);
+        expect(moved["isIncomplete"] == false);
+        expect(moved["items"].size() == 3u) << moved.dump();
+        expect(moved["items"][0]["textEdit"]["range"]["end"]["character"] == 19) << "the edit replaces the word up to the new cursor";
+        expect(moved["items"][0]["textEdit"]["range"]["start"]["character"] == 17);
+        expect(moved["items"][1]["label"] == "swap") << "an item without an edit is kept";
+        expect(moved["items"][2]["textEdit"]["insert"]["end"]["character"] == 19 && moved["items"][2]["textEdit"]["replace"]["end"]["character"] == 19);
+        expect(completion::retarget(answer["items"], *early, *later)["items"].size() == 3u) << "a bare array is a list too";
+        expect(completion::retarget(Json(nullptr), *early, *later)["items"].empty());
+    };
+
+    "an edit that reaches past the cursor still does when the answer is given further on (issue 80)"_test = [] {
+        // The editor typed the closing quote; clangd's include completion takes it: insert [10, 13) at the cursor 12.
+        const auto edit = [](int insertEnd, int replaceEnd) {
+            return Json { { "isIncomplete", false }, { "items", Json::array({ Json { { "label", " foo_header.h\"" }, { "textEdit", Json {
+                { "newText", "foo_header.h\"" },
+                { "insert", Json { { "start", Json { { "line", 0 }, { "character", 10 } } }, { "end", Json { { "line", 0 }, { "character", insertEnd } } } } },
+                { "replace", Json { { "start", Json { { "line", 0 }, { "character", 10 } } }, { "end", Json { { "line", 0 }, { "character", replaceEnd } } } } } } } } }) } };
+        };
+        const auto early = completion::word_key("#include \"fo\"\n", Position { 0, 12 });
+        const auto later = completion::word_key("#include \"foo\"\n", Position { 0, 13 });
+        expect(early && later && completion::typed_on(*early, *later));
+        expect(early->after == "\"" && early->character == 12) << early->after;
+        const Json moved = completion::retarget(edit(13, 12), *early, *later);
+        const Json& e = moved["items"][0]["textEdit"];
+        expect(e["insert"]["start"]["character"] == 10 && e["insert"]["end"]["character"] == 14)
+            << "the closing quote is still replaced, one column on: " << e.dump();
+        expect(e["replace"]["end"]["character"] == 13) << "a range that ended at the cursor ends at the new one";
+        // `#include "foo` with the line after the cursor changed: the edit ends at the cursor.
+        const auto changed = completion::word_key("#include \"foo\n", Position { 0, 13 });
+        expect(completion::typed_on(*early, *changed));
+        expect(completion::retarget(edit(13, 12), *early, *changed)["items"][0]["textEdit"]["insert"]["end"]["character"] == 13)
+            << "text after the cursor that is not there any more is not replaced";
+    };
+
+    "a complete answer holds for its word while the document outside the word is the same (0.0.14 A1)"_test = [] {
+        const std::string text { "int main() {\n    auto v = obj.s\n}\n" };
+        const std::string typedOn { "int main() {\n    auto v = obj.si\n}\n" };
+        const std::string elsewhere { "int main() {\n    auto v = obj.si\n    int w;\n}\n" };
+        const auto at = completion::outside_word(text, Position { 1, 18 });
+        expect(at.has_value());
+        expect(completion::outside_word(typedOn, Position { 1, 19 }) == at) << "the word typed on: the same outside it";
+        expect(completion::outside_word(elsewhere, Position { 1, 19 }) != at) << "a line added after the word";
+        expect(completion::outside_word("int x;\n" + typedOn, Position { 2, 19 }) != at) << "a line added before it";
+        expect(completion::outside_word(text, Position { 9, 0 }) == std::nullopt);
+        expect(completion::is_complete(Json { { "isIncomplete", false }, { "items", Json::array() } }));
+        expect(!completion::is_complete(Json { { "isIncomplete", true }, { "items", Json::array() } }));
+        expect(completion::is_complete(Json::array())) << "a bare array is complete";
+        expect(!completion::is_complete(Json(nullptr)));
+    };
+
+    "module names for completion are kept until a declaration changes"_test = [] {
+        idx::ModuleIndex index;
+        index.update("/p/a.cppm", "export module a;\n");
+        index.update("/p/b.cppm", "export module b;\nexport import a;\n");
+        index.update("/p/main.cpp", "import a;\n");
+        const auto names = [&] { return labels_of(index.completion("/p/x.cpp", "import ", Position { 0, 7 })); };
+        expect(names() == std::vector<std::string> { "a", "b" });
+        const auto generation = index.structure_generation();
+        // Edits that leave every declaration as it was: the same list, not rebuilt.
+        index.update("/p/main.cpp", "import a;\nimport b;\nint main() {}\n");
+        index.update("/p/b.cppm", "export module b;\nexport import a;\nexport int f();\n");
+        index.update("/p/other.cpp", "int g();\n");
+        expect(index.structure_generation() == generation);
+        expect(names() == std::vector<std::string> { "a", "b" });
+        // A new module, a role that changes, a unit removed: rebuilt.
+        index.update("/p/c.cppm", "export module c;\n");
+        expect(index.structure_generation() != generation);
+        expect(names() == std::vector<std::string> { "a", "b", "c" });
+        const auto withC = index.structure_generation();
+        index.update("/p/c.cppm", "module c;\n");
+        expect(index.structure_generation() != withC);
+        expect(names() == std::vector<std::string> { "a", "b" }) << "an implementation unit provides nothing to import";
+        index.remove("/p/b.cppm");
+        expect(names() == std::vector<std::string> { "a" });
+        const Json detail = index.completion("/p/x.cpp", "import ", Position { 0, 7 });
+        expect(detail["items"][0]["detail"] == "primary module interface unit") << detail.dump();
+    };
+
+    return report();
+}

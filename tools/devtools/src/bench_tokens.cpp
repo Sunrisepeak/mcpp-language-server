@@ -105,7 +105,7 @@ int command_tokens(const mcpplibs::cmdline::ParsedArgs& args) {
         return 2;
     }
     const int rounds { std::max(1, std::atoi(args.value("rounds").value_or("3").c_str())) };
-    const std::string fixture { base::join_path(root, "conformance/fixtures/tokens-large-file") };
+    const std::string fixture { base::join_path(root, "tests/cts/fixtures/tokens-large-file") };
     const std::string scratch { base::join_path(base::spelled(os::dirs::temp()),
                                                 std::format("mcppls-bench-tokens-{}", std::chrono::system_clock::now().time_since_epoch().count())) };
     Json measured = Json::array();

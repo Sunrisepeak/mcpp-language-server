@@ -1,7 +1,7 @@
 // The release manifest data model (packaging/scripts/release_manifest.py, ported): what a release
 // declares, what "matches a staged directory" means, and MANIFEST.md's rendering.
 import std;
-import mcppls.testing;
+import mcpplibs.mtest;
 import mcppls.base.path;
 import mcppls.pack.release;
 import mcpplibs.os;
@@ -43,7 +43,7 @@ constexpr std::string_view MANIFEST = R"({
 
 int main() {
     std::error_code ignored;
-    using namespace mcppls::testing;
+    using namespace mcpplibs::mtest;
 
     const std::string work { scratch("work") };
     const std::string manifestPath { base::join_path(work, "release.manifest.json") };

@@ -15,11 +15,11 @@
 [workspace]
 members = [
     "modules/base",
-    "modules/testing",
     "modules/toolrun",
     "modules/pack",
     "tools/devtools",
     "tools/model-gateway",
+    "tests/cts",
 ]
 
 # THE PLATFORM OF EVERY TARGET (mcpp SPEC-013): openkal-platform states the C library
@@ -50,6 +50,9 @@ mcpplibs.mwrap.xxhash     = "0.8.3"
 # 0.3.1 reads a name in Windows' long spelling as the name it spells.
 mcpplibs.os               = "0.4.0"
 nlohmann.json             = "3.12.0"
+# The test library every package's tests are written with, and the conformance cases (tests/cts):
+# mcpp-community/mtest, which speaks the mtest protocol to mcpp, mtest and the editors.
+mcpplibs.mtest            = "0.3.0"
 
 [package]
 name        = "mcpp-language-server"
@@ -102,7 +105,11 @@ mcppls-base                     = { path = "modules/base" }
 mcppls-toolrun                  = { path = "modules/toolrun" }
 
 [dev-dependencies]
-mcppls-testing = { path = "modules/testing" }
+mcpplibs.mtest.workspace = true
+
+# The server's unit tests (tests/unit); the conformance cases are the member tests/cts.
+[test]
+discover = ["tests/unit/**/*.cpp"]
 
 # An ok image (`<arch>-openkal`) declares nothing: its platform, openkal-platform, supplies the C
 # library and the C++ run-time in their image form, the link, okld's seal and okrun, and packs every

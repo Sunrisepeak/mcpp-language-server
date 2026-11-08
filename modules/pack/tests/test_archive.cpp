@@ -4,7 +4,7 @@
 // and the two paths an archive could use to write outside the directory it was given.
 import std;
 import mcpplibs.mwrap.libarchive;
-import mcppls.testing;
+import mcpplibs.mtest;
 import mcppls.base.path;
 import mcppls.pack.archive;
 import mcpplibs.os;
@@ -150,7 +150,7 @@ bool contains(const std::vector<std::string>& all, std::string_view one) {
 } // namespace
 
 int main() {
-    using namespace mcppls::testing;
+    using namespace mcpplibs::mtest;
 
     const std::string work { temp_dir("work") };
 

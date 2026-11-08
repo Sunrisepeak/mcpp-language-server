@@ -14,7 +14,7 @@
 import std;
 import nlohmann.json;
 import mcpplibs.tinyhttps;
-import mcppls.testing;
+import mcpplibs.mtest;
 import mcppls.model.gateway;
 import mcppls.base.path;
 import mcpplibs.os;
@@ -243,7 +243,7 @@ Json complete_params(const std::string& userMessage, const Json& schema = nullpt
 }
 
 int run_tests() {
-    using namespace mcppls::testing;
+    using namespace mcpplibs::mtest;
 
     auto provider = MockProvider::start();
     expect(fatal(provider.has_value())) << "the mock provider listens";

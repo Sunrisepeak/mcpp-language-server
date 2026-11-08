@@ -2,7 +2,7 @@
   "id": "model-evidence-checked-split",
   "title": "A scripted model answers with findings that cite the review's evidence or evidence that does not exist, and with a fix that compiles and one that does not",
   "category": "model",
-  "project": "conformance/fixtures/mcpp-split",
+  "project": "tests/cts/fixtures/mcpp-split",
   "remove": [],
   "model": {
     "script": {

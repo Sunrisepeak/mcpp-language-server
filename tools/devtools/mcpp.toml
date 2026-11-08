@@ -28,4 +28,4 @@ mcppls-toolrun                 = { path = "../../modules/toolrun" }
 mcppls-pack                    = { path = "../../modules/pack" }
 
 [dev-dependencies]
-mcppls-testing = { path = "../../modules/testing" }
+mcpplibs.mtest.workspace = true

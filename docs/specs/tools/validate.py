@@ -7,7 +7,7 @@
 Checks: every JSON file parses and every schema is valid draft 2020-12; examples, JSON blocks in the text and the
 simulated producer data of conformance fixtures validate; semantic rules a schema cannot express; negative cases the
 schemas must reject; relative links resolve; every requirement of the specifications has an identifier and evidence in
-conformance/traceability.json (usable plan W10.2). Exits non-zero on any failure.
+tests/cts/traceability.json (usable plan W10.2). Exits non-zero on any failure.
 """
 import copy, json, pathlib, re, sys
 from jsonschema import Draft202012Validator
@@ -428,7 +428,7 @@ for path in map(pathlib.Path, sys.argv[1:]):
     mcpp_contract(path.name, envelope["data"]["database"])
 
 # 8. traceability (usable plan W10.2): every requirement keyword carries a rule identifier S<n>-<section>-<ordinal>,
-#    and conformance/traceability.json names evidence for each: a check above, a unit test, a conformance check, a
+#    and tests/cts/traceability.json names evidence for each: a check above, a unit test, a conformance check, a
 #    line of a script that enforces the rule, or the reason no automated evidence can exist.
 TRACED_SPECS = {"S1": "s1-build-database.md", "S2": "s2-discovery.md", "S3": "s3-lsp-extensions.md", "S4": "s4-semantic-kit.md",
                 "S5": "s5-semantic-query.md", "S6": "s6-payload.md"}
@@ -463,11 +463,11 @@ for spec, name in TRACED_SPECS.items():
             rules[rule] = where
 
 tests = {}
-for path in sorted((repository / "tests").glob("*.cpp")):
+for path in sorted((repository / "tests" / "unit").glob("*.cpp")):
     for name in re.findall(r'^\s*"((?:[^"\\]|\\.)*)"_test\s*=', path.read_text(encoding="utf-8"), flags=re.M):
-        tests[f"tests/{path.name}: {name}"] = True
+        tests[f"tests/unit/{path.name}: {name}"] = True
 fixture_checks = set()
-for scenario in sorted((repository / "conformance" / "fixtures").glob("*/scenario.json")):
+for scenario in sorted((repository / "tests" / "cts" / "fixtures").glob("*/scenario.json")):
     for item in load(scenario).get("checks", []):
         fixture_checks.add(f"{scenario.parent.name}/{item.get('id')}")
 
@@ -488,7 +488,7 @@ def evidence_ok(entry):
         return len(entry["manual"].strip()) >= 20, "a manual entry states why no automated evidence exists"
     return False, f"unknown evidence {entry}"
 
-traceability = load(repository / "conformance" / "traceability.json")
+traceability = load(repository / "tests" / "cts" / "traceability.json")
 pending = traceability.get("$pending", {})
 kinds = {}
 for rule, where in rules.items():

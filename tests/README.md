@@ -1,16 +1,19 @@
 # tests
 
-Unit tests for the server, one `test_<subject>.cpp` per subject in `src/` (for
-example `test_normalize.cpp` covers `src/normalize/`, `test_process.cpp` covers
-`src/platform/process.cppm`). Each file is its own `main()`, built and run with:
+The tests of the server, by kind (mtest's layout): `unit/` holds its unit tests, one
+`test_<subject>.cpp` per subject in `src/` (for example `test_normalize.cpp` covers
+`src/normalize/`, `test_process.cpp` covers `src/platform/process.cppm`); `cts/` holds the
+conformance fixtures as cases (`cts/README.md`). Each unit test file is its own `main()`, built
+and run with:
 
 ```bash
 mcpp test
 ```
 
-`mcpp` discovers every `tests/**/*.cpp`, builds each as its own program against
-the server's modules and `mcppls-testing` (`testing/README.md`), runs it, and a
-test passes when the program exits zero.
+`mcpp` discovers every `tests/unit/**/*.cpp` (`[test] discover`), builds each as its own program
+against the server's modules and [mtest](https://github.com/mcpp-community/mtest)'s library
+(`mcpplibs.mtest`), runs it, and a test passes when the program exits zero; each `"name"_test` is a
+case mtest and the editors list and run alone.
 
 The one thing to expect: several tests (`test_process.cpp`, `test_env.cpp`,
 `test_model.cpp`, `test_spec.cpp`, `test_conformance.cpp`) start copies of *themselves* as the child

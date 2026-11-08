@@ -2,7 +2,7 @@
   "id": "clean-implementation-change-split",
   "title": "An implementation unit changes a string literal",
   "category": "clean",
-  "project": "conformance/fixtures/mcpp-split",
+  "project": "tests/cts/fixtures/mcpp-split",
   "remove": [],
   "must": [],
   "must-not": [

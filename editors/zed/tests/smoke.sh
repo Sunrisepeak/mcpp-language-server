@@ -75,7 +75,7 @@ workspace="$root/workspace"
 case "$(uname -m)" in aarch64|arm64) arch=aarch64; platform=linux-arm64 ;; *) arch=x86_64; platform=linux-x64 ;; esac
 server="$root/server/libexec/okrun/linux-$arch/okrun"
 image="$root/server/bin/mcppls.okb"
-cp -r "$repo/conformance/fixtures/inferred" "$workspace"
+cp -r "$repo/tests/cts/fixtures/inferred" "$workspace"
 
 zed_pid=''
 started=$SECONDS

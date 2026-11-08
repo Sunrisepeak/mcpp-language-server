@@ -18,6 +18,9 @@ namespace {
 
 constexpr std::array<std::string_view, 2> SOURCE_EXTENSIONS { ".cppm", ".cpp" };
 constexpr std::array<std::string_view, 0> NO_SKIP {};
+// The projects the conformance fixtures are (tests/cts/fixtures): other programs' sources, read by the server under
+// test, not this repository's.
+constexpr std::array<std::string_view, 1> FIXTURES { "fixtures" };
 
 // ---- os-surface: the system is a value, never a preprocessor branch, never a header -------------
 //
@@ -127,7 +130,7 @@ base::Result<Report> os_surface(const std::string& root) {
         for (const std::string_view dir : { "src", "tests" }) {
             const std::string at { member == "." ? base::join_path(root, dir) : base::join_path(root, member + "/" + std::string { dir }) };
             if (!std::filesystem::is_directory(at, ignored)) continue;
-            for (const auto& file : base::files_under(at, SOURCE_EXTENSIONS, NO_SKIP)) {
+            for (const auto& file : base::files_under(at, SOURCE_EXTENSIONS, FIXTURES)) {
                 auto text = os::fs::read(file);
                 if (!text) return base::fail("read-file", text.error());
                 ++files;
@@ -197,7 +200,6 @@ base::Result<Report> layers(const std::string& root) {
         const int myLayer { layer_of_path(info.path) };
         const std::string displayPath { info.path == "." ? std::string { "the root package" } : info.path };
         for (const auto& dep : info.pathDeps) {
-            if (dep == "mcppls-testing") continue;   // a dev-only harness, not part of the product layering
             if (dep == "mcppls-pack" && info.path != "tools/devtools") {
                 report.ok = false;
                 report.problems.push_back(std::format(

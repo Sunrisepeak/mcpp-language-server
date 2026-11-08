@@ -52,7 +52,7 @@ These specifications are self-contained. They are compatible with, and borrow th
 
 Every requirement of S1 to S4 written with a capitalized RFC 2119 keyword (MUST, MUST NOT, REQUIRED, SHALL, SHOULD, SHOULD NOT, RECOMMENDED) carries an identifier `S<n>-<section>-<ordinal>` where it is stated, rendered as a superscript with an anchor, for example [`S2-3.3-8`](s2-discovery.md#S2-3.3-8). Identifiers are stable: a new rule takes the next ordinal of its section, and a removed rule's identifier is not reused.
 
-[`conformance/traceability.json`](../../conformance/traceability.json) maps each identifier to its evidence: a check of `tools/validate.py` (schema, example and semantic checks), a unit test, a conformance fixture check, a line of a script that enforces the rule, or, rarely, the reason no automated evidence can exist. `tools/validate.py` fails when a keyword has no identifier, an identifier has no evidence, or evidence names a check, test, fixture or script line that does not exist. A known gap may be listed under `$pending` with what is missing; it is printed on every run until it has evidence.
+[`tests/cts/traceability.json`](../../tests/cts/traceability.json) maps each identifier to its evidence: a check of `tools/validate.py` (schema, example and semantic checks), a unit test, a conformance fixture check, a line of a script that enforces the rule, or, rarely, the reason no automated evidence can exist. `tools/validate.py` fails when a keyword has no identifier, an identifier has no evidence, or evidence names a check, test, fixture or script line that does not exist. A known gap may be listed under `$pending` with what is missing; it is printed on every run until it has evidence.
 
 ## License
 

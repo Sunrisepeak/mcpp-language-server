@@ -2,7 +2,7 @@
 // `bench tasks validate` (tools/bench/README.md "Checks").
 import std;
 import nlohmann.json;
-import mcppls.testing;
+import mcpplibs.mtest;
 import mcppls.base.path;
 import mcppls.devtools.bench.tasks;
 import mcpplibs.os;
@@ -24,7 +24,7 @@ std::string temp_dir(std::string_view name) {
 } // namespace
 
 int main() {
-    using namespace mcppls::testing;
+    using namespace mcpplibs::mtest;
 
     "a command check parses as an argv list"_test = [] {
         auto check = bench::parse_check(nlohmann::json::parse(R"(["mcpp", "build"])"));

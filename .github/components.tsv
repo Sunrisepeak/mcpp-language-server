@@ -36,7 +36,6 @@ server	mcpp.lock
 server	build.mcpp
 server	vendor/*
 server	packaging/*
-server	conformance/*
 server	tests/*
 server	tools/*
 # The editor plugins, each tested over the payload of the server it is changed against.

@@ -9,5 +9,5 @@
 
 ## Specs / traceability
 
-Does this change `docs/specs/s1`–`s5`, their schemas, examples, or `conformance/traceability.json`?
+Does this change `docs/specs/s1`–`s5`, their schemas, examples, or `tests/cts/traceability.json`?
 If so, say what, and confirm `docs/specs/tools/validate.py` still passes.

@@ -2,7 +2,7 @@
   "id": "signature-changed-callers-updated-all-cppm",
   "title": "An exported function gains a parameter and every caller, the test's included, is updated",
   "category": "clean",
-  "project": "conformance/fixtures/mcpp-all-cppm",
+  "project": "tests/cts/fixtures/mcpp-all-cppm",
   "remove": [],
   "must": [
     {

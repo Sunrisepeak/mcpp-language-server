@@ -212,7 +212,7 @@ jobs:
   # BUILT ONCE, ON LINUX (ecosystem design 2026-10-29 §3.4): every platform's server program, tools and unit
   # tests are built here, the tests written as archives (`mcpp test --no-run --archive`, mcpp SPEC-015 §4) that
   # the `test` job runs on the platform's own system. The release rows also give the platform's test tools
-  # (stage/: the conformance runner, the mocks, devtools) that every later job of that platform runs. The
+  # (stage/: the conformance runner and its cases, the mocks, devtools) that every later job of that platform runs. The
   # targets are packaging/payload.lock.json's `server-target`s; `mcppls-devtools check platforms` holds this
   # matrix to them. `--workspace` cannot write an archive, so each package with tests writes its own.
   build:
@@ -252,11 +252,12 @@ jobs:
           set -euo pipefail
           mcpp build --profile ${{ matrix.profile }} --target ${{ matrix.target }}
           mcpp build -p devtools --profile ${{ matrix.profile }} --target ${{ matrix.target }}
+          mcpp build -p mcppls-cts --profile ${{ matrix.profile }} --target ${{ matrix.target }}
       - name: The executables are programs of ${{ matrix.target }}
         run: |
           set -euo pipefail
           mkdir -p stage
-          for exe in mcppls mcppls-conformance mcppls-lspgen mcppls-mock-mcpp mcppls-mock-model mcppls-devtools; do
+          for exe in mcppls mcppls-conformance mcppls-cts mcppls-lspgen mcppls-mock-mcpp mcppls-mock-model mcppls-devtools; do
             path=$(find target/${{ matrix.target }} -type f -name "$exe${{ matrix.exe }}" -path '*/bin/*' | head -1)
             [ -n "$path" ] || { echo "::error::no $exe was built"; exit 1; }
             file "$path"
@@ -827,51 +828,31 @@ jobs:
           retention-days: 7
 
   # ---------------------------------------------------------------------------
-  # The specifications' executable part, against real toolchains (conformance/README.md).
+  # The specifications' executable part, against real toolchains (tests/cts/README.md). The cases are the objects of
+  # tests/cts/conformance.cpp: each states the platforms it runs on (`on:<platform>`), what it holds and the client it
+  # is; a row runs the cases of its platform, Linux and Windows in two parts side by side (`--shard`, by the times the
+  # store keeps). `extras` marks the part that also runs the job's other checks (review fixtures, startup timing, the
+  # cached model, a linked workspace), which need running only once.
   conformance:
     name: conformance (${{ matrix.platform }}${{ matrix.part && format(', {0}', matrix.part) || '' }})
     needs: [payload, kits]
+    permissions:
+      contents: read
+      actions: read   # the stores main's last run kept, which divide the cases by time
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Linux and Windows run their fixtures in two parts side by side, balanced on measured
-          # times. `extras` marks the part that also runs the job's other checks (review fixtures,
-          # startup timing, the cached model, a linked workspace), which need running only once.
-          - platform: linux-x64
-            part: 1 of 2
-            os: ubuntu-24.04
-            fixtures: mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mingw mcpp-split-gcc mcpp-watch multi-root mcpp-llvm mcpp-build-programs mcpp-watch@polling mcpp-emit mcpp-rules-generated s1-two-sets compdb-lto-msvc failure-at-base@vscode generated-module-negotiated typing-import typing-import-spin workaround-canaries typing-autosave module-edit-autosave partial-scan-standins compdb-rejected-command compdb-mixed-standards mcpp-emit-partial mcpp-emit-partial-download compdb-midwrite xmake-basic xmake-late-config xmake-user-mode xmake-no-standard xmake-needs-download xmake-shared-tmp xmake-target-then-mode xmake-stale-state ux-modules-qt mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-target-selection@polling mcpp-producer-identity@polling mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve mcpp-watched-source-structure mcpp-autosave-import-typing
-          - platform: linux-x64
-            part: 2 of 2
-            os: ubuntu-24.04
-            extras: true
-            fixtures: inferred inferred-bom typing-pause module-fails-in-import save-plan build-discovery-off engine-none module-faults untrusted mcpp-gcc mcpp-gcc@plain mcpp-emit-package-std mcpp-emit-broken mcpp-emit-unavailable mcpp-emit-hang mcpp-emit-needs-download mcpp-emit-provisioned mcpp-emit-watch mcpp-emit-watch@polling mcpp-emit-edits mcpp-build-programs-cross cmake-clang cmake-clang-bdb cmake-fetchcontent-offline watch-polling payload-corrupt clangd-cannot-load generated-module generated-module@vscode generated-module-old-mcpp generated-module-old-mcpp@neovim module-faults@zed failure-at-base failure-at-base@neovim completion-keywords completion-templates diagnostic-bundle clangd-crash-context clangd-exit-strike clangd-crash-closure mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views format-explicit preparation-after-idle build-program-broken build-program-gated build-program-manual kit-openkal
-          # generated-module{,-old-mcpp,-negotiated}'s mcpp-mock.json bakes in a POSIX driver path
-          # (${env:HOME}/.mcpp/registry/..., no {exe}); it resolves the same way here as on Linux, so
-          # these run on macOS but are left off win32-x64 below rather than fixed unverified.
-          - platform: darwin-arm64
-            os: macos-15
-            extras: true
-            fixtures: inferred inferred-bom typing-pause module-fails-in-import save-plan build-discovery-off engine-none module-faults untrusted mcpp-llvm mcpp-build-programs mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-watch multi-root failure-at-base clangd-cannot-load failure-at-base@zed generated-module generated-module-old-mcpp generated-module-negotiated typing-import typing-import-spin workaround-canaries completion-keywords completion-templates diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context clangd-exit-strike clangd-crash-closure mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views format-explicit build-program-broken build-program-gated build-program-manual mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve mcpp-watched-source-structure mcpp-autosave-import-typing kit-openkal
-          # The arm64 row takes no mcpp: the server and mock producers are built on Linux. Most
-          # fixtures use the semantic kit; the SDK-free target fixtures probe distribution clang,
-          # installed below. Module faults, a corrupt payload and polling are included.
-          - platform: linux-arm64
-            os: ubuntu-24.04-arm
-            cross-tools: true
-            fixtures: inferred inferred-bom typing-pause module-fails-in-import build-discovery-off engine-none module-faults untrusted payload-corrupt clangd-cannot-load failure-at-base watch-polling typing-import typing-import-spin workaround-canaries completion-keywords completion-templates diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context clangd-exit-strike clangd-crash-closure inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve mcpp-watched-source-structure mcpp-autosave-import-typing kit-openkal
-          - platform: win32-x64
-            part: 1 of 2
-            os: windows-2022
-            fixtures: mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-split-msvc cmake-msvc-std compdb-clangxx-msvc-std multi-root compdb-clang-cl-std mcpp-llvm-msvc mcpp-build-programs failure-at-base@vscode typing-import typing-import-spin workaround-canaries typing-autosave module-edit-autosave partial-scan-standins ux-modules-windows mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-target-windows-real mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve mcpp-watched-source-structure mcpp-autosave-import-typing
-          - platform: win32-x64
-            part: 2 of 2
-            os: windows-2022
-            extras: true
-            fixtures: inferred inferred-bom typing-pause module-fails-in-import save-plan build-discovery-off engine-none module-faults mcpp-emit-hang inferred-msvc untrusted mingw cmake-msvc cmake-msvc-bdb cmake-clangxx-msvc cmake-clang-cl mcpp-msvc mcpp-watch failure-at-base clangd-cannot-load completion-keywords completion-templates diagnostic-bundle mcpp-emit-wait inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views format-explicit preparation-after-idle kit-openkal
+          - { platform: linux-x64, part: 1 of 2, shard: 1/2, os: ubuntu-24.04 }
+          - { platform: linux-x64, part: 2 of 2, shard: 2/2, os: ubuntu-24.04, extras: true }
+          - { platform: darwin-arm64, os: macos-15, extras: true }
+          # The arm64 row takes no mcpp: the server and mock producers are built on Linux. Most fixtures use the
+          # semantic kit; the SDK-free target fixtures probe distribution clang, installed below.
+          - { platform: linux-arm64, os: ubuntu-24.04-arm, cross-tools: true }
+          - { platform: win32-x64, part: 1 of 2, shard: 1/2, os: windows-2022 }
+          - { platform: win32-x64, part: 2 of 2, shard: 2/2, os: windows-2022, extras: true }
     defaults:
       run:
         shell: bash
@@ -879,20 +860,80 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mcpp
         if: '!matrix.cross-tools'
+      # The one payload, this platform's test tools, and its target kit installed as on a machine whose person agreed
+      # to install it: the fixtures read loose sources with this system's own target, as before the openkal kit.
+      - uses: ./.github/actions/payload
+        with:
+          platform: ${{ matrix.platform }}
+          kit: 'true'
+      # mtest runs the cases: the release .github/versions.env pins, its sha256 checked.
+      - name: mtest
+        run: |
+          set -euo pipefail
+          . .github/versions.env
+          archive="mtest-$MTEST_VERSION-openkal-bundle-all.tar.gz"
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/mcpp-community/mtest/releases/download/v$MTEST_VERSION/$archive"
+          python=python3; [ "$RUNNER_OS" = Windows ] && python=python
+          actual=$("$python" -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$RUNNER_TEMP/$archive")
+          [ "$actual" = "$MTEST_SHA256" ] || { echo "::error::$archive: sha256 $actual, versions.env says $MTEST_SHA256"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/mtest" && tar xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/mtest"
+          launcher="$RUNNER_TEMP/mtest/mtest-$MTEST_VERSION-openkal-bundle-all/bin/mtest"
+          [ "$RUNNER_OS" = Windows ] && launcher="$launcher.exe"
+          "$launcher" --version
+          echo "MTEST=$launcher" >> "$GITHUB_ENV"
+      # The store of the first attempt, so that a second runs only what failed.
+      - uses: actions/cache/restore@v6
+        id: attempt-store
+        with:
+          path: .mtest
+          key: conformance-mtest-${{ github.run_id }}-${{ matrix.platform }}-${{ matrix.part || 'full' }}-${{ github.run_attempt }}
+          restore-keys: conformance-mtest-${{ github.run_id }}-${{ matrix.platform }}-${{ matrix.part || 'full' }}-
+      # A first attempt takes the stores main's last successful run kept for this platform, every part's: both parts
+      # read the same history, so `--shard` divides the cases by measured time the same way in each. Without them the
+      # cases are divided by count, and this run's stores become the next run's history.
+      - name: The stores of main's last run
+        if: steps.attempt-store.outputs.cache-matched-key == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run=$(gh run list -R "$GITHUB_REPOSITORY" --workflow ci.yml --branch main --status success --limit 1 \
+                  --json databaseId -q '.[0].databaseId' 2>/dev/null || true)
+          [ -n "$run" ] || { echo "no successful run of main: the cases are divided by count"; exit 0; }
+          rm -rf "$RUNNER_TEMP/cts-stores"
+          if ! gh run download "$run" -R "$GITHUB_REPOSITORY" -p "conformance-mtest-${{ matrix.platform }}-*" -D "$RUNNER_TEMP/cts-stores" 2>/dev/null; then
+            echo "main's run $run kept no store for ${{ matrix.platform }}: the cases are divided by count"; exit 0
+          fi
+          for store in "$RUNNER_TEMP"/cts-stores/*/.mtest; do "$MTEST" store import --from "$store"; done
+      # The cases of this row: its platform's, in its part. The steps below install what they build with.
+      - name: The cases of this row
+        run: |
+          set -euo pipefail
+          exe=''; [ "$RUNNER_OS" != Windows ] || exe='.exe'
+          select=(--tag "on:${{ matrix.platform }}")
+          [ -z "${{ matrix.shard }}" ] || select+=(--shard "${{ matrix.shard }}")
+          echo "CTS_SELECT=${select[*]}" >> "$GITHUB_ENV"
+          echo "CTS=stage/mcppls-cts$exe" >> "$GITHUB_ENV"
+          "$MTEST" plan --json "${select[@]}" "stage/mcppls-cts$exe" > "$RUNNER_TEMP/cts-plan.json"
+          cases=$(jq -r '[.units[].cases[].case] | join(" ")' "$RUNNER_TEMP/cts-plan.json")
+          fixtures=$(jq -r '[.units[].cases[].case | split("@")[0]] | unique | join(" ")' "$RUNNER_TEMP/cts-plan.json")
+          echo "$cases" | tr ' ' '\n' | sed 's/^/  /'
+          echo "CTS_FIXTURES= $fixtures " >> "$GITHUB_ENV"
       - name: Toolchains the fixtures build with
         run: |
           set -euo pipefail
-          case " ${{ matrix.fixtures }} " in *" mcpp-gcc "*|*" mcpp-split-gcc "*|*" mingw "*) mcpp toolchain install gcc 16.1.0 ;; esac
+          case "$CTS_FIXTURES" in *" mcpp-gcc "*|*" mcpp-split-gcc "*|*" mingw "*) mcpp toolchain install gcc 16.1.0 ;; esac
           if [ "$RUNNER_OS" = Linux ]; then sudo apt-get update -q && sudo apt-get install -y -q ninja-build; fi
           # The native mock target fixtures need only a compiler probe and SDK-free module sources.
           # arm64 has no mcpp toolchain store; its distribution clang is sufficient for these fixtures.
           if [ "${{ matrix.cross-tools }}" = true ]; then sudo apt-get install -y -q clang; fi
           # ux-modules-qt: Qt 5's headers in module units' global module fragments, from the distribution.
-          case " ${{ matrix.fixtures }} " in *" ux-modules-qt "*) sudo apt-get install -y -q qtbase5-dev ;; esac
+          case "$CTS_FIXTURES" in *" ux-modules-qt "*) sudo apt-get install -y -q qtbase5-dev ;; esac
       # 0.0.8 part 2 X-7: the xmake fixtures run xmake itself (pinned in .github/versions.env, from xlings like every other
       # tool here) with GCC 16 first on PATH: xmake picks the compiler it finds, and only GCC 16 has libstdc++'s std module.
       - name: xmake and GCC 16 for the xmake fixtures
-        if: runner.os == 'Linux' && contains(matrix.fixtures, 'xmake-')
+        if: runner.os == 'Linux' && contains(env.CTS_FIXTURES, ' xmake-')
         run: |
           set -euo pipefail
           for package in "xmake@$XMAKE_VERSION" gcc@16.1.0; do
@@ -912,8 +953,8 @@ jobs:
         run: |
           set -euo pipefail
           wanted=no
-          for fixture in ${{ matrix.fixtures }}; do
-            grep -q '"requires-mcpp"' "conformance/fixtures/${fixture%@*}/scenario.json" 2>/dev/null && wanted=yes
+          for fixture in $CTS_FIXTURES; do
+            grep -q '"requires-mcpp"' "tests/cts/fixtures/$fixture/scenario.json" 2>/dev/null && wanted=yes
           done
           [ "$wanted" = yes ] || exit 0
           # From mcpp's own release, its checksum checked: the index snapshot the pinned xlings syncs can lag a new mcpp
@@ -959,10 +1000,9 @@ jobs:
           venv="$temp/specs/bin/python"; [ "$RUNNER_OS" = Windows ] && venv="$temp/specs/Scripts/python.exe"
           "$venv" -m pip install --quiet --disable-pip-version-check 'jsonschema>=4.18'
           envelopes=()
-          for fixture in ${{ matrix.fixtures }}; do
-            fixture=${fixture%@*}
+          for fixture in $CTS_FIXTURES; do
             case "$fixture" in mcpp-*) ;; *) continue ;; esac
-            source="conformance/fixtures/$fixture"
+            source="tests/cts/fixtures/$fixture"
             [ -f "$source/mcpp.toml" ] && [ ! -f "$source/mcpp-mock.json" ] || continue
             [ -e "$temp/mcpp-emit/$fixture.json" ] && continue
             mkdir -p "$temp/mcpp-emit" && cp -R "$source" "$temp/mcpp-emit/$fixture"
@@ -971,16 +1011,12 @@ jobs:
             envelopes+=("$temp/mcpp-emit/$fixture.json")
           done
           "$venv" docs/specs/tools/validate.py ${envelopes[@]+"${envelopes[@]}"} | grep -v '^PASS'
-      # cmake-clang-bdb and cmake-msvc-bdb need CMake's build-database export,
-      # which only merges correctly from CMake 4.4 on (usable plan W4, E16);
-      # these hosts' own CMake is the 3.31.6 the runner images ship, so a
-      # matching official build is installed just for those two fixtures.
-      # It is deliberately NOT put first on PATH for the whole job: CMake
-      # rotates its experimental-feature UUIDs on its own schedule, and
-      # cmake-msvc-std already pins 3.31.6's CMAKE_EXPERIMENTAL_CXX_IMPORT_STD
-      # UUID as its default, which differs under 4.4 (E1/E7-E11); each
-      # bdb fixture gets CMake 4.4.2 individually below instead.
-      - name: Cache CMake 4.4.2 (cmake-clang-bdb, cmake-msvc-bdb)
+      # cmake-clang-bdb, cmake-msvc-bdb and cmake-clang-cl need CMake 4.4 (the build-database export merges
+      # correctly from 4.4 on, usable plan W4, E16; clang-cl module scanning, W1.8); these hosts' own CMake is the
+      # 3.31.6 the runner images ship. Each states it (`requires-cmake`, CONFORMANCE_CMAKE), and the runner puts
+      # this CMake first on the PATH of that fixture's prepare steps only: CMake rotates its experimental-feature
+      # UUIDs, and cmake-msvc-std pins 3.31.6's CMAKE_EXPERIMENTAL_CXX_IMPORT_STD UUID (E1/E7-E11).
+      - name: Cache CMake 4.4.2 (cmake-clang-bdb, cmake-msvc-bdb, cmake-clang-cl)
         if: matrix.platform == 'linux-x64' || matrix.platform == 'win32-x64'
         id: cmake-bdb-cache
         uses: actions/cache@v6
@@ -1017,45 +1053,11 @@ jobs:
           Set-Content -Path "$env:RUNNER_TEMP\capture-msvc.cmd" -Value "@call `"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul`r`n@set"
           cmd /d /c "$env:RUNNER_TEMP\capture-msvc.cmd" | Out-File -Encoding utf8 "$env:RUNNER_TEMP\msvc.env"
           Select-String -Path "$env:RUNNER_TEMP\msvc.env" -Pattern '^(VCToolsInstallDir|WindowsSDKVersion)='
-          # A second snapshot, only for cmake-msvc-bdb and cmake-clang-cl: the same developer
-          # environment with CMake 4.4.2 first on PATH, so that fixture's own
-          # prepare steps use it while every other MSVC fixture keeps using
-          # the runner's own CMake untouched.
-          $env:PATH = "$env:RUNNER_TEMP\cmake-4.4.2\bin;$env:PATH"
-          cmd /d /c "$env:RUNNER_TEMP\capture-msvc.cmd" | Out-File -Encoding utf8 "$env:RUNNER_TEMP\msvc-bdb.env"
-      # The one payload, this platform's test tools, and its target kit installed as on a machine whose person agreed
-      # to install it: the fixtures read loose sources with this system's own target, as before the openkal kit.
-      - uses: ./.github/actions/payload
-        with:
-          platform: ${{ matrix.platform }}
-          kit: 'true'
       - name: The packaged mock producer starts on this host
         run: |
           set -euo pipefail
           exe=''; [ "$RUNNER_OS" != Windows ] || exe='.exe'
           "stage/mcppls-mock-mcpp$exe" --protocol-version
-      # mtest runs the fixtures (mtest.toml): the release .github/versions.env pins, its sha256 checked.
-      - name: mtest
-        run: |
-          set -euo pipefail
-          . .github/versions.env
-          archive="mtest-$MTEST_VERSION-openkal-bundle-all.tar.gz"
-          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$RUNNER_TEMP/$archive" \
-            "https://github.com/mcpp-community/mtest/releases/download/v$MTEST_VERSION/$archive"
-          python=python3; [ "$RUNNER_OS" = Windows ] && python=python
-          actual=$("$python" -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$RUNNER_TEMP/$archive")
-          [ "$actual" = "$MTEST_SHA256" ] || { echo "::error::$archive: sha256 $actual, versions.env says $MTEST_SHA256"; exit 1; }
-          mkdir -p "$RUNNER_TEMP/mtest" && tar xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/mtest"
-          launcher="$RUNNER_TEMP/mtest/mtest-$MTEST_VERSION-openkal-bundle-all/bin/mtest"
-          [ "$RUNNER_OS" = Windows ] && launcher="$launcher.exe"
-          "$launcher" --version
-          echo "MTEST=$launcher" >> "$GITHUB_ENV"
-      # The store of the first attempt, so that a second runs only what failed.
-      - uses: actions/cache/restore@v6
-        with:
-          path: .mtest
-          key: conformance-mtest-${{ github.run_id }}-${{ matrix.platform }}-${{ matrix.part || 'full' }}-${{ github.run_attempt }}
-          restore-keys: conformance-mtest-${{ github.run_id }}-${{ matrix.platform }}-${{ matrix.part || 'full' }}-
       - name: Run the fixtures
         env:
           # LLVM_VERSION (.github/versions.env) is put in below: one pin for the toolchain and this path.
@@ -1074,23 +1076,29 @@ jobs:
             export CONFORMANCE_CLANGXX
             "$CONFORMANCE_CLANGXX" --version
           fi
-          # Each fixture is a program of mtest (mtest.toml): `bash .github/scripts/run-fixture.sh <fixture>`, which
-          # gives it its variant's flags, CMake 4.4.2 where it needs it and its measures. A second attempt of this
-          # job runs only the fixtures that failed in the first (the store is kept between attempts, below).
-          export CONFORMANCE_MEASURES="$RUNNER_TEMP/conformance-measures"
-          programs=()
-          for fixture in ${{ matrix.fixtures }}; do programs+=("bash .github/scripts/run-fixture.sh $fixture"); done
+          # The cases of this row (above), each in a process of its own and two at a time; a case that holds the
+          # machine runs alone. A failing case runs once more with the server's log, kept in the store and named by
+          # `mtest explain` (the cases' `diagnose`). A second attempt of this job runs only the cases that failed.
+          export MCPPLS_CTS_MEASURES="$RUNNER_TEMP/conformance-measures" MCPPLS_CTS_BUNDLES="$RUNNER_TEMP/bundles"
+          export MCPPLS_CTS_EVIDENCE="$RUNNER_TEMP/evidence"
+          if [ "$RUNNER_OS" = Windows ]; then
+            export MCPPLS_CTS_MSVC_ENV="$RUNNER_TEMP/msvc.env" CONFORMANCE_CMAKE="$RUNNER_TEMP/cmake-4.4.2/bin/cmake.exe"
+          elif [ "${{ matrix.platform }}" = linux-x64 ]; then
+            export CONFORMANCE_CMAKE="$RUNNER_TEMP/cmake-4.4.2/bin/cmake"
+          fi
           status=0
           if [ "${{ github.run_attempt }}" -gt 1 ] && [ -f .mtest/index.ndjson ]; then
-            "$MTEST" rerun --junit "$RUNNER_TEMP/conformance.xml" "${programs[@]}" || status=$?
+            "$MTEST" rerun --junit "$RUNNER_TEMP/conformance.xml" "$CTS" || status=$?
           else
-            "$MTEST" run --jobs "${CONFORMANCE_JOBS:-1}" --junit "$RUNNER_TEMP/conformance.xml" "${programs[@]}" || status=$?
+            # shellcheck disable=SC2086 # CTS_SELECT is words
+            "$MTEST" run --isolate --jobs "${CONFORMANCE_JOBS:-2}" --junit "$RUNNER_TEMP/conformance.xml" $CTS_SELECT "$CTS" || status=$?
           fi
           if [ "$status" != 0 ]; then
             "$MTEST" explain || true
-            # The first failure again with the server's log, for the record.
-            first=$("$MTEST" explain --json | jq -r '.cases[0].program // empty')
-            [ -n "$first" ] && bash .github/scripts/run-fixture.sh "${first##* }" --timeout 60 --verbose 2>&1 | tail -200 || true
+            for out in .mtest/runs/*/diagnoses/*/out.txt; do
+              [ -f "$out" ] || continue
+              echo "::group::diagnosis $(dirname "$out")"; tail -200 "$out"; echo "::endgroup::"
+            done
             exit 1
           fi
 
@@ -1125,14 +1133,14 @@ jobs:
           if-no-files-found: ignore
 
       - uses: actions/upload-artifact@v7
-        if: always() && contains(matrix.fixtures, 'mcpp-target-windows-real')
+        if: always() && contains(env.CTS_FIXTURES, ' mcpp-target-windows-real ')
         with:
           name: real-mcpp-target-cdb-${{ matrix.platform }}
           path: |
-            ${{ runner.temp }}/mcpp-target-windows-real-*/workspace/mcpp-target-windows-real/recorded-*.json
-            ${{ runner.temp }}/mcpp-target-windows-real-*/workspace/mcpp-target-windows-real/compile_commands.json
-            ${{ runner.temp }}/mcpp-target-windows-real-*/cache/logs/*.log
-            ${{ runner.temp }}/mcpp-target-windows-real-*/cache/workspaces/**/model.mcpp.json
+            ${{ runner.temp }}/evidence/mcpp-target-windows-real*/workspace/mcpp-target-windows-real/recorded-*.json
+            ${{ runner.temp }}/evidence/mcpp-target-windows-real*/workspace/mcpp-target-windows-real/compile_commands.json
+            ${{ runner.temp }}/evidence/mcpp-target-windows-real*/cache/logs/*.log
+            ${{ runner.temp }}/evidence/mcpp-target-windows-real*/cache/workspaces/**/model.mcpp.json
           if-no-files-found: ignore
 
       # Issue #23 fix plan F18: the bundles diagnostic-bundle exported on this runner's own account, whose
@@ -1140,7 +1148,7 @@ jobs:
       # to its manifest and found no user name and no home directory in it; here another program's zip
       # reader opens them and checks every entry's CRC, and they are kept to look at.
       - name: The diagnostic bundles open with another program's zip reader
-        if: always() && contains(matrix.fixtures, 'diagnostic-bundle')
+        if: always() && contains(env.CTS_FIXTURES, ' diagnostic-bundle ')
         env:
           PYTHONUTF8: '1'
         run: |
@@ -1152,7 +1160,7 @@ jobs:
           [ ${#bundles[@]} -gt 0 ] || { echo "::error::diagnostic-bundle left no bundle"; exit 1; }
           for bundle in "${bundles[@]}"; do "$python" -m zipfile -t "$bundle"; "$python" -m zipfile -l "$bundle"; done
       - uses: actions/upload-artifact@v7
-        if: always() && contains(matrix.fixtures, 'diagnostic-bundle')
+        if: always() && contains(env.CTS_FIXTURES, ' diagnostic-bundle ')
         with:
           name: diagnostic-bundle-${{ matrix.platform }}
           path: ${{ runner.temp }}/bundles/*.zip
@@ -1185,7 +1193,7 @@ jobs:
           rm -rf "$cached"
           start() {
             stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload \
-                --fixture conformance/fixtures/mcpp-emit --workspace-dir "$cached/workspace" \
+                --fixture tests/cts/fixtures/mcpp-emit --workspace-dir "$cached/workspace" \
                 --cache-dir "$cached/cache" --timeout 180 "$@"
           }
           start
@@ -1199,7 +1207,7 @@ jobs:
           timing="$RUNNER_TEMP/timing"
           rm -rf "$timing"
           start() {
-            "stage/mcppls-conformance$exe" run --server "payload/bin/mcppls.okb" --payload payload --fixture conformance/fixtures/timing \
+            "stage/mcppls-conformance$exe" run --server "payload/bin/mcppls.okb" --payload payload --fixture tests/cts/fixtures/timing \
                 --workspace-dir "$timing/workspace" --cache-dir "$timing/cache" --timeout 120 "$@"
           }
           start --measure "$timing/cold.json" --navigation-budget 15
@@ -1225,7 +1233,7 @@ jobs:
           ln -sfn "$RUNNER_TEMP/real" "$RUNNER_TEMP/link"
           for fixture in mcpp-llvm reset-cache; do
             TMPDIR="$RUNNER_TEMP/link" stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload \
-                --fixture "conformance/fixtures/$fixture" --timeout 180
+                --fixture "tests/cts/fixtures/$fixture" --timeout 180
           done
 
   # ---------------------------------------------------------------------------
@@ -1334,7 +1342,7 @@ jobs:
           for mode in seccomp noseccomp; do
             echo "::group::report ($mode)"
             work="$RUNNER_TEMP/report-$mode"
-            rm -rf "$work" && mkdir -p "$work" && cp -R conformance/fixtures/inferred "$work/project"
+            rm -rf "$work" && mkdir -p "$work" && cp -R tests/cts/fixtures/inferred "$work/project"
             rm -f "$work/project/scenario.json"
             MCPPLS_CACHE_DIR="$work/cache" "$RUNNER_TEMP/proot/mcppls-$mode" report --root "$work/project" \
                 --settle 20 --payload "$PWD/payload" > "$work/report.json" 2> "$work/report.err"
@@ -1359,7 +1367,7 @@ jobs:
               # The polling fallback runs only when the client never declares dynamic watching.
               case "$fixture" in watch-polling) extra+=(--no-dynamic-watch) ;; esac
               if ! stage/mcppls-conformance run --server "$RUNNER_TEMP/proot/mcppls-$mode" --payload payload \
-                     ${extra[@]+"${extra[@]}"} --fixture "conformance/fixtures/$fixture" --timeout 180; then
+                     ${extra[@]+"${extra[@]}"} --fixture "tests/cts/fixtures/$fixture" --timeout 180; then
                 failed="$failed $fixture@$mode"
               fi
               echo "::endgroup::"
@@ -1369,7 +1377,7 @@ jobs:
             echo "::error::failed under proot:$failed"
             first=${failed# }; first=${first%% *}; mode=${first#*@}
             stage/mcppls-conformance run --server "$RUNNER_TEMP/proot/mcppls-$mode" --payload payload \
-                --fixture "conformance/fixtures/${first%@*}" --timeout 60 --verbose 2>&1 | tail -200 || true
+                --fixture "tests/cts/fixtures/${first%@*}" --timeout 60 --verbose 2>&1 | tail -200 || true
             exit 1
           fi
       # The editor's own suite, on the server under proot (the extension reads MCPPLS_SERVER; see
@@ -1402,7 +1410,7 @@ jobs:
           [ "$after" -gt "$before" ]
 
   # ---------------------------------------------------------------------------
-  # User-experience scenarios (0.0.7 plan 6.4, conformance/README.md "Scenario checks"): the mcpp and xlings
+  # User-experience scenarios (0.0.7 plan 6.4, tests/cts/README.md "Scenario checks"): the mcpp and xlings
   # repositories at pinned commits, a person's first minutes and worst moments with them, on the size of
   # machine the plan measures against: this runner's 4 vCPU and 16 GB are the `taskset -c 0-3` tier of a
   # developer's laptop. The budgets in the fixtures are the merge gate. Each stage is a run of the fixture
@@ -1458,7 +1466,7 @@ jobs:
             local name="$1" cache="$2"; shift 2
             echo "::group::${{ matrix.fixture }} $name"
             if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload \
-                --fixture conformance/fixtures/${{ matrix.fixture }} --workspace-dir "$work/workspace" --cache-dir "$work/$cache" \
+                --fixture tests/cts/fixtures/${{ matrix.fixture }} --workspace-dir "$work/workspace" --cache-dir "$work/$cache" \
                 --stage "$name" --timeout 900 --measure "$results/${{ matrix.fixture }}-$name.json" "$@"; then
               failed="$failed $name"
             fi
@@ -1554,7 +1562,7 @@ jobs:
               if command -v "$tool"; then echo "::error::$tool is on PATH"; exit 1; fi
             done
             stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload \
-                --fixture conformance/fixtures/inferred-discover --timeout 180'
+                --fixture tests/cts/fixtures/inferred-discover --timeout 180'
       - name: The extension in the same kind of container
         if: runner.os == 'Linux'
         timeout-minutes: 40
@@ -1594,7 +1602,7 @@ jobs:
             if command -v "$tool"; then echo "::error::$tool is still visible"; exit 1; fi
           done
           stage/mcppls-conformance.exe run --server payload/bin/mcppls.okb --payload payload \
-              --fixture conformance/fixtures/inferred-discover --timeout 180
+              --fixture tests/cts/fixtures/inferred-discover --timeout 180
           # The packaged extension with the same machine view; node stays reachable for the test runner.
           # Git's /usr/bin goes first: npm starts through `env bash`, and System32's bash.exe is WSL's.
           export PATH="/usr/bin:$(dirname "$NODE_PATH_FOR_E2E"):/c/Windows/system32:/c/Windows:/c/Windows/System32/Wbem"
@@ -1614,7 +1622,7 @@ jobs:
             echo "::error::developer tools are still visible"; exit 1
           fi
           stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload \
-              --fixture conformance/fixtures/inferred-no-sdk --timeout 120
+              --fixture tests/cts/fixtures/inferred-no-sdk --timeout 120
           cd editors/vscode
           MCPPLS_E2E_VSIX="$RUNNER_TEMP/mcpp-language-server.vsix" MCPPLS_E2E_ONLY=sdk-missing.test.js MCPPLS_E2E_EXPECT_SDK_MISSING=1 npm test
 

@@ -85,7 +85,7 @@ jobs:
           for round in 1 2 3; do
             for start in cold warm; do
               warm=(); [ "$start" = warm ] && warm=(--expect-warm)
-              "stage/mcppls-conformance$exe" run --server "payload/bin/mcppls.okb" --payload payload --fixture conformance/fixtures/timing \
+              "stage/mcppls-conformance$exe" run --server "payload/bin/mcppls.okb" --payload payload --fixture tests/cts/fixtures/timing \
                   --workspace-dir "$RUNNER_TEMP/timing-$round/workspace" --cache-dir "$RUNNER_TEMP/timing-$round/cache" --timeout 120 \
                   --measure "$results/$start-$round.json" ${warm[@]+"${warm[@]}"}
             done
@@ -127,7 +127,7 @@ jobs:
           failed=''
           for fixture in mcpp-gcc mcpp-llvm mcpp-watch; do
             echo "::group::$fixture"
-            if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture "conformance/fixtures/$fixture" --timeout 180; then
+            if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture "tests/cts/fixtures/$fixture" --timeout 180; then
               failed="$failed $fixture"
             fi
             echo "::endgroup::"
@@ -178,7 +178,7 @@ jobs:
           apt-get install -y -q --no-install-recommends jq ca-certificates
           cd /work
           work=/tmp/termux-report
-          rm -rf "$work" && mkdir -p "$work" && cp -R conformance/fixtures/inferred "$work/project"
+          rm -rf "$work" && mkdir -p "$work" && cp -R tests/cts/fixtures/inferred "$work/project"
           rm -f "$work/project/scenario.json"
           MCPPLS_CACHE_DIR="$work/cache" payload/libexec/okrun/linux-aarch64/okrun payload/bin/mcppls.okb report --root "$work/project" \
               --settle 20 --payload /work/payload > "$work/report.json" 2> "$work/report.err"
@@ -192,7 +192,7 @@ jobs:
           [ "$state" = ready ]
           for fixture in inferred typing-import; do
             stage/mcppls-conformance run --server /work/payload/bin/mcppls.okb --payload /work/payload \
-                --fixture "conformance/fixtures/$fixture" --timeout 300
+                --fixture "tests/cts/fixtures/$fixture" --timeout 300
           done
           EOF
           cat > "$RUNNER_TEMP/in-termux.sh" <<'EOF'
@@ -270,9 +270,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/self"
-          if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture conformance/fixtures/${{ matrix.fixture }} \
+          if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture tests/cts/fixtures/${{ matrix.fixture }} \
                 --timeout 900 --measure "$RUNNER_TEMP/self/${{ matrix.fixture }}.json"; then
-            stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture conformance/fixtures/${{ matrix.fixture }} \
+            stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture tests/cts/fixtures/${{ matrix.fixture }} \
                 --timeout 300 --verbose 2>&1 | tail -300 || true
             exit 1
           fi
@@ -331,7 +331,7 @@ jobs:
             local name="$1" cache="$2"; shift 2
             echo "::group::ux-mcpp ${{ matrix.platform }} $name"
             if ! "stage/mcppls-conformance$exe" run --server payload/bin/mcppls.okb --payload payload \
-                --fixture conformance/fixtures/ux-mcpp --workspace-dir "$work/workspace" --cache-dir "$work/$cache" \
+                --fixture tests/cts/fixtures/ux-mcpp --workspace-dir "$work/workspace" --cache-dir "$work/$cache" \
                 --stage "$name" --timeout 900 --measure "$results/ux-mcpp-${{ matrix.platform }}-$name.json" "$@"; then
               failed="$failed $name"
             fi
@@ -445,7 +445,7 @@ jobs:
             mkdir -p "$into" "$space"
             echo "::group::${{ matrix.fixture }} ${{ matrix.round }} $label"
             if ! ${pin[@]+"${pin[@]}"} stage/mcppls-conformance run --server "$payload/$(jq -r .server.path "$payload/payload.json")" --payload "$payload" \
-                --fixture conformance/fixtures/${{ matrix.fixture }} --workspace-dir "$space/workspace" --cache-dir "$space/$cache" \
+                --fixture tests/cts/fixtures/${{ matrix.fixture }} --workspace-dir "$space/workspace" --cache-dir "$space/$cache" \
                 --stage "$name" --timeout 900 --measure "$into/${{ matrix.fixture }}-${{ matrix.round }}-$name$suffix.json" "$@"; then
               if [ "$server" = this ]; then failed="$failed $name$suffix"; else echo "::warning::the baseline failed $name$suffix"; fi
               # Keep the original failed stage's complete server logs before later

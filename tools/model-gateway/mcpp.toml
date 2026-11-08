@@ -38,6 +38,6 @@ mcpplibs.tinyhttps.workspace   = true
 # The tests spawn a gateway and talk to it over pipes, against a mock provider on a loopback
 # socket: the process and loopback facilities every other program here uses.
 [dev-dependencies]
-mcppls-testing  = { path = "../../modules/testing" }
+mcpplibs.mtest.workspace = true
 mcppls-base     = { path = "../../modules/base" }
 mcpplibs.os.workspace = true

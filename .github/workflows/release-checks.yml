@@ -138,10 +138,10 @@ jobs:
           for server in "$t/server" "$plugin/payload"; do
             "$server/$(jq -r '.platforms["${{ matrix.platform }}"].runner' "$server/payload.json")" "$server/bin/mcppls.okb" --version
             "stage/mcppls-conformance${{ matrix.exe }}" run --server "$server/bin/mcppls.okb" --payload "$server" \
-                --fixture conformance/fixtures/inferred --timeout 180
+                --fixture tests/cts/fixtures/inferred --timeout 180
             # The status a program reads (S3 section 8), from the installed payload.
             "$server/$(jq -r '.platforms["${{ matrix.platform }}"].runner' "$server/payload.json")" "$server/bin/mcppls.okb" \
-                status --root conformance/fixtures/inferred --format json | jq -e '.schema == 1 and (.capabilities | index("status"))'
+                status --root tests/cts/fixtures/inferred --format json | jq -e '.schema == 1 and (.capabilities | index("status"))'
           done
 
           "$dev" uninstall --editor zed "${where[@]}"
@@ -195,7 +195,7 @@ jobs:
               warm=(); [ "$start" = warm ] && warm=(--expect-warm)
               python3 .github/scripts/timing_evidence.py --output "$results/evidence/$start-$round" -- \
                   "stage/mcppls-conformance${{ matrix.exe }}" run --server "payload/bin/mcppls.okb" --payload payload \
-                  --fixture conformance/fixtures/timing \
+                  --fixture tests/cts/fixtures/timing \
                   --workspace-dir "$RUNNER_TEMP/timing-$round/workspace" --cache-dir "$RUNNER_TEMP/timing-$round/cache" \
                   --timeout 120 --measure "$results/$start-$round.json" ${warm[@]+"${warm[@]}"}
             done
@@ -222,7 +222,7 @@ jobs:
             warm=(); [ "$start" = warm ] && warm=(--expect-warm)
             status=0
             "stage/mcppls-conformance${{ matrix.exe }}" run --server "payload/bin/mcppls.okb" --payload payload \
-                --fixture conformance/fixtures/ux-modules-windows-large --msvc-env "$RUNNER_TEMP/msvc.env" \
+                --fixture tests/cts/fixtures/ux-modules-windows-large --msvc-env "$RUNNER_TEMP/msvc.env" \
                 --workspace-dir "$RUNNER_TEMP/large/workspace" --cache-dir "$RUNNER_TEMP/large/cache" \
                 --timeout 900 --measure "$large/$start.json" --verbose ${warm[@]+"${warm[@]}"} > "$large/$start.log" 2>&1 || status=$?
             grep -E '^(PASS|FAIL) |failure\(s\)' "$large/$start.log" > "$large/$start-checks.txt" || true
@@ -269,9 +269,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/self"
-          if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture conformance/fixtures/self-mcpp \
+          if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture tests/cts/fixtures/self-mcpp \
                 --timeout 900 --measure "$RUNNER_TEMP/self/self-mcpp.json"; then
-            stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture conformance/fixtures/self-mcpp \
+            stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture tests/cts/fixtures/self-mcpp \
                 --timeout 300 --verbose 2>&1 | tail -300 || true
             exit 1
           fi
@@ -280,9 +280,9 @@ jobs:
       - name: mcppls on its own repository, timed
         run: |
           set -euo pipefail
-          if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture conformance/fixtures/self-mcppls \
+          if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture tests/cts/fixtures/self-mcppls \
                 --timeout 900 --measure "$RUNNER_TEMP/self/self-mcppls.json"; then
-            stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture conformance/fixtures/self-mcppls \
+            stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture tests/cts/fixtures/self-mcppls \
                 --timeout 300 --verbose 2>&1 | tail -300 || true
             exit 1
           fi
@@ -294,9 +294,9 @@ jobs:
           set -euo pipefail
           xlings install mcpp@2026.8.8.4 -y -g
           xlings use mcpp "$MCPP_VERSION"
-          if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture conformance/fixtures/real-xlings-old-mcpp \
+          if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture tests/cts/fixtures/real-xlings-old-mcpp \
                 --timeout 900 --measure "$RUNNER_TEMP/self/real-xlings-old-mcpp.json"; then
-            stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture conformance/fixtures/real-xlings-old-mcpp \
+            stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture tests/cts/fixtures/real-xlings-old-mcpp \
                 --timeout 300 --verbose 2>&1 | tail -300 || true
             exit 1
           fi
@@ -373,7 +373,7 @@ jobs:
               scratch="$RUNNER_TEMP/stability-scratch/$key"
               if ! python3 .github/scripts/stability_evidence.py --output "$evidence/$key" --scratch "$scratch" -- \
                     "stage/mcppls-conformance${{ matrix.exe }}" run --server "payload/bin/mcppls.okb" --payload payload \
-                    ${extra[@]+"${extra[@]}"} --fixture "conformance/fixtures/${fixture%@*}" --timeout 180 \
+                    ${extra[@]+"${extra[@]}"} --fixture "tests/cts/fixtures/${fixture%@*}" --timeout 180 \
                     --workspace-dir "$scratch/workspace" --cache-dir "$scratch/cache" --keep --measure "$scratch/measure.json"; then
                 failed="$failed $round:$fixture"
               fi

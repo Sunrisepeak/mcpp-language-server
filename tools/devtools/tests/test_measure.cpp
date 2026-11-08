@@ -1,6 +1,6 @@
 // timing_summary.py, ported: medians over cold-*.json / warm-*.json in a directory.
 import std;
-import mcppls.testing;
+import mcpplibs.mtest;
 import mcppls.base.path;
 import mcppls.devtools.measure;
 import mcpplibs.os;
@@ -24,7 +24,7 @@ std::string scratch(std::string_view name) {
 } // namespace
 
 int main() {
-    using namespace mcppls::testing;
+    using namespace mcpplibs::mtest;
 
     "the scenarios' numbers are gathered over every run, at any depth, for budgets (U-*)"_test = [&] {
         const std::string directory { scratch("budgets") };

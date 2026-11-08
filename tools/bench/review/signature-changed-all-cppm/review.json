@@ -2,7 +2,7 @@
   "id": "signature-changed-all-cppm",
   "title": "An exported function of a partition gains a parameter; its callers in importers are not updated",
   "category": "interface-break",
-  "project": "conformance/fixtures/mcpp-all-cppm",
+  "project": "tests/cts/fixtures/mcpp-all-cppm",
   "remove": [],
   "must": [
     {

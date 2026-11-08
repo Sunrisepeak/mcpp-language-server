@@ -1,9 +1,9 @@
 // The repository invariants (tooling architecture §7): os-surface, layers, versions and scripts
-// are exercised against the REAL checkout (found the same way tests/test_spec.cpp finds it), which
+// are exercised against the REAL checkout (found the same way tests/unit/test_spec.cpp finds it), which
 // doubles as an acceptance check that this tree currently satisfies its own rules; `binary` is
 // exercised against small synthetic files, since it only ever reads bytes.
 import std;
-import mcppls.testing;
+import mcpplibs.mtest;
 import mcppls.base.path;
 import mcppls.devtools.check;
 import mcpplibs.os;
@@ -42,7 +42,7 @@ void print_problems(const check::Report& report) {
 } // namespace
 
 int main() {
-    using namespace mcppls::testing;
+    using namespace mcpplibs::mtest;
     const std::string root { repository_root() };
 
     "os-surface: no source of this tree includes a header or branches on the platform in the preprocessor"_test = [&] {

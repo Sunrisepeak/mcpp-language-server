@@ -3,7 +3,7 @@
 // write the xlings-res archives, render the .lua descriptors) the real release job runs, without
 // touching the real checkout or the network.
 import std;
-import mcppls.testing;
+import mcpplibs.mtest;
 import mcppls.base.path;
 import mcppls.pack.archive;
 import mcppls.pack.release;
@@ -84,7 +84,7 @@ std::string make_root() {
 } // namespace
 
 int main() {
-    using namespace mcppls::testing;
+    using namespace mcpplibs::mtest;
 
     "release check: a staged directory matching the manifest passes, its kits named by the lock"_test = [&] {
         const std::string root { make_root() };

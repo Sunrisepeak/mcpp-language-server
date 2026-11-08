@@ -42,7 +42,7 @@ struct StressRow {
                         // run mcppls-conformance itself could not finish, one with no stress check
 };
 
-// The stress check inside one fixture's `--measure` JSON (conformance/README.md): the first check
+// The stress check inside one fixture's `--measure` JSON (tests/cts/README.md): the first check
 // of kind "stress", whose "detail" is the summary this program's own conformance runner dumped as
 // JSON text (src/bin/conformance.cpp). A measure document with no stress check is a failure here:
 // a fixture named in the matrix but whose scenario carries no stress check is a mistake to report,

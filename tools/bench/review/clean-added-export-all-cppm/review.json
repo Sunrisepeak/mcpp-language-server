@@ -2,7 +2,7 @@
   "id": "clean-added-export-all-cppm",
   "title": "A partition exports a new function, and nothing else changes",
   "category": "clean",
-  "project": "conformance/fixtures/mcpp-all-cppm",
+  "project": "tests/cts/fixtures/mcpp-all-cppm",
   "remove": [],
   "must": [
     {

@@ -3,14 +3,14 @@
 // running the command itself against a payload, which a unit test cannot assume it has).
 import std;
 import nlohmann.json;
-import mcppls.testing;
+import mcpplibs.mtest;
 import mcppls.devtools.stress;
 
 namespace stress = mcppls::devtools::stress;
 using Json = nlohmann::json;
 
 int main() {
-    using namespace mcppls::testing;
+    using namespace mcpplibs::mtest;
 
     "the matrix is fixtures times clients, in order, with duplicates dropped"_test = [&] {
         auto specs = stress::matrix({ "inferred", "module-faults", "inferred" }, {}, { "vscode", "plain", "vscode" });

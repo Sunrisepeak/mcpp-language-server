@@ -76,7 +76,7 @@ each row names its kit (`mcppls-devtools check platforms`).
 |---|---|
 | Unit tests | `mcpp test`, `mcpp test --workspace` |
 | Repository invariants | `mcpp run -p devtools -- check all` |
-| A conformance fixture | `mcppls-conformance run --server … --payload … --fixture conformance/fixtures/<name>` ([conformance/README.md](../conformance/README.md)) |
+| A conformance fixture | `mcppls-conformance run --server … --payload … --fixture tests/cts/fixtures/<name>` ([tests/cts/README.md](../tests/cts/README.md)) |
 | Review fixtures (precision, recall) | `mcpp run -p devtools -- bench review --server … --payload … --mock-model …` |
 | Agent task benchmark, baseline and reference | `mcpp run -p devtools -- bench tasks validate` |
 | Semantic tokens of a large file against its first completion, and the bytes of an edit | `mcpp run -p devtools -- bench tokens --server … --payload … [--out NEW.json] [--compare OLD.json]` |

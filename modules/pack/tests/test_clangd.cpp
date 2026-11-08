@@ -9,7 +9,7 @@
 
 import std;
 import mcpplibs.mwrap.libarchive;
-import mcppls.testing;
+import mcpplibs.mtest;
 import mcppls.base.path;
 import mcppls.pack.clangd;
 import mcppls.pack.fetch;
@@ -114,7 +114,7 @@ int main(int argc, char* argv[]) {
         std::println("clangd version 23.1.0 (fixture)");
         return 0;
     }
-    using namespace mcppls::testing;
+    using namespace mcpplibs::mtest;
 
     const std::string work { scratch_dir() };
     const auto lockData = platforms_lock();

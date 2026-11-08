@@ -1,7 +1,7 @@
 // Installing into and removing from Zed and CLion, against scratch directories standing in for
 // their data directories (mcppls.devtools.editors).
 import std;
-import mcppls.testing;
+import mcpplibs.mtest;
 import mcppls.base.path;
 import mcppls.pack.archive;
 import mcppls.devtools.editors;
@@ -36,7 +36,7 @@ std::string zed_source(const std::string& root, std::string_view id = "mcppls") 
 } // namespace
 
 int main() {
-    using namespace mcppls::testing;
+    using namespace mcpplibs::mtest;
 
     "zed: install leaves the extension under installed/, remove takes it and its work directory"_test = [&] {
         std::error_code ignored;

@@ -2,7 +2,7 @@
   "id": "unresolved-import-all-cppm",
   "title": "A program imports a module nothing provides",
   "category": "build-description",
-  "project": "conformance/fixtures/mcpp-all-cppm",
+  "project": "tests/cts/fixtures/mcpp-all-cppm",
   "remove": [],
   "must": [
     {
