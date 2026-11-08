@@ -401,7 +401,7 @@ def mcpp_contract(name, doc):
     check(f"mcpp {name}: mcpp:core provides the engine interface, mcpp and mcpp.core",
           all({"mcpp", "mcpp.core"} <= {m for tu in s["translation-units"] for m in tu.get("provides", {})} for s in core))
 
-for mock in sorted((repository / "conformance" / "fixtures").glob("*/mcpp-mock.json")):
+for mock in sorted((repository / "tests" / "cts" / "fixtures").glob("*/mcpp-mock.json")):
     data = load(mock)
     if "database" not in data:
         continue
