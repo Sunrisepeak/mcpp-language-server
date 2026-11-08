@@ -39,6 +39,11 @@ with zlib writes. Built with mcpp 2026.11.7.2 over openkal-platform 0.24.4 and m
 
 ### Fixed
 
+- **MSVC installed outside Program Files** (#81). The image's engine is given the directories of the MSVC
+  toolchain and the Windows SDK a command selects (`-Xmicrosoft-visualc-tools-root`, `-Xmicrosoft-windows-sdk-root`
+  and clang-cl's `/winsysroot`, `/vctoolsdir`, `/winsdkdir`), so a Visual Studio under `D:/VisualStudio2026` has
+  its headers read: 0.0.20 gave the engine only its `modules/` directory, and `vcruntime.h`, `excpt.h` and the
+  STL's headers were not found, `std` became a stand-in.
 - **A line logged while the process ends.** The log's state is never destroyed, so a detached thread (a daemon's
   connection, a reader of a child's output) that writes a line after `main` returns finds it whole; such a write
   ended a test image on Linux arm64 with SIGSEGV.

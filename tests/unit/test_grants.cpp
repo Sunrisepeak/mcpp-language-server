@@ -86,6 +86,34 @@ int main() {
             << "-include-pch is not -include";
     };
 
+    "the MSVC toolchain and the Windows SDK a command selects, wherever Visual Studio is installed (#81)"_test = [] {
+        const std::string root { scratch("msvc") };
+        mcppls::normalize::EnginePlan plan;
+        mcppls::normalize::EngineEntry entry;
+        entry.directory = root;
+        entry.file = base::join_path(root, "vs/VC/Tools/MSVC/14.51.36231/modules/std.ixx");
+        entry.arguments = { "clang++", "--target=x86_64-pc-windows-msvc",
+                            "-Xmicrosoft-visualc-tools-root", base::join_path(root, "vs/VC/Tools/MSVC/14.51.36231"),
+                            "-Xmicrosoft-windows-sdk-root", base::join_path(root, "kits/10"),
+                            "-Xmicrosoft-windows-sdk-version", "10.0.26100.0", "-c", entry.file };
+        mcppls::normalize::EngineEntry cl;
+        cl.directory = root;
+        cl.file = base::join_path(root, "src/a.cpp");
+        cl.arguments = { "clang-cl", "/winsysroot", base::join_path(root, "winsysroot"), "/vctoolsdir", base::join_path(root, "vctools"),
+                         "/winsdkdir", base::join_path(root, "winsdk"), "/c", cl.file };
+        plan.entries = { entry, cl };
+        const auto named = cld::plan_directories(plan);
+        const auto has = [&](std::string_view child) {
+            const std::string want { base::join_path(root, child) };
+            return std::ranges::any_of(named, [&](const std::string& d) { return base::same_path(d, want); });
+        };
+        expect(has("vs/VC/Tools/MSVC/14.51.36231")) << "the tools root, whose include/ holds vcruntime.h and the STL";
+        expect(has("kits/10")) << "the SDK root";
+        expect(std::ranges::none_of(named, [](const std::string& d) { return d.ends_with("10.0.26100.0"); }))
+            << "the SDK's version is no directory";
+        expect(has("winsysroot") && has("vctools") && has("winsdk")) << "clang-cl's spellings";
+    };
+
     "the set: the project first and writable, one beneath another with as many rights left out, an absent one left out"_test = [] {
         const std::string root { scratch("set") };
         const std::string project { made(root, "project") };
