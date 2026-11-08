@@ -18,5 +18,6 @@ main = "conformance.cpp"
 
 [dependencies]
 mcpplibs.mtest.workspace = true
+"mcpplibs.mtest.manifest".workspace = true
 mcpplibs.os.workspace    = true
 nlohmann.json.workspace  = true
