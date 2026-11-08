@@ -251,6 +251,12 @@ int main() {
         return 0;
     }
     using namespace mcpplibs::mtest;
+    // In an ok image the runner, and the server this program stands in for, are images as well,
+    // which a loader starts and neither names; the native rows run the regression.
+    if (self_command().size() > 1) {
+        std::println("note: an ok image; the native rows run the runner's UTF-8 artifact regression");
+        return report();
+    }
     const auto runner = runner_path();
     if (!runner) {
         if (os::env::get("CI").value_or("") == "true") {
