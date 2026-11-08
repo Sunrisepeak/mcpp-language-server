@@ -18,6 +18,17 @@ commands there, starts the server with a private cache directory
 server has exited, or has left two requests in a row unanswered, the remaining
 checks fail at once with that reason instead of each waiting out its timeout.
 
+CI runs the fixtures with [mtest](https://github.com/mcpp-community/mtest): each is a program,
+`bash .github/scripts/run-fixture.sh <fixture>[@variant]`, and `mtest.toml` states which fixtures
+state a time and so run while no other such fixture runs (`serial:perf`). The run is kept in
+`.mtest/`; `mtest explain` says where a fixture failed and the command that repeats it, and a
+second attempt of a CI job runs only the fixtures that failed in the first (`mtest rerun`).
+
+```bash
+mtest run "bash .github/scripts/run-fixture.sh inferred" "bash .github/scripts/run-fixture.sh mcpp-gcc@plain"
+mtest explain
+```
+
 ## Fixtures
 
 | Fixture | What it covers |

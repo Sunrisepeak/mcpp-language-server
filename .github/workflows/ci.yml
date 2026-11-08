@@ -1034,6 +1034,28 @@ jobs:
           set -euo pipefail
           exe=''; [ "$RUNNER_OS" != Windows ] || exe='.exe'
           "stage/mcppls-mock-mcpp$exe" --protocol-version
+      # mtest runs the fixtures (mtest.toml): the release .github/versions.env pins, its sha256 checked.
+      - name: mtest
+        run: |
+          set -euo pipefail
+          . .github/versions.env
+          archive="mtest-$MTEST_VERSION-openkal-bundle-all.tar.gz"
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/mcpp-community/mtest/releases/download/v$MTEST_VERSION/$archive"
+          python=python3; [ "$RUNNER_OS" = Windows ] && python=python
+          actual=$("$python" -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$RUNNER_TEMP/$archive")
+          [ "$actual" = "$MTEST_SHA256" ] || { echo "::error::$archive: sha256 $actual, versions.env says $MTEST_SHA256"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/mtest" && tar xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/mtest"
+          launcher="$RUNNER_TEMP/mtest/mtest-$MTEST_VERSION-openkal-bundle-all/bin/mtest"
+          [ "$RUNNER_OS" = Windows ] && launcher="$launcher.exe"
+          "$launcher" --version
+          echo "MTEST=$launcher" >> "$GITHUB_ENV"
+      # The store of the first attempt, so that a second runs only what failed.
+      - uses: actions/cache/restore@v6
+        with:
+          path: .mtest
+          key: conformance-mtest-${{ github.run_id }}-${{ matrix.platform }}-${{ matrix.part || 'full' }}-${{ github.run_attempt }}
+          restore-keys: conformance-mtest-${{ github.run_id }}-${{ matrix.platform }}-${{ matrix.part || 'full' }}-
       - name: Run the fixtures
         env:
           # LLVM_VERSION (.github/versions.env) is put in below: one pin for the toolchain and this path.
@@ -1052,61 +1074,39 @@ jobs:
             export CONFORMANCE_CLANGXX
             "$CONFORMANCE_CLANGXX" --version
           fi
-          exe=''; extra=()
-          if [ "$RUNNER_OS" = Windows ]; then exe='.exe'; extra=(--msvc-env "$RUNNER_TEMP/msvc.env"); fi
-          # cmake-clang-bdb and cmake-msvc-bdb are the only fixtures that need
-          # CMake 4.4.2 (see the steps above): a PATH prefix for the former, a
-          # developer environment captured with it first on PATH for the
-          # latter, so every other fixture keeps using the runner's own CMake.
-          run_fixture() {
-            local fixture="$1"; shift
-            local path_prefix=''
-            local -a fixture_extra=(${extra[@]+"${extra[@]}"})
-            case "$fixture" in
-              cmake-clang-bdb) path_prefix="$RUNNER_TEMP/cmake-4.4.2/bin:" ;;
-              cmake-msvc-bdb|cmake-clang-cl) fixture_extra=(--msvc-env "$RUNNER_TEMP/msvc-bdb.env") ;;
-              # Preserve the real producer's first CDBs and server log independently
-              # of the diagnostic rerun: no reconstructed or rewritten target entries.
-              mcpp-target-windows-real)
-                local evidence="$RUNNER_TEMP/mcpp-target-windows-real-first"
-                case " $* " in *" --verbose "*) evidence="$RUNNER_TEMP/mcpp-target-windows-real-diagnostic" ;; esac
-                fixture_extra+=(--workspace-dir "$evidence/workspace" --cache-dir "$evidence/cache") ;;
-              # usable plan W9.3: the fallback runs only when the client never declares
-              # didChangeWatchedFiles.dynamicRegistration. NAME@polling runs fixture NAME that way.
-              watch-polling|*@polling) fixture_extra+=(--no-dynamic-watch) ;;
-              # Cold-start plan 4.1: NAME@plain runs fixture NAME as a client that declares no
-              # `experimental.cxxModules` — which is every editor but this repository's own VS Code
-              # extension. It asserts standard `$/progress` still arrives. Nothing covered that,
-              # which is how progress came to be sent only to the one client that already had it.
-              *@plain) fixture_extra+=(--plain-client) ;;
-              # Real-project plan RP0: NAME@vscode/@neovim/@zed
-              # run fixture NAME with the capabilities that editor actually sends
-              # (conformance/README.md "Client profiles").
-              *@vscode) fixture_extra+=(--client vscode) ;;
-              *@neovim) fixture_extra+=(--client neovim) ;;
-              *@zed) fixture_extra+=(--client zed) ;;
-            esac
-            # Issue #23 fix plan F18: the diagnostic bundles the bundle checks exported, kept for the artifact below.
-            PATH="$path_prefix$PATH" "stage/mcppls-conformance$exe" run --server "payload/bin/mcppls.okb" --payload payload \
-                --keep-bundles "$RUNNER_TEMP/bundles" \
-                ${fixture_extra[@]+"${fixture_extra[@]}"} --fixture "conformance/fixtures/${fixture%@*}" "$@"
-          }
-          mkdir -p "$RUNNER_TEMP/conformance-measures"
-          failed=''
-          for fixture in ${{ matrix.fixtures }}; do
-            echo "::group::$fixture"
-            if ! run_fixture "$fixture" --timeout 180 --measure "$RUNNER_TEMP/conformance-measures/${fixture//@/-}.json"; then
-              failed="$failed $fixture"
-            fi
-            echo "::endgroup::"
-          done
-          if [ -n "$failed" ]; then
-            echo "::error::failed fixtures:$failed"
-            # Rerun the first failure with the server's log, for the record.
-            first=${failed# }; first=${first%% *}
-            run_fixture "$first" --timeout 60 --verbose 2>&1 | tail -200 || true
+          # Each fixture is a program of mtest (mtest.toml): `bash .github/scripts/run-fixture.sh <fixture>`, which
+          # gives it its variant's flags, CMake 4.4.2 where it needs it and its measures. A second attempt of this
+          # job runs only the fixtures that failed in the first (the store is kept between attempts, below).
+          export CONFORMANCE_MEASURES="$RUNNER_TEMP/conformance-measures"
+          programs=()
+          for fixture in ${{ matrix.fixtures }}; do programs+=("bash .github/scripts/run-fixture.sh $fixture"); done
+          status=0
+          if [ "${{ github.run_attempt }}" -gt 1 ] && [ -f .mtest/index.ndjson ]; then
+            "$MTEST" rerun --junit "$RUNNER_TEMP/conformance.xml" "${programs[@]}" || status=$?
+          else
+            "$MTEST" run --jobs "${CONFORMANCE_JOBS:-1}" --junit "$RUNNER_TEMP/conformance.xml" "${programs[@]}" || status=$?
+          fi
+          if [ "$status" != 0 ]; then
+            "$MTEST" explain || true
+            # The first failure again with the server's log, for the record.
+            first=$("$MTEST" explain --json | jq -r '.cases[0].program // empty')
+            [ -n "$first" ] && bash .github/scripts/run-fixture.sh "${first##* }" --timeout 60 --verbose 2>&1 | tail -200 || true
             exit 1
           fi
+
+      - uses: actions/cache/save@v6
+        if: always()
+        with:
+          path: .mtest
+          key: conformance-mtest-${{ github.run_id }}-${{ matrix.platform }}-${{ matrix.part || 'full' }}-${{ github.run_attempt }}
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: conformance-mtest-${{ matrix.platform }}-${{ matrix.part || 'full' }}
+          path: |
+            .mtest
+            ${{ runner.temp }}/conformance.xml
+          if-no-files-found: ignore
 
       # Preserve the first producer envelopes even when schema validation stops
       # the job before any LSP fixture starts.

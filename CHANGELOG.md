@@ -21,6 +21,11 @@ patch is `## [<component> X.Y.Z]` (`server`, `vscode`, `clion`, `zed`, `claude-c
   runs: a change of the server runs everything, a change of one plugin runs that plugin's jobs over the payload
   main already built for the same server, a change of the documentation runs the documentation's checks. Main,
   nightly and release runs run everything.
+- **The conformance fixtures run under mtest** (mtest 0.2.0). Each fixture is a program
+  (`.github/scripts/run-fixture.sh`), its run is kept in a store with each fixture's verdict and output, a
+  failure is explained with the command that repeats it, and a second attempt of a CI job runs only the
+  fixtures that failed in the first. A fixture that states a time holds `serial:perf` (`mtest.toml`), so a run
+  of several fixtures at once measures each one's own work.
 
 The bundled engine is [mcppls-clangd 0.0.21](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.21)
 (`23.1.0-mcppls.10`), its ok image built with zlib as the native engines are, so it reads the index shards an engine
