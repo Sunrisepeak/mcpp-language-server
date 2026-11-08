@@ -45,7 +45,7 @@ local function copy(from, to)
   end
 end
 local workspace = vim.fn.tempname() .. '-mcppls-nvim'
-copy(table.concat({ repo, 'conformance', 'fixtures', 'inferred' }, sep), workspace)
+copy(table.concat({ repo, 'tests', 'cts', 'fixtures', 'inferred' }, sep), workspace)
 vim.fn.chdir(workspace)
 
 vim.opt.runtimepath:prepend(plugin)

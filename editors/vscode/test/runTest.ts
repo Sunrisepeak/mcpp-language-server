@@ -80,9 +80,9 @@ const BUILD_FILES = ['mcpp.toml', 'mcpp.lock', 'CMakeLists.txt', 'compile_comman
 function prepareWorkspace(formatVariant?: string): string {
     if (formatVariant) {
         const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'mcppls-format-e2e-'));
-        fs.cpSync(path.join(REPO_ROOT, 'conformance', 'fixtures', 'format-explicit'), workspace, { recursive: true });
+        fs.cpSync(path.join(REPO_ROOT, 'tests', 'cts', 'fixtures', 'format-explicit'), workspace, { recursive: true });
         fs.rmSync(path.join(workspace, 'scenario.json'));
-        fs.copyFileSync(path.join(REPO_ROOT, 'conformance', 'fixtures', 'format-mcpp', 'expected-mcpp.txt'), path.join(workspace, 'expected-mcpp.txt'));
+        fs.copyFileSync(path.join(REPO_ROOT, 'tests', 'cts', 'fixtures', 'format-mcpp', 'expected-mcpp.txt'), path.join(workspace, 'expected-mcpp.txt'));
         fs.mkdirSync(path.join(workspace, '.vscode'));
         fs.writeFileSync(path.join(workspace, '.vscode', 'settings.json'), JSON.stringify({
             'mcppls.buildTool': 'off',
@@ -94,7 +94,7 @@ function prepareWorkspace(formatVariant?: string): string {
         return workspace;
     }
     const candidates = [
-        path.join(REPO_ROOT, 'conformance', 'fixtures', 'inferred'),
+        path.join(REPO_ROOT, 'tests', 'cts', 'fixtures', 'inferred'),
         path.join(REPO_ROOT, '.agents', 'docs', 'assets', '2026-09-13-modules-lsp-spike', 'fixture'),
     ];
     const fixture = candidates.find((candidate) => fs.existsSync(path.join(candidate, 'src', 'main.cpp')));
