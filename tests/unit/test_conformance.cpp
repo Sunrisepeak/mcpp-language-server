@@ -26,10 +26,17 @@ std::string self_path() {
 // A test build and a regular build use sibling fingerprint buckets (test_model.cpp).
 std::optional<std::string> runner_path() {
     std::error_code ignored;
-    if (const auto configured = os::env::get("MCPPLS_CONFORMANCE"); configured && !configured->empty()) return *configured;
-    const std::string triple { base::parent_path(base::parent_path(base::parent_path(self_path()))) };
-    for (const auto& bucket : base::children(triple)) {
-        const std::string path { base::join_path(base::join_path(bucket, "bin"), "mcppls-conformance" + std::string { os::conventions().exe_suffix }) };
+    // Named by the person or by mcpp (docs/08: a test is given its package's programs as MCPP_BIN_<NAME>).
+    for (const char* variable : { "MCPPLS_CONFORMANCE", "MCPP_BIN_MCPPLS_CONFORMANCE" })
+        if (const auto configured = os::env::get(variable); configured && !configured->empty()) return *configured;
+    const std::string exe { "mcppls-conformance" + std::string { os::conventions().exe_suffix } };
+    // An archived test (`mcpp test --archive`): legs/<triple>/tests/<test>/<test> beside legs/<triple>/programs/.
+    const std::string leg { base::parent_path(base::parent_path(base::parent_path(self_path()))) };
+    if (const std::string archived { base::join_path(base::join_path(leg, "programs"), exe) }; std::filesystem::is_regular_file(archived, ignored))
+        return archived;
+    // A built tree: target/<triple>/<fingerprint>/bin/, the runner in this fingerprint's or a sibling's.
+    for (const auto& bucket : base::children(leg)) {
+        const std::string path { base::join_path(base::join_path(bucket, "bin"), exe) };
         if (std::filesystem::is_regular_file(path, ignored)) return path;
     }
     return std::nullopt;

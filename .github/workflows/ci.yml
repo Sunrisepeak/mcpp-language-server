@@ -872,13 +872,15 @@ jobs:
           set -euo pipefail
           . .github/versions.env
           archive="mtest-$MTEST_VERSION-openkal-bundle-all.tar.gz"
-          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$RUNNER_TEMP/$archive" \
+          # Git Bash's tar reads `D:\...` as a remote host's name: the POSIX spelling on Windows.
+          temp="$RUNNER_TEMP"; python=python3
+          if [ "$RUNNER_OS" = Windows ]; then temp=$(cygpath -u "$RUNNER_TEMP"); python=python; fi
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$temp/$archive" \
             "https://github.com/mcpp-community/mtest/releases/download/v$MTEST_VERSION/$archive"
-          python=python3; [ "$RUNNER_OS" = Windows ] && python=python
-          actual=$("$python" -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$RUNNER_TEMP/$archive")
+          actual=$("$python" -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$temp/$archive")
           [ "$actual" = "$MTEST_SHA256" ] || { echo "::error::$archive: sha256 $actual, versions.env says $MTEST_SHA256"; exit 1; }
-          mkdir -p "$RUNNER_TEMP/mtest" && tar xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/mtest"
-          launcher="$RUNNER_TEMP/mtest/mtest-$MTEST_VERSION-openkal-bundle-all/bin/mtest"
+          mkdir -p "$temp/mtest" && tar xzf "$temp/$archive" -C "$temp/mtest"
+          launcher="$temp/mtest/mtest-$MTEST_VERSION-openkal-bundle-all/bin/mtest"
           [ "$RUNNER_OS" = Windows ] && launcher="$launcher.exe"
           "$launcher" --version
           echo "MTEST=$launcher" >> "$GITHUB_ENV"
@@ -923,7 +925,12 @@ jobs:
       - name: Toolchains the fixtures build with
         run: |
           set -euo pipefail
-          case "$CTS_FIXTURES" in *" mcpp-gcc "*|*" mcpp-split-gcc "*|*" mingw "*) mcpp toolchain install gcc 16.1.0 ;; esac
+          # GCC 16 for the fixtures that build with it, and for the part that runs the review fixtures
+          # (toolchain-divergence builds with GCC and Clang).
+          gcc=no
+          case "$CTS_FIXTURES" in *" mcpp-gcc "*|*" mcpp-split-gcc "*|*" mingw "*) gcc=yes ;; esac
+          [ "${{ matrix.extras }}" = true ] && [ "$RUNNER_OS" = Linux ] && gcc=yes
+          [ "$gcc" = no ] || mcpp toolchain install gcc 16.1.0
           if [ "$RUNNER_OS" = Linux ]; then sudo apt-get update -q && sudo apt-get install -y -q ninja-build; fi
           # The native mock target fixtures need only a compiler probe and SDK-free module sources.
           # arm64 has no mcpp toolchain store; its distribution clang is sufficient for these fixtures.
