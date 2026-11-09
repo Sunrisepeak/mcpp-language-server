@@ -344,11 +344,10 @@ UTest bundle_tests{"bundle", [] {
     "a bundle of a user whose name is everywhere names them nowhere"_test = [] {
         std::error_code ignored;
         // This program again, as the system starts it (an ok image's loader and then the image).
-        const auto self = mcpplibs::mtest::self_command();
-        const auto child = [&](std::vector<std::string> arguments) {
-            std::vector<std::string> args { self.begin() + 1, self.end() };
-            args.insert(args.end(), arguments.begin(), arguments.end());
-            return args;
+        const auto self = mcpplibs::mtest::child_command("bundle");
+        const auto copy_args = [](std::vector<std::string> arguments) {
+            const auto command = mcpplibs::mtest::child_command("bundle", arguments);
+            return std::vector<std::string> { command.begin() + 1, command.end() };
         };
         const std::string directory { base::join_path(base::spelled(os::dirs::temp()),
                                                       std::format("mcppls-test-bundle-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
@@ -369,7 +368,7 @@ UTest bundle_tests{"bundle", [] {
         environment.push_back(std::format("USERNAME={}", LONG_USER));
         environment.push_back(std::format("MCPPLS_CACHE_DIR={}", base::join_path(home, ".cache/mcppls")));
         for (const bool excerpts : { true, false }) {
-            auto run = mcpplibs::os::process::run(mcpplibs::os::process::spawn_options { .program = self.front(), .args = child({ "bundle-child", directory, excerpts ? "excerpts" : "none" }), .env = mcpplibs::os::env::assignments(environment), .clear_env = true },
+            auto run = mcpplibs::os::process::run(mcpplibs::os::process::spawn_options { .program = self.front(), .args = copy_args({ directory, excerpts ? "excerpts" : "none" }), .env = mcpplibs::os::env::assignments(environment), .clear_env = true },
                                              mcpplibs::os::process::bounds { .hard = std::chrono::seconds { 60 } });
             expect(fatal(run.has_value()));
             expect(fatal(run->status.success())) << run->out << run->err;
@@ -411,7 +410,7 @@ UTest bundle_tests{"bundle", [] {
         }
         // Over its cap, a bundle leaves out the oldest log first, says so, and keeps what matters most.
         {
-            auto run = mcpplibs::os::process::run(mcpplibs::os::process::spawn_options { .program = self.front(), .args = child({ "bundle-child", directory, "cap" }), .env = mcpplibs::os::env::assignments(environment), .clear_env = true },
+            auto run = mcpplibs::os::process::run(mcpplibs::os::process::spawn_options { .program = self.front(), .args = copy_args({ directory, "cap" }), .env = mcpplibs::os::env::assignments(environment), .clear_env = true },
                                              mcpplibs::os::process::bounds { .hard = std::chrono::seconds { 60 } });
             expect(fatal(run.has_value() && run->status.success())) << (run ? run->out + run->err : std::string {});
             const Json result = Json::parse(run->out);
@@ -433,8 +432,7 @@ UTest bundle_tests{"bundle", [] {
 }};
 
 // A copy this program starts as another user writes a bundle and leaves before the cases run.
-int main(int argc, char** argv) {
-    const auto arguments = os::env::arguments();
-    if (arguments.size() == 4 && arguments[1] == "bundle-child") std::_Exit(write_bundle_as_child(arguments[2], arguments[3]));
-    return run(argc, argv);
-}
+mcpplibs::mtest::child bundle_child { "bundle", [](std::vector<std::string> arguments) {
+    if (arguments.size() != 2) return 2;
+    std::_Exit(write_bundle_as_child(arguments[0], arguments[1]));
+} };

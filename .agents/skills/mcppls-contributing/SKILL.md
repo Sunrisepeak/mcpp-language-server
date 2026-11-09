@@ -10,7 +10,7 @@ description: Use when contributing to mcpp-language-server (mcppls) — building
 | Directory | What is in it |
 |---|---|
 | `src/` | The server. C++23 modules only, no headers, no macros. `src/<dir>/<name>.cppm` is `mcppls.<dir>.<name>` |
-| `tests/unit/` | Unit tests, one `test_<subject>.cpp` each: `UTest` objects of mtest (`mcpplibs.mtest`), run by `mcpp test` |
+| `tests/unit/` | Unit tests, one `test_<subject>.cpp` each: `UTest` objects of mtest (`mcpplibs.mtest`), one program run by `mcpp test` as a process per file; a test that starts copies of itself declares an mtest `child`, and one that must run with a cache of its own is a directory of `tests/isolated/` |
 | `tests/cts/` | The conformance fixtures (`fixtures/`) and the cases that run them (`mcppls-cts`: one `Fixture` object each, in a topic's file, stating its platforms, resources and how it is driven) |
 | `tests/bench/` | The measurements (`mcppls-bench`): startup, tokens, review fixtures (`review/`), the agent task benchmark (`tasks/`), the user-experience scenarios; `Bench` objects with bounded metrics |
 | `tests/harness/` | How the cases drive the server (`mcppls.harness`), and the benchmark's tasks, patches, reviews and agent runs, with their tests |

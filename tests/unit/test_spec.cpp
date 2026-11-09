@@ -70,10 +70,7 @@ int producer_main(std::string_view mode, std::string_view databasePath) {
 
 // This program again as a discovery command, as the system starts it (an ok image's loader and then the image).
 std::vector<std::string> producer(std::vector<std::string> arguments) {
-    auto command = mcpplibs::mtest::self_command();
-    command.push_back("--producer");
-    command.insert(command.end(), arguments.begin(), arguments.end());
-    return command;
+    return mcpplibs::mtest::child_command("producer", arguments);
 }
 
 } // namespace
@@ -386,7 +383,8 @@ UTest spec_tests{"spec", [] {
 
 }};
 
-int main(int argc, char* argv[]) {
-    if (argc >= 3 && std::string_view { argv[1] } == "--producer") return producer_main(argv[2], argc >= 4 ? argv[3] : "");
-    return run(argc, argv);
-}
+// The discovery command the cases start: its mode, and an argument the mode reads.
+child producer_child { "producer", [](std::vector<std::string> arguments) {
+    if (arguments.empty()) return 2;
+    return producer_main(arguments[0], arguments.size() >= 2 ? arguments[1] : std::string {});
+} };

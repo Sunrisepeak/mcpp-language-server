@@ -1,0 +1,25 @@
+name: test-report
+description: >
+  The runs `mcpp test` kept in the mtest store's form (target/mtest, mcpp docs/08): taken into mtest's
+  store, written as one Markdown report of this job's runs into the job's summary, and kept as an
+  artifact for the report over every job of the workflow run (ci.yml `unit-test-report`).
+inputs:
+  name:
+    description: The artifact's name, unique in the workflow run
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: ./.github/actions/mtest
+    - shell: bash
+      run: |
+        set -euo pipefail
+        if [ ! -f target/mtest/index.ndjson ]; then echo "mcpp test kept no run here"; exit 0; fi
+        "$MTEST" store import --from target/mtest
+        "$MTEST" report --format md --group "$GITHUB_RUN_ID" >> "$GITHUB_STEP_SUMMARY"
+    - uses: actions/upload-artifact@v7
+      with:
+        name: ${{ inputs.name }}
+        path: target/mtest
+        if-no-files-found: ignore
+        retention-days: 7

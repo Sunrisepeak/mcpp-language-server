@@ -267,6 +267,9 @@ jobs:
           set -euo pipefail
           xlings install mcpp@2026.8.8.4 -y -g
           xlings use mcpp "$MCPP_VERSION"
+          # The project's own mcpp is the one xlings starts for its pin: an mcpp under review that stands
+          # first on PATH (MCPP_SOURCE_REF) would answer for it, and nothing would be negotiated.
+          PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -vx "$HOME/mcpp-under-review" | paste -sd: -)
           if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture tests/cts/fixtures/real-xlings-old-mcpp \
                 --timeout 900 --measure "$RUNNER_TEMP/self/real-xlings-old-mcpp.json"; then
             stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture tests/cts/fixtures/real-xlings-old-mcpp \

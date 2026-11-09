@@ -54,12 +54,12 @@ mcpplibs.mwrap.xxhash     = "0.8.3"
 # The operating-system layer: mcpplibs.os over openkal (mcpp design 2026-10-26 part 2). The
 # openkal implementation of each system is os's dependency, named by it; no program here names it.
 # 0.3.1 reads a name in Windows' long spelling as the name it spells.
-mcpplibs.os               = "0.4.0"
+mcpplibs.os               = "0.4.1"
 nlohmann.json             = "3.12.0"
 # The test library every package's tests are written with, and the conformance cases (tests/cts):
 # mcpp-community/mtest, which speaks the mtest protocol to mcpp, mtest and the editors.
-mcpplibs.mtest            = "0.4.1"
-"mcpplibs.mtest.manifest" = "0.4.1"
+mcpplibs.mtest            = "0.5.2"
+"mcpplibs.mtest.manifest" = "0.5.2"
 
 [package]
 name        = "mcpp-language-server"
@@ -114,9 +114,14 @@ mcppls-toolrun                  = { path = "modules/toolrun" }
 [dev-dependencies]
 mcpplibs.mtest.workspace = true
 
-# The server's unit tests (tests/unit); the conformance cases are the member tests/cts.
+# The server's unit tests (tests/unit, tests/isolated); the conformance cases are the member
+# tests/cts. The files of one directory are one program (mcpp 2026.11.8.1), run as a process per file
+# of its cases: tests/unit begins at test_conformance.cpp, whose `main` is also the server the
+# conformance runner measures; a test that runs again with a cache of its own is a directory of
+# tests/isolated.
 [test]
-discover = ["tests/unit/**/*.cpp"]
+discover = ["tests/**/*.cpp", "!tests/cts/**", "!tests/bench/**", "!tests/harness/**"]
+programs = "directory"
 
 # An ok image (`<arch>-openkal`) declares nothing: its platform, openkal-platform, supplies the C
 # library and the C++ run-time in their image form, the link, okld's seal and okrun, and packs every

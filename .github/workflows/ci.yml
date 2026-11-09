@@ -423,6 +423,10 @@ jobs:
             echo "::endgroup::"
           done
           if [ -n "$failed" ]; then echo "::error::failed:$failed"; exit 1; fi
+      - uses: ./.github/actions/test-report
+        if: always() && env.NATIVE_ROW == 'yes'
+        with:
+          name: mtest-unit-${{ matrix.platform }}-${{ matrix.profile }}
 
   # ---------------------------------------------------------------------------
   # THE SERVER'S UNIT TESTS AS USERS RUN IT: the ok images `server` built, on each platform's own system through its
@@ -453,6 +457,41 @@ jobs:
           path: test-archives
       - name: Run the archived tests through this system's runner
         run: mcpp test --archive test-archives/mcppls.tar.gz
+      - uses: ./.github/actions/test-report
+        if: always()
+        with:
+          name: mtest-unit-${{ matrix.platform }}-openkal
+
+  # THE UNIT TESTS OF EVERY SYSTEM AS ONE REPORT: each job's runs, taken into one store, reported together
+  # (`mtest ci report`, the workflow run's group): the summary, the failures, the slowest cases and the
+  # critical path of each run.
+  unit-test-report:
+    name: unit tests (report)
+    needs: [test, openkal-test]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/mtest
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: mtest-unit-*
+          path: ${{ runner.temp }}/stores
+      - name: Every job's runs, reported together
+        run: |
+          set -euo pipefail
+          found=0
+          for store in "$RUNNER_TEMP"/stores/*/; do
+            [ -f "$store/index.ndjson" ] || continue
+            "$MTEST" store import --from "$store"
+            found=1
+          done
+          if [ "$found" = 0 ]; then echo "no job kept a run of the unit tests" >> "$GITHUB_STEP_SUMMARY"; exit 0; fi
+          "$MTEST" ci report --out "$RUNNER_TEMP/unit-tests.md"
 
   # ---------------------------------------------------------------------------
   # THE HOST GRAPH ON THE PLATFORM (mcpp SPEC-013 §6): with `--host-platform openkal-platform@0.24.0`
@@ -2212,7 +2251,7 @@ jobs:
   ci:
     name: ci
     if: always()
-    needs: [changes, invariants, specifications, engine-candidate-parts, mcpp, build, test, openkal-test, host-platform,
+    needs: [changes, invariants, specifications, engine-candidate-parts, mcpp, build, test, openkal-test, unit-test-report, host-platform,
             server, kits, payload, vsix, conformance, proot, ux, clean-machine, vscode-e2e, distribution, code-oss-e2e,
             neovim, zed-unit, zed-smoke, clion-verify, clion-e2e, clion-adapter-baseline-package, clion-stable-adapter,
             clion-stable, bench, release-checks]

@@ -19,8 +19,8 @@ archives = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(archives)
 REPO = Path(__file__).resolve().parents[2]
 TARGET = 'x86_64-windows-gnu'
-TEST_DIRS = dict(mcppls='tests/unit', pack='modules/pack/tests', devtools='tools/devtools/tests',
-                 harness='tests/harness/tests', **{'model-gateway': 'tools/model-gateway/tests'})
+TEST_DIRS = dict(mcppls='tests/unit', pack='modules/pack/tests', devtools='tools/devtools/tests/unit',
+                 harness='tests/harness/tests/unit', **{'model-gateway': 'tools/model-gateway/tests'})
 
 
 class ArchiveTests(unittest.TestCase):

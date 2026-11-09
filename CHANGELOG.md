@@ -21,12 +21,15 @@ patch is `## [<component> X.Y.Z]` (`server`, `vscode`, `clion`, `zed`, `claude-c
   runs: a change of the server runs everything, a change of one plugin runs that plugin's jobs over the payload
   main already built for the same server, a change of the documentation runs the documentation's checks. Main,
   nightly and release runs run everything.
-- **The tests are mtest's, from the directory to the line** (mtest 0.4.1, mcpp 2026.11.8.1). `tests/` holds them by
+- **The tests are mtest's, from the directory to the line** (mtest 0.5.2, mcpp 2026.11.9.1). `tests/` holds them by
   kind: `unit/` the unit tests, `cts/` the conformance cases (`mcppls-cts`), `bench/` the measurements
   (`mcppls-bench`), `harness/` how the cases drive the server. An object is a case and its type is its kind
   (`UTest`, `CTS`, `Bench`), and what a case needs follows its name: the platforms it runs on, the machine it holds,
   the bounds of its metrics. A unit test file declares objects and no `main`; a file that starts copies of itself
-  writes `main` and ends it with `run(argc, argv)`. The conformance cases are written by topic (`mcpp.cpp`,
+  declares what a copy does (an mtest `child`). The files of a directory are one program, run as a process per file
+  of its cases: the server's 44 unit test programs are one (`unit`), linking what each process reaches, with the two
+  that run again with a cache of their own in `tests/isolated/`; devtools' and the harness's are one each. Every run
+  is kept in mtest's store, reported in each job's summary and over every job (`unit tests (report)`). The conformance cases are written by topic (`mcpp.cpp`,
   `targets.cpp`, `cmake.cpp`, `xmake.cpp`, `inferred.cpp`, `engine.cpp`, `editing.cpp`), each fixture and each of its
   variants one line (`@polling`, `@plain`, `@vscode`, `@neovim`, `@zed`, `@warm` for a second session on the first
   one's cache, `@linked` for a workspace reached through a symbolic link). mtest lists, selects, schedules and

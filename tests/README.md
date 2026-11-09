@@ -4,7 +4,8 @@ The tests of the server, by kind (mtest's layout, [docs/layout.md](https://githu
 
 | Directory | Kind | What |
 |---|---|---|
-| `unit/` | `UTest` | one `test_<subject>.cpp` per subject in `src/` (`test_normalize.cpp` covers `src/normalize/`), run by `mcpp test` |
+| `unit/` | `UTest` | one `test_<subject>.cpp` per subject in `src/` (`test_normalize.cpp` covers `src/normalize/`), one program run by `mcpp test` |
+| `isolated/` | `UTest` | the subjects whose tests run again with a cache of their own, a program each |
 | `cts/` | `CTS` | the conformance fixtures as cases, `mcppls-cts` ([cts/README.md](cts/README.md)) |
 | `bench/` | `Bench` | the measurements, `mcppls-bench` ([bench/README.md](bench/README.md)) |
 | `harness/` | | how the cases drive the server, and the benchmark's own logic with its tests |
@@ -21,19 +22,24 @@ UTest normalize_tests{"normalize", [] {
 mcpp test
 ```
 
-`mcpp` discovers every `tests/unit/**/*.cpp` (`[test] discover`), builds each as its own program
-against the server's modules and [mtest](https://github.com/mcpp-community/mtest)'s library
-(`mcpplibs.mtest`), which begins it, and runs it; each object and each `"name"_test` is a case that
-mtest and the editors list and run alone.
+The files of one directory are one program (`[test] programs = "directory"`, mcpp 2026.11.8.1):
+`tests/unit/` is the program `unit`, built once against the server's modules and
+[mtest](https://github.com/mcpp-community/mtest)'s library (`mcpplibs.mtest`), and run as a process
+per file of its cases (`unit/test_glob`, ...), so the files keep their isolation and run in
+parallel with one link. Each object and each `"name"_test` is a case that mtest and the editors list
+and run alone; every run is kept in mtest's store (`target/mtest`), which CI reports per job and over
+every job.
 
 The one thing to expect: several tests (`test_process.cpp`, `test_env.cpp`, `test_spec.cpp`,
-`test_bundle.cpp`, `test_conformance.cpp`) start copies of *themselves* as the child process under
-test, and two (`test_save_plan.cpp`, `test_answer_routing.cpp`) run themselves again with a cache of
-their own. They define `main`, which branches on an early command-line argument and otherwise ends
-with `return run(argc, argv)`, so a child never runs the cases. That is deliberate: it lets
-process, environment and pipe behavior be exercised on every platform without
-depending on a shell or a system utility (`sh`, `cat`, `sleep`, ...) being present
-or behaving the same way everywhere.
+`test_bundle.cpp`) start copies of *themselves* as the child process under test. Each declares what a
+copy does as an mtest `child` and starts it with `child_command` (mtest 0.5.2), so a copy never runs
+the cases and no file of the program defines `main` for it. That is deliberate: it lets process,
+environment and pipe behavior be exercised on every platform without depending on a shell or a system
+utility (`sh`, `cat`, `sleep`, ...) being present or behaving the same way everywhere. The program
+begins at `test_conformance.cpp`, whose `main` is also the server the conformance runner starts
+(`serve`). The two tests that run themselves again with a cache of their own
+(`isolated/save-plan`, `isolated/answer-routing`) keep their `main`, and are each a directory of
+`tests/isolated/`: a program's environment does not change while it runs (mcpplibs.os).
 
 Build the tools with `mcpp build` before running `mcpp test` to exercise the
 process integration tests against `mcppls-mock-model` and `mcppls-conformance`.

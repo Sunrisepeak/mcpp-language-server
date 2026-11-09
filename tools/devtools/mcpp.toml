@@ -29,3 +29,7 @@ mcppls-pack                    = { path = "../../modules/pack" }
 
 [dev-dependencies]
 mcpplibs.mtest.workspace = true
+
+# The files of tests/unit are one program (mcpp 2026.11.8.1).
+[test]
+programs = "directory"

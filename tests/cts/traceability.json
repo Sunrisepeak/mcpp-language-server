@@ -2286,15 +2286,15 @@
   ],
   "S3-5.9-1": [
     {
-      "test": "tests/unit/test_answer_routing.cpp: a client that did not declare completionReady is not sent it"
+      "test": "tests/isolated/answer-routing/test_answer_routing.cpp: a client that did not declare completionReady is not sent it"
     }
   ],
   "S3-5.9-2": [
     {
-      "test": "tests/unit/test_answer_routing.cpp: a slow engine's answer is kept, and given at the answer budget the next time"
+      "test": "tests/isolated/answer-routing/test_answer_routing.cpp: a slow engine's answer is kept, and given at the answer budget the next time"
     },
     {
-      "test": "tests/unit/test_answer_routing.cpp: once the person typed on, an answer is not called up again"
+      "test": "tests/isolated/answer-routing/test_answer_routing.cpp: once the person typed on, an answer is not called up again"
     }
   ],
   "S3-5.9-3": [
@@ -2314,13 +2314,13 @@
       "test": "tests/unit/test_answer.cpp: a kept completion is filtered by the word, placed on it, and incomplete"
     },
     {
-      "test": "tests/unit/test_answer_routing.cpp: a slow engine's answer is kept, and given at the answer budget the next time"
+      "test": "tests/isolated/answer-routing/test_answer_routing.cpp: a slow engine's answer is kept, and given at the answer budget the next time"
     },
     {
       "test": "tests/unit/test_answer.cpp: a kept completion is complete only when certain, complete, and asked for a word the one typed now extends"
     },
     {
-      "test": "tests/unit/test_answer_routing.cpp: a complete list nothing changed under is given complete, so the editor filters it"
+      "test": "tests/isolated/answer-routing/test_answer_routing.cpp: a complete list nothing changed under is given complete, so the editor filters it"
     }
   ],
   "S3-6.3-2": [
@@ -2328,7 +2328,7 @@
       "test": "tests/unit/test_answer.cpp: hover is placed on the word; signature help on the argument; jumps only when certain"
     },
     {
-      "test": "tests/unit/test_answer_routing.cpp: a hover and a jump are kept; a jump only while the file it lands in is as it was"
+      "test": "tests/isolated/answer-routing/test_answer_routing.cpp: a hover and a jump are kept; a jump only while the file it lands in is as it was"
     }
   ],
   "S3-6.3-3": [
@@ -2407,7 +2407,7 @@
   ],
   "S5-2.6-1": [
     {
-      "test": "tests/unit/test_answer_routing.cpp: an agent is told where every answer came from"
+      "test": "tests/isolated/answer-routing/test_answer_routing.cpp: an agent is told where every answer came from"
     },
     {
       "script": "src/ai/mcp/tools.cpp",
@@ -2416,7 +2416,7 @@
   ],
   "S5-2.6-2": [
     {
-      "test": "tests/unit/test_answer_routing.cpp: an agent is told where every answer came from"
+      "test": "tests/isolated/answer-routing/test_answer_routing.cpp: an agent is told where every answer came from"
     },
     {
       "script": "src/cli/query.cpp",
@@ -2435,7 +2435,7 @@
   ],
   "S5-2.6-4": [
     {
-      "test": "tests/unit/test_answer_routing.cpp: with mcppls.answer.agent authoritative, an agent always waits for the engine"
+      "test": "tests/isolated/answer-routing/test_answer_routing.cpp: with mcppls.answer.agent authoritative, an agent always waits for the engine"
     }
   ],
   "S3-4-35": [

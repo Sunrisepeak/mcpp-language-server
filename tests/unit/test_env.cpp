@@ -103,8 +103,9 @@ UTest env_tests{"env", [] {
 
     "arguments include this program"_test = [] {
         const auto arguments = os::env::arguments();
-        expect(fatal(!arguments.empty()));
-        expect(arguments.front().find("test_env") != std::string::npos) << arguments.front();
+        const auto image = os::env::image();
+        expect(fatal(!arguments.empty() && image.has_value()));
+        expect(std::filesystem::path(arguments.front()).stem() == image->stem()) << arguments.front() << " " << image->string();
     };
 
     "an image server starts through the runner its payload names"_test = [] {
@@ -204,8 +205,9 @@ UTest env_tests{"env", [] {
             return;   // a graphical program takes its environment from the registry; there is no shell to ask
         } else {
             namespace toolenv = mcppls::toolenv;
-            // What starts this program again: the executable, or an ok image's loader and image.
-            const auto self = os::env::self_command();
+            // What starts this program again as the stand-in below: the executable, or an ok image's
+            // loader and image, and the child's name; the server adds `print-environment <marker>`.
+            const auto self = mcpplibs::mtest::child_command("login-shell-program");
             expect(fatal(!self.empty()));
             expect(base::is_absolute_path(self.front())) << self.front();
             if (!std::filesystem::is_regular_file("/bin/sh", ignored)) return;
@@ -232,11 +234,8 @@ UTest env_tests{"env", [] {
 
 // Stands in for `mcppls print-environment`: the login shell runs this, and what it prints between
 // the markers is the environment the shell had. A child leaves before the cases run.
-int main(int argc, char** argv) {
-    const auto arguments = os::env::arguments();
-    if (arguments.size() == 3 && arguments[1] == "print-environment") {
-        std::print("{}", mcppls::toolenv::print_environment_text(arguments[2]));
-        std::_Exit(0);
-    }
-    return run(argc, argv);
-}
+mcpplibs::mtest::child login_shell_program { "login-shell-program", [](std::vector<std::string> arguments) {
+    if (arguments.size() != 2 || arguments[0] != "print-environment") return 2;
+    std::print("{}", mcppls::toolenv::print_environment_text(arguments[1]));
+    std::_Exit(0);
+} };

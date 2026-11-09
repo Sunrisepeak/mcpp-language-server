@@ -26,3 +26,7 @@ mcpplibs.mtest.workspace = true
 
 [lib]
 path = "src/harness.cppm"
+
+# The files of tests/unit are one program (mcpp 2026.11.8.1).
+[test]
+programs = "directory"

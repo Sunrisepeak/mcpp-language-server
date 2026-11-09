@@ -38,16 +38,15 @@ std::string self_path() {
     return base::normalize_path(path);
 }
 
-// This program again with `arguments`, as the system starts it: an ok image's loader and then the image.
+// This program again as the child below, with `arguments`, as the system starts it: an ok image's
+// loader and then the image.
 os::process::spawn_options self_spawn(std::vector<std::string> arguments) {
-    const auto self = mcpplibs::mtest::self_command();
-    std::vector<std::string> args { self.begin() + 1, self.end() };
-    args.insert(args.end(), arguments.begin(), arguments.end());
-    return { .program = self.front(), .args = std::move(args) };
+    const auto command = mcpplibs::mtest::child_command("process", arguments);
+    return { .program = command.front(), .args = { command.begin() + 1, command.end() } };
 }
 
 // This program again, with its input and output on pipes and its error output on this program's.
-os::process::spawn_options child(std::vector<std::string> arguments) {
+os::process::spawn_options piped_child(std::vector<std::string> arguments) {
     auto options = self_spawn(std::move(arguments));
     options.in = os::process::stdio::pipe;
     options.out = os::process::stdio::pipe;
@@ -174,7 +173,7 @@ UTest process_tests{"process", [] {
     };
 
     "connection preserves the system classification of a failed start"_test = [&] {
-        auto options = child({ "--echo" });
+        auto options = piped_child({ "--echo" });
         options.program = base::join_path(self, "missing-child");
         auto connection = mcppls::lsp::Connection::start(options, [](nlohmann::json) {}, [] {});
         expect(fatal(!connection));
@@ -211,7 +210,7 @@ UTest process_tests{"process", [] {
     };
 
     "echo round trip through pipes"_test = [&] {
-        auto process = os::process::process::spawn(child({ "--echo" }));
+        auto process = os::process::process::spawn(piped_child({ "--echo" }));
         expect(fatal(process.has_value())) << (process ? "" : process.error().message());
         std::string collected;
         std::jthread reader { [&] {
@@ -237,7 +236,7 @@ UTest process_tests{"process", [] {
                                                "quote\"inside", "back\\\"quote", "\\\\server\\share", "tab\there", "--flag=a b" };
         std::vector<std::string> arguments { "--arguments" };
         arguments.insert(arguments.end(), given.begin(), given.end());
-        auto result = os::process::run(child(arguments), os::process::bounds { .hard = std::chrono::seconds { 60 } });
+        auto result = os::process::run(piped_child(arguments), os::process::bounds { .hard = std::chrono::seconds { 60 } });
         expect(fatal(result.has_value()));
         std::string expected;
         for (const auto& argument : given) expected += std::format("[{}]", argument);
@@ -250,7 +249,7 @@ UTest process_tests{"process", [] {
     // loop with it, 11 to 13 s an edit. What is sent to a peer is queued for a writer thread of the connection's own.
     "a peer that reads nothing does not hold what is sent to it, and stopping it still ends"_test = [&] {
         using namespace std::chrono_literals;
-        auto connection = mcppls::lsp::Connection::start(child({ "--sleep" }), [](nlohmann::json) {}, [] {});
+        auto connection = mcppls::lsp::Connection::start(piped_child({ "--sleep" }), [](nlohmann::json) {}, [] {});
         expect(fatal(connection.has_value())) << (connection ? "" : connection.error().message);
         const std::string big(64 * 1024, 'x');
         const auto started = std::chrono::steady_clock::now();
@@ -285,7 +284,7 @@ UTest process_tests{"process", [] {
                 bool closed { false };
             } received;
             auto connection = mcppls::lsp::Connection::start(
-                child({ "--echo" }),
+                piped_child({ "--echo" }),
                 [&](Json message) {
                     std::unique_lock lock { received.mutex };
                     received.messages.push_back(std::move(message));
@@ -364,7 +363,7 @@ UTest process_tests{"process", [] {
         std::condition_variable ready;
         bool closed { false };
         auto connection = mcppls::lsp::Connection::start(
-            child({ "--exit", "0" }), [](nlohmann::json) {},
+            piped_child({ "--exit", "0" }), [](nlohmann::json) {},
             [&] { const std::lock_guard lock { mutex }; closed = true; ready.notify_all(); });
         expect(fatal(connection.has_value()));
         bool observedClosed { false };
@@ -384,7 +383,7 @@ UTest process_tests{"process", [] {
     };
 
     "writing after the child exits returns an error and preserves the parent"_test = [&] {
-        auto process = os::process::process::spawn(child({ "--exit", "0" }));
+        auto process = os::process::process::spawn(piped_child({ "--exit", "0" }));
         expect(fatal(process.has_value()));
         const auto status = process->wait();
         expect(fatal(status.has_value()));
@@ -395,7 +394,7 @@ UTest process_tests{"process", [] {
     };
 
     "the identifier is the child's while it runs, on every system"_test = [&] {
-        auto process = os::process::process::spawn(child({ "--sleep" }));
+        auto process = os::process::process::spawn(piped_child({ "--sleep" }));
         expect(fatal(process.has_value())) << (process ? "" : process.error().message());
         const auto pid { process->id() };
         expect(pid > 0) << pid;
@@ -412,8 +411,8 @@ UTest process_tests{"process", [] {
     // StuckWatch in the clangd engine tells a stuck clangd from a busy one by this.
     "cpu_seconds tells a busy child from an idle one, on every system"_test = [&] {
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds { 30 };
-        auto idle = os::process::process::spawn(child({ "--cpu-idle" }));
-        auto busy = os::process::process::spawn(child({ "--spin-cpu" }));
+        auto idle = os::process::process::spawn(piped_child({ "--cpu-idle" }));
+        auto busy = os::process::process::spawn(piped_child({ "--spin-cpu" }));
         expect(fatal(idle.has_value() && busy.has_value()));
         struct Cleanup {
             os::process::process& idle;
@@ -533,14 +532,14 @@ UTest process_tests{"process", [] {
     };
 
     "exit status is propagated"_test = [&] {
-        auto result = os::process::run(child({ "--exit", "7" }), os::process::bounds { .hard = std::chrono::seconds { 60 } });
+        auto result = os::process::run(piped_child({ "--exit", "7" }), os::process::bounds { .hard = std::chrono::seconds { 60 } });
         expect(fatal(result.has_value()));
         expect(result->status.code == 7 && !result->status.by_environment) << result->status.code;
         expect(!result->timed_out);
     };
 
     "standard error is captured separately"_test = [&] {
-        auto result = os::process::run(child({ "--stderr" }), os::process::bounds { .hard = std::chrono::seconds { 60 } });
+        auto result = os::process::run(piped_child({ "--stderr" }), os::process::bounds { .hard = std::chrono::seconds { 60 } });
         expect(fatal(result.has_value()));
         expect(result->status.code == 3);
         expect(result->err == "to-stderr") << result->err;
@@ -549,7 +548,7 @@ UTest process_tests{"process", [] {
 
     "a bound on waiting ends a sleeping child"_test = [&] {
         const auto started = std::chrono::steady_clock::now();
-        auto result = os::process::run(child({ "--sleep" }), os::process::bounds { .hard = std::chrono::milliseconds { 500 } });
+        auto result = os::process::run(piped_child({ "--sleep" }), os::process::bounds { .hard = std::chrono::milliseconds { 500 } });
         const auto elapsed = std::chrono::steady_clock::now() - started;
         expect(fatal(result.has_value()));
         expect(result->timed_out);
@@ -559,7 +558,7 @@ UTest process_tests{"process", [] {
     "environment reaches the child"_test = [&] {
         auto environment = os::env::variables();
         environment.push_back("MCPPLS_TEST_VARIABLE=from-parent");
-        auto options = child({ "--env", "MCPPLS_TEST_VARIABLE" });
+        auto options = piped_child({ "--env", "MCPPLS_TEST_VARIABLE" });
         options.clear_env = true;
         options.env = os::env::assignments(environment);
         auto result = os::process::run(std::move(options), os::process::bounds { .hard = std::chrono::seconds { 60 } });
@@ -574,7 +573,7 @@ UTest process_tests{"process", [] {
         auto environment = os::env::variables();
         environment.push_back("XLINGS_PROJECT_DIR=/some/other/project");
         environment.push_back("MCPPLS_TEST_VARIABLE=kept");
-        const auto args = child({ "--env", "XLINGS_PROJECT_DIR" });
+        const auto args = piped_child({ "--env", "XLINGS_PROJECT_DIR" });
         mcppls::toolrun::Request request;
         request.program = args.program.string();
         request.arguments = args.args;
@@ -585,7 +584,7 @@ UTest process_tests{"process", [] {
         const auto result = mcppls::toolrun::run(request);
         expect(fatal(result.has_value()));
         expect(result->out == "<unset>") << result->out;
-        request.arguments = child({ "--env", "MCPPLS_TEST_VARIABLE" }).args;
+        request.arguments = piped_child({ "--env", "MCPPLS_TEST_VARIABLE" }).args;
         const auto kept = mcppls::toolrun::run(request);
         expect(fatal(kept.has_value()));
         expect(kept->out == "kept") << kept->out;
@@ -597,7 +596,7 @@ UTest process_tests{"process", [] {
     "an environment value arrives unaltered"_test = [&] {
         auto environment = os::env::variables();
         environment.push_back("MCPPLS_TEST_PATHS=C:\\dir\\sub;\\\\host\\share\\x;a\"b");
-        auto options = child({ "--env", "MCPPLS_TEST_PATHS" });
+        auto options = piped_child({ "--env", "MCPPLS_TEST_PATHS" });
         options.clear_env = true;
         options.env = os::env::assignments(environment);
         auto result = os::process::run(std::move(options), os::process::bounds { .hard = std::chrono::seconds { 60 } });
@@ -610,7 +609,7 @@ UTest process_tests{"process", [] {
             std::format("mcppls-test-process-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
         expect(fatal(std::filesystem::create_directories(directory) || std::filesystem::is_directory(directory))) << directory;
         expect(os::fs::write(base::join_path(directory, "marker.txt"), "marker-content\n").has_value());
-        auto options = child({ "--read-relative", "marker.txt" });
+        auto options = piped_child({ "--read-relative", "marker.txt" });
         options.cwd = directory;
         auto result = os::process::run(std::move(options), os::process::bounds { .hard = std::chrono::seconds { 60 } });
         expect(fatal(result.has_value()));
@@ -648,7 +647,7 @@ UTest process_tests{"process", [] {
             std::format("mcppls-test-hold-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
         expect(fatal(std::filesystem::create_directories(directory) || std::filesystem::is_directory(directory))) << directory;
         const auto started = std::chrono::steady_clock::now();
-        auto result = os::process::run(child({ "--hold-pipe", directory }),
+        auto result = os::process::run(piped_child({ "--hold-pipe", directory }),
                                        os::process::bounds { .hard = std::chrono::seconds { 30 }, .drain = std::chrono::seconds { 1 } });
         const auto elapsed = std::chrono::steady_clock::now() - started;
         expect(fatal(result.has_value()));
@@ -674,7 +673,7 @@ UTest process_tests{"process", [] {
             std::format("mcppls-test-unit-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
         expect(fatal(std::filesystem::create_directories(directory) || std::filesystem::is_directory(directory))) << directory;
         const auto started = std::chrono::steady_clock::now();
-        auto result = os::process::run(child({ "--hold-pipe-and-sleep", directory }),
+        auto result = os::process::run(piped_child({ "--hold-pipe-and-sleep", directory }),
                                        os::process::bounds { .hard = std::chrono::milliseconds { 300 },
                                                              .grace = std::chrono::milliseconds { 200 },
                                                              .drain = std::chrono::milliseconds { 500 } });
@@ -689,7 +688,7 @@ UTest process_tests{"process", [] {
     };
 
     "output above the limit is truncated and said to be"_test = [&] {
-        auto result = os::process::run(child({ "--arguments", std::string(4096, 'x') }),
+        auto result = os::process::run(piped_child({ "--arguments", std::string(4096, 'x') }),
                                        os::process::bounds { .hard = std::chrono::seconds { 60 }, .out_limit = 512 });
         expect(fatal(result.has_value()));
         expect(result->out_truncated);
@@ -713,9 +712,10 @@ UTest process_tests{"process", [] {
 
 }};
 
-int main(int argc, char** argv) {
-    const auto arguments = os::env::arguments();
-    // A child leaves without running the cases.
-    if (arguments.size() >= 2 && arguments[1].starts_with("--")) std::_Exit(child_main(arguments));
-    return run(argc, argv);
-}
+// The copy the cases start: its first argument is the mode (`--echo`, `--exit`, ...). It leaves
+// without running the cases.
+mcpplibs::mtest::child process_child { "process", [](std::vector<std::string> arguments) {
+    if (arguments.empty() || !arguments.front().starts_with("--")) return 2;
+    arguments.insert(arguments.begin(), "process");
+    std::_Exit(child_main(arguments));
+} };

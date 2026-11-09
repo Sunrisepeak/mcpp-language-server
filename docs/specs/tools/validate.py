@@ -463,9 +463,9 @@ for spec, name in TRACED_SPECS.items():
             rules[rule] = where
 
 tests = {}
-for path in sorted((repository / "tests" / "unit").glob("*.cpp")):
+for path in sorted([*(repository / "tests" / "unit").rglob("*.cpp"), *(repository / "tests" / "isolated").rglob("*.cpp")]):
     for name in re.findall(r'^\s*"((?:[^"\\]|\\.)*)"_test\s*=', path.read_text(encoding="utf-8"), flags=re.M):
-        tests[f"tests/unit/{path.name}: {name}"] = True
+        tests[f"{path.relative_to(repository).as_posix()}: {name}"] = True
 fixture_checks = set()
 for scenario in sorted((repository / "tests" / "cts" / "fixtures").glob("*/scenario.json")):
     for item in load(scenario).get("checks", []):

@@ -79,9 +79,9 @@ targets = ["x86_64-linux-gnu", "x86_64-openkal"]
 
 [package."mcpplibs.mtest"]
 namespace = "mcpplibs"
-version = "0.4.1"
-source  = "index+mcpplibs@0.4.1"
-hash    = "fnv1a:33f05f86d7bfa19f"
+version = "0.5.2"
+source  = "index+mcpplibs@0.5.2"
+hash    = "fnv1a:3c8c0386dc9ba899"
 
 [package."openkal"]
 namespace = "mcpplibs"
@@ -151,9 +151,9 @@ hash    = "fnv1a:c9bc1a873a07579e"
 
 [package."mcpplibs.mtest.manifest"]
 namespace = "mcpplibs.mtest"
-version = "0.4.1"
-source  = "index+mcpplibs.mtest@0.4.1"
-hash    = "fnv1a:0339d37dd3c40581"
+version = "0.5.2"
+source  = "index+mcpplibs.mtest@0.5.2"
+hash    = "fnv1a:0caef37dd958cfef"
 
 [package."mcpplibs.mwrap.libarchive"]
 namespace = "mcpplibs.mwrap"
