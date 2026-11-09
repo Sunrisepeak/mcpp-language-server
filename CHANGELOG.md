@@ -49,7 +49,9 @@ patch is `## [<component> X.Y.Z]` (`server`, `vscode`, `clion`, `zed`, `claude-c
 
 The bundled engine is [mcppls-clangd 0.0.21](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.21)
 (`23.1.0-mcppls.10`), its ok image built with zlib as the native engines are, so it reads the index shards an engine
-with zlib writes. Built with mcpp 2026.11.8.1 over openkal-platform 0.24.4 and mcpplibs.os 0.4.0.
+with zlib writes. Built with mcpp 2026.11.9.1 over openkal-platform 0.24.4 and mcpplibs.os 0.4.1; the workspace
+requires mcpp 2026.11.9.1, under which a Mach-O image links its C library first, and CI finds a target's outputs
+under the identity the request selects (`aarch64-macos` from Linux is `aarch64-macos-musl`).
 
 ### Fixed
 

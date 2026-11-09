@@ -38,9 +38,10 @@ members = [
 platform = "openkal-platform@0.24.4"
 
 # 2026.11.8.1: a test file of mtest's objects needs no `main` (mtest's entry begins it), and a framework
-# that is a dependency and a dev-dependency offers its beginning once.
+# that is a dependency and a dev-dependency offers its beginning once. 2026.11.9.1: a Mach-O image links
+# its C library first, so an mtest case's registration runs after openkal-musl is up on hosted macOS.
 [workspace.package]
-mcpp = ">=2026.11.8.1"
+mcpp = ">=2026.11.9.1"
 
 # One version of each third-party package for every member, each named by its identity (namespace,
 # then name) and an exact release.

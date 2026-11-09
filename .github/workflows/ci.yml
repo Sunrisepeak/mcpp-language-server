@@ -258,8 +258,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p stage
+          # The request selects an identity (mcpp 2026.11.9.1, SPEC-016 §4): `aarch64-macos` from a Linux host is
+          # `aarch64-macos-musl`, served by the platform's hosted arrangement, and its outputs are under that name.
+          identity=$(mcpp why target --target ${{ matrix.target }} --format json | jq -r '.data.target.identity')
+          [ -n "$identity" ] && [ "$identity" != null ] || { echo "::error::no identity for ${{ matrix.target }}"; exit 1; }
+          echo "${{ matrix.target }} -> $identity"
           for exe in mcppls mcppls-conformance mcppls-cts mcppls-bench mcppls-lspgen mcppls-mock-mcpp mcppls-mock-model mcppls-devtools; do
-            path=$(find target/${{ matrix.target }} -type f -name "$exe${{ matrix.exe }}" -path '*/bin/*' | head -1)
+            path=$(find "target/$identity" -type f -name "$exe${{ matrix.exe }}" -path '*/bin/*' | head -1)
             [ -n "$path" ] || { echo "::error::no $exe was built"; exit 1; }
             file "$path"
             case "${{ matrix.target }}" in
