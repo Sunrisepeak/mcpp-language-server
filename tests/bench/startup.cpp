@@ -42,18 +42,21 @@ void starts(int rounds) {
         metric(name, median(values), "s", values);
 }
 
+// EACH CASE STATES ITS TIME: its sessions run in one process, each up to its own limit (120 s a start,
+// 900 s the large project's), past mtest's default of five minutes.
 // One start of each kind: a regression that makes a start severe fails a pull request.
-Bench startup{"startup", on{"linux-x64", "darwin-arm64", "win32-x64"},
+Bench startup{"startup", on{"linux-x64", "darwin-arm64", "win32-x64"}, timeout{std::chrono::minutes{10}},
               at_most{"cold.first-navigation", 15}, at_most{"warm.first-navigation", 5}, [] { starts(1); }};
 
 // Five of each, for a release: the median decides, so one slow runner does not. 12 s cold and 5 s
 // warm is room for a slow runner, not for a regression that doubles a start.
 Bench startup_median{"startup, the median of five", on{"linux-x64", "darwin-arm64", "win32-x64"}, tag{"release"},
-                     at_most{"cold.first-navigation", 12}, at_most{"warm.first-navigation", 5}, [] { starts(5); }};
+                     timeout{std::chrono::minutes{25}}, at_most{"cold.first-navigation", 12},
+                     at_most{"warm.first-navigation", 5}, [] { starts(5); }};
 
 // A project the size where module checks cost (0.0.14 Windows plan, phase 0): thirty module units
 // with <windows.h>, built by MSVC (MCPPLS_CTS_MSVC_ENV), opened cold and then warm on one cache.
-Bench large_modules{"a large module project", on{"win32-x64"}, tag{"release"}, [] {
+Bench large_modules{"a large module project", on{"win32-x64"}, tag{"release"}, timeout{std::chrono::minutes{35}}, [] {
     timeline times;
     cold_and_warm("ux-modules-windows-large", temp_dir(), 900, times);
     for (const auto& [name, values] : times)

@@ -42,7 +42,8 @@ UTest task_data{"every task's baseline fails and its reference passes", on{"linu
 // The agent MCPPLS_BENCH_AGENT names, with the arm MCPPLS_BENCH_ARM names, on every task,
 // MCPPLS_BENCH_REPEAT times; each task's success rate and the time, turns, tokens and cost of its
 // runs are metrics, and every run is a record of MCPPLS_BENCH_RUNS (produced).
-Bench agent{"agent", [] {
+// Every task, MCPPLS_BENCH_REPEAT times, each run up to 15 minutes: a measurement of hours, run by hand.
+Bench agent{"agent", timeout{std::chrono::hours{12}}, [] {
     const auto agent = harness::env_or("MCPPLS_BENCH_AGENT", "");
     if (agent.empty())
         skip("MCPPLS_BENCH_AGENT names no agent: a run spends API credits or model usage");
