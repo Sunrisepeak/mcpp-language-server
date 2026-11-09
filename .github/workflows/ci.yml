@@ -875,8 +875,8 @@ jobs:
   # ---------------------------------------------------------------------------
   # The specifications' executable part, against real toolchains (tests/cts/README.md). The cases are the objects of
   # tests/cts's topic files: each states the platforms it runs on (`on:<platform>`), what it holds and how the runner
-  # drives it; a row runs the cases of its platform, Linux and Windows in two parts side by side (`--shard`, by the
-  # times the store keeps).
+  # drives it; a row runs the cases of its platform, two at a time. mtest's `--shard` divides programs, and the
+  # cases are one program, so a platform is one row (a part beside it was given nothing).
   conformance:
     name: conformance (${{ matrix.platform }}${{ matrix.part && format(', {0}', matrix.part) || '' }})
     needs: [payload, kits]
@@ -889,14 +889,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { platform: linux-x64, part: 1 of 2, shard: 1/2, os: ubuntu-24.04 }
-          - { platform: linux-x64, part: 2 of 2, shard: 2/2, os: ubuntu-24.04 }
+          - { platform: linux-x64, os: ubuntu-24.04 }
           - { platform: darwin-arm64, os: macos-15 }
           # The arm64 row takes no mcpp: the server and mock producers are built on Linux. Most fixtures use the
           # semantic kit; the SDK-free target fixtures probe distribution clang, installed below.
           - { platform: linux-arm64, os: ubuntu-24.04-arm, cross-tools: true }
-          - { platform: win32-x64, part: 1 of 2, shard: 1/2, os: windows-2022 }
-          - { platform: win32-x64, part: 2 of 2, shard: 2/2, os: windows-2022 }
+          - { platform: win32-x64, os: windows-2022 }
     defaults:
       run:
         shell: bash
@@ -1121,7 +1119,8 @@ jobs:
           fi
           status=0
           if [ "${{ github.run_attempt }}" -gt 1 ] && [ -f .mtest/index.ndjson ]; then
-            "$MTEST" rerun --junit "$RUNNER_TEMP/conformance.xml" "$CTS" || status=$?
+            # `run --failed` (`rerun` takes a selection, not the run's options).
+            "$MTEST" run --failed --isolate --jobs "${CONFORMANCE_JOBS:-2}" --junit "$RUNNER_TEMP/conformance.xml" "$CTS" || status=$?
           else
             # shellcheck disable=SC2086 # CTS_SELECT is words
             "$MTEST" run --isolate --jobs "${CONFORMANCE_JOBS:-2}" --junit "$RUNNER_TEMP/conformance.xml" $CTS_SELECT "$CTS" || status=$?

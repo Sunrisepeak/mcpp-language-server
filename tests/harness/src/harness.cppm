@@ -135,7 +135,7 @@ std::string measure_name(const std::string& id, const session& s) {
 // (the handshake, a requirement, a budget of the whole run).
 void judge(const mt::e2e::outcome& r, const json& measured, std::string_view fixture) {
     using mt::expect;
-    expect(mt::fatal(r.started)) << "mcppls-conformance did not start";
+    expect(mt::fatal(r.started)) << std::format("mcppls-conformance did not start: {}", r.err);
     std::set<std::string> named;
     for (const auto& c : measured.is_object() ? measured.value("checks", json::array()) : json::array()) {
         if (c.value("ok", true) || c.value("optional", false))

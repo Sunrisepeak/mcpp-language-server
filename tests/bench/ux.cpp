@@ -77,11 +77,15 @@ void scenario(std::string_view fixture, std::span<const stage> stages) {
         };
 }
 
-Bench ux_mcpp{"ux-mcpp", on{"linux-x64", "darwin-arm64", "win32-x64"}, tag{"ux"}, [] { scenario("ux-mcpp", sessions); }};
-Bench ux_xlings{"ux-xlings", on{"linux-x64"}, tag{"ux"}, [] { scenario("ux-xlings", sessions); }};
+// A scenario's stages run in one process, each a session of up to 15 minutes (a cold one builds the
+// project's modules): the case may run for all four, past mtest's default of five minutes.
+Bench ux_mcpp{"ux-mcpp", on{"linux-x64", "darwin-arm64", "win32-x64"}, tag{"ux"}, timeout{std::chrono::minutes{60}},
+              [] { scenario("ux-mcpp", sessions); }};
+Bench ux_xlings{"ux-xlings", on{"linux-x64"}, tag{"ux"}, timeout{std::chrono::minutes{60}},
+                [] { scenario("ux-xlings", sessions); }};
 
 // 0.0.9 plan M-2: one session, of a generated project: completion through the server against clangd alone.
-Bench ux_heavy_headers{"ux-heavy-headers", on{"linux-x64"}, tag{"ux"}, [] {
+Bench ux_heavy_headers{"ux-heavy-headers", on{"linux-x64"}, tag{"ux"}, timeout{std::chrono::minutes{15}}, [] {
     constexpr std::array<stage, 1> edits{{{"edits", "cache-a", false}}};
     scenario("ux-heavy-headers", edits);
 }};
