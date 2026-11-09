@@ -40,6 +40,11 @@ runs:
           xlings update > /dev/null 2>&1 || true
           if xlings install "mtest@$MTEST_VERSION" -y -g; then launcher=$(command -v mtest); break; fi
         done
+        # The package's own launcher, not the xvm shim: on Windows the shim runs the package's alias through
+        # cmd, which reads `&` in an argument (`--tag "on:win32-x64&release"`) as a second command.
+        exe=''; [ "$RUNNER_OS" != Windows ] || exe='.exe'
+        own="${XLINGS_HOME:-$HOME/.xlings}/data/xpkgs/xim-x-mtest/$MTEST_VERSION/bin/mtest$exe"
+        if [ -n "$launcher" ] && [ -f "$own" ]; then launcher="$own"; fi
         xlings config --mirror GLOBAL > /dev/null 2>&1 || true
         if [ -z "$launcher" ]; then
           echo "::warning::xlings could not install mtest $MTEST_VERSION; taking the release itself"
