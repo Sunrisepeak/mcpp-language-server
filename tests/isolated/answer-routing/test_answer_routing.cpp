@@ -798,10 +798,17 @@ UTest answer_routing_tests{"answer routing", [] {
             expect(f.answer(asked, complete({ "push_back", "size" })));
             f.tick(10ms);
         }
+        const auto asked = std::chrono::steady_clock::now();
         const Json again = f.ask("textDocument/completion", "a.cpp", 2, 8);
         f.tick(500ms);
+        // The kept list goes out 150 ms past the engine's pace (0.6 s), counted from the request: the check
+        // means something only while the clock has not passed that. A runner that slept past it (a loaded
+        // Windows runner overshoots a 0.5 s sleep) says nothing about the wait.
+        if (std::chrono::steady_clock::now() - asked >= 740ms) skip("the runner slept past the kept list's wait");
         expect(!f.sink.response(again).has_value()) << "the kept list waits: the engine is about to answer";
         f.tick(150ms);
+        if (f.sink.response(again).has_value() && std::chrono::steady_clock::now() - asked >= 740ms)
+            skip("the runner slept past the kept list's wait");
         expect(f.answer(again, complete({ "push_back", "size", "empty" })));
         const auto served = f.sink.response(again);
         expect(fatal(served.has_value()));
