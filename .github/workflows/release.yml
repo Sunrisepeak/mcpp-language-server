@@ -136,6 +136,11 @@ jobs:
   # staged candidate is what ships.
   prerelease:
     needs: what
+    # ci.yml's jobs read the stores and payloads other runs kept (`actions: read`); a called workflow is
+    # given no more than its caller's job, and this file's default is `contents: write` alone.
+    permissions:
+      contents: read
+      actions: read
     uses: ./.github/workflows/prerelease.yml
 
   publish:
