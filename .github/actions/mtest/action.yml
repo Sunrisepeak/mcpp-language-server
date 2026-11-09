@@ -25,18 +25,42 @@ runs:
         irm https://d2learn.org/xlings-install.ps1.txt | iex
         "$env:USERPROFILE\.xlings\subos\current\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
     - shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
         . .github/versions.env
-        # The index and the mirrors are reached over the network: an attempt refreshes the index first,
-        # as install-mcpp.sh does for mcpp.
-        for attempt in 1 2 3 4 5; do
+        # xlings by the configured mirror (GLOBAL), then by CN (GitCode first), each with a refreshed index
+        # (a cached index can predate the release, and xlings keeps it when an anonymous refresh fails); else
+        # the release bundle itself, checked against MTEST_SHA256: the web address, then the API's, which
+        # answered 200 while the web one answered 504 (GitHub's 2026-11-09 incident).
+        launcher=""
+        for mirror in GLOBAL CN; do
+          xlings config --mirror "$mirror" > /dev/null 2>&1 || true
           xlings update > /dev/null 2>&1 || true
-          if xlings install "mtest@$MTEST_VERSION" -y -g; then break; fi
-          [ "$attempt" = 5 ] && { echo "::error::mtest@$MTEST_VERSION could not be installed"; exit 1; }
-          sleep 30
+          if xlings install "mtest@$MTEST_VERSION" -y -g; then launcher=$(command -v mtest); break; fi
         done
-        launcher=$(command -v mtest)
+        xlings config --mirror GLOBAL > /dev/null 2>&1 || true
+        if [ -z "$launcher" ]; then
+          echo "::warning::xlings could not install mtest $MTEST_VERSION; taking the release itself"
+          archive="mtest-$MTEST_VERSION-openkal-bundle-all.tar.gz"
+          temp="$RUNNER_TEMP"; python=python3
+          if [ "$RUNNER_OS" = Windows ]; then temp=$(cygpath -u "$RUNNER_TEMP"); python=python; fi
+          if ! curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$temp/$archive" \
+                 "https://github.com/mcpp-community/mtest/releases/download/v$MTEST_VERSION/$archive"; then
+            id=$(curl -fsSL --retry 3 --retry-all-errors -H "Authorization: Bearer $GH_TOKEN" \
+                   "https://api.github.com/repos/mcpp-community/mtest/releases/tags/v$MTEST_VERSION" \
+                 | "$python" -c 'import json,sys; print(next(str(a["id"]) for a in json.load(sys.stdin)["assets"] if a["name"] == sys.argv[1]))' "$archive")
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -H "Authorization: Bearer $GH_TOKEN" \
+                 -H "Accept: application/octet-stream" -o "$temp/$archive" \
+                 "https://api.github.com/repos/mcpp-community/mtest/releases/assets/$id"
+          fi
+          actual=$("$python" -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$temp/$archive")
+          [ "$actual" = "$MTEST_SHA256" ] || { echo "::error::$archive: sha256 $actual, versions.env says $MTEST_SHA256"; exit 1; }
+          mkdir -p "$temp/mtest" && tar xzf "$temp/$archive" -C "$temp/mtest"
+          launcher="$temp/mtest/mtest-$MTEST_VERSION-openkal-bundle-all/bin/mtest"
+          [ "$RUNNER_OS" = Windows ] && launcher="$launcher.exe"
+        fi
         "$launcher" --version
-        "$launcher" --version | grep -qF "$MTEST_VERSION" || { echo "::error::xlings's mtest is not $MTEST_VERSION"; exit 1; }
+        "$launcher" --version | grep -qF "$MTEST_VERSION" || { echo "::error::the mtest at $launcher is not $MTEST_VERSION"; exit 1; }
         echo "MTEST=$launcher" >> "$GITHUB_ENV"
