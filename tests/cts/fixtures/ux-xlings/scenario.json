@@ -146,8 +146,9 @@
         "max": 3.0,
         "hover.p95": 1.5,
         "hover.max": 3.0,
-        "engineShare": 0.9
-      }
+        "engineShare": 0.85
+      },
+      "budget-why": "The cold phase lasts while the preparation runs; with mcpp 2026.11.9.1 it ends after two rounds, about eight completions with the first answers, so a single completion that clangd, busy building the closure, does not answer within the server's 1 s budget (mcppls answers it) puts the share at 0.875. The 4-vCPU runner measured 0.88 on pull request #79 and on the 0.21.0 release run. The budget is 0.85, which admits one such answer."
     },
     {
       "id": "U4-background",
