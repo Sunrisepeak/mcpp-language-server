@@ -6,17 +6,18 @@
 // network entirely), so the fixture's fake binary content never has to be a real executable; the
 // win32-x64 fixture never matches this host's own base::payload_platform() on the CI machines
 // this runs on (Linux, macOS), so the "this host can run it" branch never fires for it either.
-#include <archive.h>
-#include <archive_entry.h>
 
 import std;
-import mcppls.testing;
+import mcpplibs.mwrap.libarchive;
+import mcpplibs.mtest;
 import mcppls.base.path;
 import mcppls.pack.clangd;
 import mcppls.pack.fetch;
 import mcppls.pack.lock;
 import mcpplibs.os;
 import mcppls.base.payload;
+
+namespace la = mcpplibs::mwrap::libarchive::macros;
 
 namespace os = mcpplibs::os;
 namespace clangd = mcppls::pack::clangd;
@@ -34,7 +35,7 @@ bool write_zip(const std::string& path, const std::vector<Member>& members) {
     ::archive* out = ::archive_write_new();
     if (out == nullptr) return false;
     ::archive_write_set_format_zip(out);
-    if (::archive_write_open_filename(out, path.c_str()) != ARCHIVE_OK) {
+    if (::archive_write_open_filename(out, path.c_str()) != la::ARCHIVE_OK) {
         ::archive_write_free(out);
         return false;
     }
@@ -42,18 +43,18 @@ bool write_zip(const std::string& path, const std::vector<Member>& members) {
     for (const auto& member : members) {
         ::archive_entry* entry = ::archive_entry_new();
         ::archive_entry_set_pathname(entry, member.path.c_str());
-        ::archive_entry_set_filetype(entry, AE_IFREG);
+        ::archive_entry_set_filetype(entry, la::AE_IFREG);
         ::archive_entry_set_size(entry, static_cast<std::int64_t>(member.content.size()));
         ::archive_entry_set_perm(entry, member.executable ? 0755 : 0644);
-        if (::archive_write_header(out, entry) != ARCHIVE_OK) ok = false;
+        if (::archive_write_header(out, entry) != la::ARCHIVE_OK) ok = false;
         if (ok && !member.content.empty()) {
             const auto wrote = ::archive_write_data(out, member.content.data(), member.content.size());
-            ok = wrote == static_cast<::ssize_t>(member.content.size());
+            ok = wrote == static_cast<::la_ssize_t>(member.content.size());
         }
         ::archive_entry_free(entry);
         if (!ok) break;
     }
-    if (::archive_write_close(out) != ARCHIVE_OK) ok = false;
+    if (::archive_write_close(out) != la::ARCHIVE_OK) ok = false;
     ::archive_write_free(out);
     return ok;
 }
@@ -106,14 +107,10 @@ std::string scratch_dir() {
 
 } // namespace
 
-int main(int argc, char* argv[]) {
+using namespace mcpplibs::mtest;
+
+UTest clangd_tests{"clangd", [] {
     std::error_code ignored;
-    // Started as the fixture's clangd (runnable_clangd): answer the one question asked of it.
-    if (argc > 1 && std::string_view { argv[1] } == "--version") {
-        std::println("clangd version 23.1.0 (fixture)");
-        return 0;
-    }
-    using namespace mcppls::testing;
 
     const std::string work { scratch_dir() };
     const auto lockData = platforms_lock();
@@ -386,5 +383,13 @@ int main(int argc, char* argv[]) {
     };
 
     std::filesystem::remove_all(work);
-    return report();
+}};
+
+int main(int argc, char* argv[]) {
+    // Started as the fixture's clangd (runnable_clangd): answer the one question asked of it.
+    if (argc > 1 && std::string_view { argv[1] } == "--version") {
+        std::println("clangd version 23.1.0 (fixture)");
+        return 0;
+    }
+    return run(argc, argv);
 }

@@ -4,8 +4,105 @@ Notable changes to mcpp-language-server. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); each release is one dated section, and a
 release's notes are that section.
 
-Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
-product version unchanged.
+Versions are three-part semantic versions, `X.Y.Z`: `X.Y` is the series of the server and every editor plugin,
+`Z` each component's own patch (docs/92-release.md "Versions"). A series release is `## [X.Y.0]`; a component's
+patch is `## [<component> X.Y.Z]` (`server`, `vscode`, `clion`, `zed`, `claude-code`).
+
+## [0.21.0] — 2026-11-08
+
+- **Versions are a series and a patch.** `X.Y` is shared by the server and every editor plugin, `Z` is each
+  component's own, so a plugin's fix is released alone (`vscode-v0.21.1`) and every marketplace still sees its
+  versions rise. 0.0.21 is released as 0.21.0, continuing the count (0.0.*N* is series 0.*N*). A plugin states its
+  version in `initializationOptions.plugin`, and a server of another series refuses `initialize` naming both and
+  the install that matches; VS Code and CLion also check the server they are about to start. `mcppls-devtools
+  version` gains `--series X.Y`, `--bump <component>` and `--print --component`; the release manifest names each
+  asset's component, and a component's release carries its own files.
+- **CI follows the change.** A table of components (`.github/components.tsv`) decides which jobs a pull request
+  runs: a change of the server runs everything, a change of one plugin runs that plugin's jobs over the payload
+  main already built for the same server, a change of the documentation runs the documentation's checks. Main,
+  nightly and release runs run everything.
+- **The tests are mtest's, from the directory to the line** (mtest 0.5.2, mcpp 2026.11.9.1). `tests/` holds them by
+  kind: `unit/` the unit tests, `cts/` the conformance cases (`mcppls-cts`), `bench/` the measurements
+  (`mcppls-bench`), `harness/` how the cases drive the server. An object is a case and its type is its kind
+  (`UTest`, `CTS`, `Bench`), and what a case needs follows its name: the platforms it runs on, the machine it holds,
+  the bounds of its metrics. A unit test file declares objects and no `main`; a file that starts copies of itself
+  declares what a copy does (an mtest `child`). The files of a directory are one program, run as a process per file
+  of its cases: the server's 44 unit test programs are one (`unit`), linking what each process reaches, with the two
+  that run again with a cache of their own in `tests/isolated/`; devtools' and the harness's are one each. Every run
+  is kept in mtest's store, reported in each job's summary and over every job (`unit tests (report)`). The conformance cases are written by topic (`mcpp.cpp`,
+  `targets.cpp`, `cmake.cpp`, `xmake.cpp`, `inferred.cpp`, `engine.cpp`, `editing.cpp`), each fixture and each of its
+  variants one line (`@polling`, `@plain`, `@vscode`, `@neovim`, `@zed`, `@warm` for a second session on the first
+  one's cache, `@linked` for a workspace reached through a symbolic link). mtest lists, selects, schedules and
+  records them, two at a time, divided between a platform's parts by the times main's last run measured; each failed
+  check is a failure of its case, named by its id; a failing case runs once more with the server's log, which `mtest
+  explain` names; a second attempt of a CI job runs only the cases that failed. A case checks that every fixture that
+  bounds a time holds the machine. The fixture lists of the conformance job, its wrapper script and `mtest.toml` are
+  gone, as are the in-repository harness of the unit tests and `mcppls-devtools bench`.
+- **The measurements are cases with bounded metrics.** A session's start, cold and warm on one cache, bounds its first
+  navigation (15 s and 5 s; the median of five, 12 s and 5 s, for a release); the review fixtures bound each rule's
+  precision and recall; the semantic tokens of a large file, the agent task benchmark's data, an agent's runs and the
+  user-experience scenarios' stages report what they measure. The store keeps every metric, and a CI job shows each
+  beside main's history and its bounds (`mtest analyze trend`). The runner's `--navigation-budget`,
+  `timing_evidence.py` and `mcppls-devtools measure summary` are gone: the bounds are stated by the cases.
+- A fixture that needs CMake 4.4 states it (`requires-cmake`), and the runner puts that CMake first on the PATH of its
+  prepare steps only; the measures a run writes record each check's `optional` and checks that could not run.
+
+The bundled engine is [mcppls-clangd 0.0.21](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.21)
+(`23.1.0-mcppls.10`), its ok image built with zlib as the native engines are, so it reads the index shards an engine
+with zlib writes. Built with mcpp 2026.11.9.1 over openkal-platform 0.24.4 and mcpplibs.os 0.4.1; the workspace
+requires mcpp 2026.11.9.1, under which a Mach-O image links its C library first, and CI finds a target's outputs
+under the identity the request selects (`aarch64-macos` from Linux is `aarch64-macos-musl`).
+
+### Fixed
+
+- **MSVC installed outside Program Files** (#81). The image's engine is given the directories of the MSVC
+  toolchain and the Windows SDK a command selects (`-Xmicrosoft-visualc-tools-root`, `-Xmicrosoft-windows-sdk-root`
+  and clang-cl's `/winsysroot`, `/vctoolsdir`, `/winsdkdir`), so a Visual Studio under `D:/VisualStudio2026` has
+  its headers read: 0.0.20 gave the engine only its `modules/` directory, and `vcruntime.h`, `excpt.h` and the
+  STL's headers were not found, `std` became a stand-in.
+- **A line logged while the process ends.** The log's state is never destroyed, so a detached thread (a daemon's
+  connection, a reader of a child's output) that writes a line after `main` returns finds it whole; such a write
+  ended a test image on Linux arm64 with SIGSEGV.
+- **Index shards one engine wrote, another reads.** The 0.0.20 image read shards that an engine with zlib had written
+  (the native engine of 0.0.19 and earlier, or another clangd) and discarded each one ("Compressed string table, but
+  zlib is unavailable") before indexing again. The 0.0.21 image reads them, and each engine now keeps its database,
+  index shards and module builds in a cache context of its own identity (`clangd-<version>-<platform>-<digest>`); the
+  contexts other engines left are removed when an engine starts (docs/50-troubleshooting.md).
+- **The image asks what a native build asks.** In the ok image, 0.0.18 to 0.0.20 checked neither whether the cache is
+  on a Windows Dev Drive nor whether a Linux server runs under PRoot, without a word: mcpplibs.os 0.3 answered both only
+  in a native build. Over mcpplibs.os 0.4.0 the image asks the system it runs upon (`os::on<P>`), so the Dev Drive note
+  and PRoot's module builds in workers apply to every release (docs/50-troubleshooting.md).
+- **One closing quote after an include completion** ([#80](https://github.com/Sunrisepeak/mcpp-language-server/issues/80)).
+  clangd's include completion replaces the closing quote or bracket an editor typed after the cursor. A completion
+  the server answers from an earlier answer for the same word (a word's complete list, a late answer) ended every
+  edit at the cursor, so the editor's quote stayed and `#include "foo.h""` was written. An edit that reaches past
+  the old cursor now reaches as far past the new one while the line after the cursor is unchanged, and an include
+  line is never answered from kept answers, whose words are the code's identifiers.
+
+### Added
+
+- **S6, the payload manifest** (`docs/specs/s6-payload.md`): payload versions 4 and 5, and the rule by which a client
+  starts the server — the host's entry and `<runner> <server.path>`, a refusal naming the platforms a payload serves,
+  a refusal of a version the client does not implement. The schema and examples (the published 0.0.19 and 0.0.20
+  manifests) are validated with the other specifications.
+
+### Changed
+
+- libarchive and xxHash are their mwrap modules (`mcpplibs.mwrap.libarchive`, `mcpplibs.mwrap.xxhash`), and no
+  source or test includes a header: the operating system is mcpplibs.os's and the C library mcpplibs.mwrap.libc's.
+  The archive tests' probe of the C library's `open` and `fstat`, written for a Windows image fault since fixed,
+  is gone; the archive writer exercises both on every system. `mcppls-devtools check os-surface` reports a header.
+- The platform is one release, `openkal-platform@0.24.4` (its okrun enters an image in its convention's
+  floating-point state, so the server's image reads a JSON number on Windows as on the other systems), and every dependency is one release named by its identity in one table
+  (`mcpplibs.os = "0.3.1"`, `mcpplibs.mwrap.libarchive = "3.8.7"`); mcpp 2026.11.8.1 or later builds mcppls.
+- The workspace's shared tables are `[workspace.toolchain]`, `[workspace.profile.release]` and
+  `[workspace.xlings.workspace]`, and one `[workspace.dependencies]` holds every shared version.
+- Every file a release distributes holds ok images, the engine included, and CI tests them as such: the server's
+  unit tests are built once as ok images and run on each of the four systems through its runner (`openkal-test`).
+  Native programs are test tools; the native server's and the tools' unit tests run on linux-x64, and on every
+  platform in a manual CI run with `native`. An engine candidate is the engine PR's ok image part, `clangd-openkal`.
+- Tests that start copies of themselves start them as the system names this program (`self_command`): an ok image
+  through its loader.
 
 ## [0.0.20] — 2026-11-06
 

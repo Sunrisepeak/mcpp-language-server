@@ -1,8 +1,9 @@
 name: nightly
 
 # What is too slow or too variable for every commit (usable plan W7, W8): the whole CI,
-# then three cold and warm starts per host with their medians, the self-hosting fixtures
-# with their timings, and the mcpp fixtures with the latest mcpp. The measure files are uploaded.
+# then five cold and warm starts per host, their medians bounded and shown beside the nights
+# before (tests/bench), the self-hosting fixtures with their timings, and the mcpp fixtures
+# with the latest mcpp. The measure files are uploaded.
 # The whole CI includes the CLion plugin in a real CLion (ci.yml clion-verify and clion-e2e, which
 # run on anything that is not a pull request).
 on:
@@ -76,26 +77,42 @@ jobs:
           platform: ${{ matrix.platform }}
           run-id: ${{ inputs.payload-run }}
           kit: 'true'
-      - name: Three cold and warm starts
+      - uses: ./.github/actions/mtest
+      # The night before's store, so each start's medians are shown beside their history (`mtest analyze trend`).
+      - name: The store of the last night
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run=$(gh run list -R "$GITHUB_REPOSITORY" --workflow nightly.yml --status success --limit 1 \
+                  --json databaseId -q '.[0].databaseId' 2>/dev/null || true)
+          [ -n "$run" ] || { echo "no night before: no history"; exit 0; }
+          rm -rf "$RUNNER_TEMP/timing-store"
+          gh run download "$run" -R "$GITHUB_REPOSITORY" -n "nightly-timing-mtest-${{ matrix.platform }}" -D "$RUNNER_TEMP/timing-store" 2>/dev/null \
+            && "$MTEST" store import --from "$RUNNER_TEMP/timing-store" || echo "the night before kept no store"
+      # Five cold and five warm starts (tests/bench/startup.cpp), their medians bounded as for a release.
+      - name: Five cold and warm starts
         run: |
           set -euo pipefail
           exe=''; [ "$RUNNER_OS" = Windows ] && exe='.exe'
-          results="$RUNNER_TEMP/timing-results"
-          mkdir -p "$results"
-          for round in 1 2 3; do
-            for start in cold warm; do
-              warm=(); [ "$start" = warm ] && warm=(--expect-warm)
-              "stage/mcppls-conformance$exe" run --server "payload/bin/mcppls.okb" --payload payload --fixture conformance/fixtures/timing \
-                  --workspace-dir "$RUNNER_TEMP/timing-$round/workspace" --cache-dir "$RUNNER_TEMP/timing-$round/cache" --timeout 120 \
-                  --measure "$results/$start-$round.json" ${warm[@]+"${warm[@]}"}
-            done
-          done
-          "stage/mcppls-devtools$exe" measure summary "$results" | tee "$results/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          export MCPPLS_CTS_MEASURES="$RUNNER_TEMP/timing-results"
+          status=0
+          "$MTEST" run --case 'startup, the median of five' "stage/mcppls-bench$exe" || status=$?
+          "$MTEST" analyze trend --runs 30 | tee -a "$GITHUB_STEP_SUMMARY" || true
+          [ "$status" = 0 ] || { "$MTEST" explain || true; exit 1; }
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: nightly-timing-${{ matrix.platform }}
           path: ${{ runner.temp }}/timing-results
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: nightly-timing-mtest-${{ matrix.platform }}
+          path: .mtest
+          include-hidden-files: true
+          if-no-files-found: ignore
 
   # usable plan 5.2: the mcpp fixtures with the newest mcpp the index has, so that a change on the
   # producer's side shows up here before the pinned MCPP_VERSION moves.
@@ -127,7 +144,7 @@ jobs:
           failed=''
           for fixture in mcpp-gcc mcpp-llvm mcpp-watch; do
             echo "::group::$fixture"
-            if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture "conformance/fixtures/$fixture" --timeout 180; then
+            if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture "tests/cts/fixtures/$fixture" --timeout 180; then
               failed="$failed $fixture"
             fi
             echo "::endgroup::"
@@ -178,7 +195,7 @@ jobs:
           apt-get install -y -q --no-install-recommends jq ca-certificates
           cd /work
           work=/tmp/termux-report
-          rm -rf "$work" && mkdir -p "$work" && cp -R conformance/fixtures/inferred "$work/project"
+          rm -rf "$work" && mkdir -p "$work" && cp -R tests/cts/fixtures/inferred "$work/project"
           rm -f "$work/project/scenario.json"
           MCPPLS_CACHE_DIR="$work/cache" payload/libexec/okrun/linux-aarch64/okrun payload/bin/mcppls.okb report --root "$work/project" \
               --settle 20 --payload /work/payload > "$work/report.json" 2> "$work/report.err"
@@ -192,7 +209,7 @@ jobs:
           [ "$state" = ready ]
           for fixture in inferred typing-import; do
             stage/mcppls-conformance run --server /work/payload/bin/mcppls.okb --payload /work/payload \
-                --fixture "conformance/fixtures/$fixture" --timeout 300
+                --fixture "tests/cts/fixtures/$fixture" --timeout 300
           done
           EOF
           cat > "$RUNNER_TEMP/in-termux.sh" <<'EOF'
@@ -270,9 +287,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/self"
-          if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture conformance/fixtures/${{ matrix.fixture }} \
+          if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture tests/cts/fixtures/${{ matrix.fixture }} \
                 --timeout 900 --measure "$RUNNER_TEMP/self/${{ matrix.fixture }}.json"; then
-            stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture conformance/fixtures/${{ matrix.fixture }} \
+            stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture tests/cts/fixtures/${{ matrix.fixture }} \
                 --timeout 300 --verbose 2>&1 | tail -300 || true
             exit 1
           fi
@@ -318,42 +335,17 @@ jobs:
           platform: ${{ matrix.platform }}
           run-id: ${{ inputs.payload-run }}
           kit: 'true'
+      - uses: ./.github/actions/mtest
+      # ux-mcpp's stages, each a case of mcppls-bench (tests/bench/ux.cpp), in order on one workspace.
       - name: The stages
         run: |
           set -euo pipefail
           exe=''; [ "$RUNNER_OS" = Windows ] && exe='.exe'
-          results="$RUNNER_TEMP/ux-results"
-          work="$RUNNER_TEMP/ux-work"
-          mkdir -p "$results" "$work"
-          failed=''
-          # run_stage <stage> <cache> [runner arguments]
-          run_stage() {
-            local name="$1" cache="$2"; shift 2
-            echo "::group::ux-mcpp ${{ matrix.platform }} $name"
-            if ! "stage/mcppls-conformance$exe" run --server payload/bin/mcppls.okb --payload payload \
-                --fixture conformance/fixtures/ux-mcpp --workspace-dir "$work/workspace" --cache-dir "$work/$cache" \
-                --stage "$name" --timeout 900 --measure "$results/ux-mcpp-${{ matrix.platform }}-$name.json" "$@"; then
-              failed="$failed $name"
-            fi
-            echo "::endgroup::"
-          }
-          run_stage cold cache-a
-          run_stage warm cache-a --expect-warm
-          run_stage edits cache-a --expect-warm
-          run_stage faults cache-b
-          {
-            echo "### ux-mcpp, ${{ matrix.platform }}"
-            echo
-            echo '| stage | check | ok | seconds | detail |'
-            echo '|---|---|---|---|---|'
-            for file in "$results"/*.json; do
-              jq -r --arg stage "$(basename "$file" .json)" '.checks[] | "| \($stage) | \(.id) | \(.ok) | \(.seconds * 10 | round / 10) | \(.detail | tostring | .[0:150] | gsub("\\|"; "/")) |"' "$file"
-            done
-          } >> "$GITHUB_STEP_SUMMARY"
-          if [ -n "$failed" ]; then
-            echo "::error::stages over budget or failing:$failed"
-            exit 1
-          fi
+          export MCPPLS_CTS_MEASURES="$RUNNER_TEMP/ux-results"
+          status=0
+          "$MTEST" run --case ux-mcpp "stage/mcppls-bench$exe" || status=$?
+          "$MTEST" analyze trend --runs 1 | tee -a "$GITHUB_STEP_SUMMARY" || true
+          [ "$status" = 0 ] || { "$MTEST" explain || true; exit 1; }
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -445,7 +437,7 @@ jobs:
             mkdir -p "$into" "$space"
             echo "::group::${{ matrix.fixture }} ${{ matrix.round }} $label"
             if ! ${pin[@]+"${pin[@]}"} stage/mcppls-conformance run --server "$payload/$(jq -r .server.path "$payload/payload.json")" --payload "$payload" \
-                --fixture conformance/fixtures/${{ matrix.fixture }} --workspace-dir "$space/workspace" --cache-dir "$space/$cache" \
+                --fixture tests/cts/fixtures/${{ matrix.fixture }} --workspace-dir "$space/workspace" --cache-dir "$space/$cache" \
                 --stage "$name" --timeout 900 --measure "$into/${{ matrix.fixture }}-${{ matrix.round }}-$name$suffix.json" "$@"; then
               if [ "$server" = this ]; then failed="$failed $name$suffix"; else echo "::warning::the baseline failed $name$suffix"; fi
               # Keep the original failed stage's complete server logs before later

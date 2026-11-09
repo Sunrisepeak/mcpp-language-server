@@ -14,18 +14,14 @@ kind = "lib"
 
 [dependencies]
 mcpplibs.os.workspace = true
-tinyhttps.workspace = true
+mcpplibs.tinyhttps.workspace = true
+mcpplibs.mwrap.libarchive.workspace = true
+nlohmann.json.workspace = true
 mcppls-base = { path = "../base" }
 mcppls-toolrun = { path = "../toolrun" }
 
-[dependencies.nlohmann]
-json.workspace = true
-
-[dependencies.compat]
-libarchive.workspace = true
-
 [dev-dependencies]
-mcppls-testing = { path = "../testing" }
+mcpplibs.mtest.workspace = true
 
 [lib]
 path = "src/pack.cppm"

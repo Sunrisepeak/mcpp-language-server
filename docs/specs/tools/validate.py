@@ -7,7 +7,7 @@
 Checks: every JSON file parses and every schema is valid draft 2020-12; examples, JSON blocks in the text and the
 simulated producer data of conformance fixtures validate; semantic rules a schema cannot express; negative cases the
 schemas must reject; relative links resolve; every requirement of the specifications has an identifier and evidence in
-conformance/traceability.json (usable plan W10.2). Exits non-zero on any failure.
+tests/cts/traceability.json (usable plan W10.2). Exits non-zero on any failure.
 """
 import copy, json, pathlib, re, sys
 from jsonschema import Draft202012Validator
@@ -301,6 +301,53 @@ s2_request_only = Draft202012Validator({"$ref": "#/$defs/request",
 validate("S2 request definition rejects a request carrying kind", s2_request_only,
          {"workspace": "/w", "profile-version": "0.2.0", "kind": "progress"}, expect_valid=False)
 
+# S6: the payload manifest of versions 4 and 5, the examples taken from the published 0.0.19 and 0.0.20 payloads
+s6 = schemas["s6-payload.schema.json"]
+s6_v4, s6_v5 = load(ex / "s6-payload-v4-linux-x64.json"), load(ex / "s6-payload-v5.json")
+validate("S6 example validates: s6-payload-v4-linux-x64.json", s6, s6_v4)
+validate("S6 example validates: s6-payload-v5.json", s6, s6_v5)
+check("S6 v5 example: every platform's runner is libexec/okrun/<system>-<arch>/okrun[.exe]",
+      all(re.fullmatch(r"libexec/okrun/(linux|macos|windows)-(x86_64|aarch64)/okrun(\.exe)?", e.get("runner", ""))
+          for e in s6_v5["platforms"].values()))
+check("S6 v5 example: one engine image serves every platform",
+      len({e["engines"]["clangd"]["path"] for e in s6_v5["platforms"].values()}) == 1)
+for label, change in [
+        ("a version it does not define", lambda d: d.__setitem__("payload-version", 6)),
+        ("a manifest without server.path", lambda d: d["server"].pop("path")),
+        ("a manifest without files", lambda d: d.pop("files")),
+        ("a manifest without kit", lambda d: d.pop("kit")),
+        ("a path that climbs out of the payload", lambda d: d["server"].__setitem__("path", "../bin/mcppls.okb")),
+        ("an absolute path", lambda d: d["kit"].__setitem__("path", "/kit")),
+        ("a drive path", lambda d: d["kit"].__setitem__("path", "C:/kit"))]:
+    for name, base in (("v4", s6_v4), ("v5", s6_v5)):
+        doc = copy.deepcopy(base)
+        change(doc)
+        validate(f"S6 schema rejects {label} ({name})", s6, doc, expect_valid=False)
+for label, change in [
+        ("version 5 without platforms", lambda d: d.pop("platforms")),
+        ("version 5 with a top-level platform", lambda d: d.__setitem__("platform", "linux-x64")),
+        ("version 5 with server.runner", lambda d: d["server"].__setitem__("runner", "bin/okrun")),
+        ("version 5 with top-level engines", lambda d: d.__setitem__("engines", {"clangd": {}})),
+        ("an unknown platform key", lambda d: d["platforms"].__setitem__("haiku-x64", d["platforms"]["linux-x64"])),
+        ("an image server and a platform without a runner", lambda d: d["platforms"]["linux-x64"].pop("runner")),
+        ("a platform without its engine", lambda d: d["platforms"]["linux-x64"].pop("engines")),
+        ("a platform without its files", lambda d: d["platforms"]["linux-x64"].pop("files")),
+        ("an engine without its identity", lambda d: d["platforms"]["linux-x64"]["engines"]["clangd"].pop("identity"))]:
+    doc = copy.deepcopy(s6_v5)
+    change(doc)
+    validate(f"S6 schema rejects {label}", s6, doc, expect_valid=False)
+for label, change in [
+        ("version 4 without platform", lambda d: d.pop("platform")),
+        ("version 4 without engines.clangd", lambda d: d.pop("engines")),
+        ("version 4 with an engine without its identity", lambda d: d["engines"]["clangd"].pop("identity"))]:
+    doc = copy.deepcopy(s6_v4)
+    change(doc)
+    validate(f"S6 schema rejects {label}", s6, doc, expect_valid=False)
+doc = copy.deepcopy(s6_v5)
+doc["server"]["path"] = "bin/mcppls"
+doc["platforms"]["linux-x64"].pop("runner")
+validate("S6 schema accepts a program server without a runner", s6, doc)
+
 # 5. JSON blocks embedded in the specification text
 def json_blocks(md):
     return re.findall(r"```json\n(.*?)```", md.read_text(encoding="utf-8"), flags=re.S)
@@ -354,7 +401,7 @@ def mcpp_contract(name, doc):
     check(f"mcpp {name}: mcpp:core provides the engine interface, mcpp and mcpp.core",
           all({"mcpp", "mcpp.core"} <= {m for tu in s["translation-units"] for m in tu.get("provides", {})} for s in core))
 
-for mock in sorted((repository / "conformance" / "fixtures").glob("*/mcpp-mock.json")):
+for mock in sorted((repository / "tests" / "cts" / "fixtures").glob("*/mcpp-mock.json")):
     data = load(mock)
     if "database" not in data:
         continue
@@ -381,10 +428,10 @@ for path in map(pathlib.Path, sys.argv[1:]):
     mcpp_contract(path.name, envelope["data"]["database"])
 
 # 8. traceability (usable plan W10.2): every requirement keyword carries a rule identifier S<n>-<section>-<ordinal>,
-#    and conformance/traceability.json names evidence for each: a check above, a unit test, a conformance check, a
+#    and tests/cts/traceability.json names evidence for each: a check above, a unit test, a conformance check, a
 #    line of a script that enforces the rule, or the reason no automated evidence can exist.
 TRACED_SPECS = {"S1": "s1-build-database.md", "S2": "s2-discovery.md", "S3": "s3-lsp-extensions.md", "S4": "s4-semantic-kit.md",
-                "S5": "s5-semantic-query.md"}
+                "S5": "s5-semantic-query.md", "S6": "s6-payload.md"}
 KEYWORD = re.compile(r"\b(MUST NOT|MUST|SHALL NOT|SHALL|SHOULD NOT|SHOULD|REQUIRED|RECOMMENDED)\b")
 HEADING = re.compile(r"^#{2,4}\s+(\d+(?:\.\d+)*)\.?\s")
 RULE_ID = re.compile(r'<a id="(S\d-[\d.]+-\d+)"></a>')
@@ -416,11 +463,11 @@ for spec, name in TRACED_SPECS.items():
             rules[rule] = where
 
 tests = {}
-for path in sorted((repository / "tests").glob("*.cpp")):
+for path in sorted([*(repository / "tests" / "unit").rglob("*.cpp"), *(repository / "tests" / "isolated").rglob("*.cpp")]):
     for name in re.findall(r'^\s*"((?:[^"\\]|\\.)*)"_test\s*=', path.read_text(encoding="utf-8"), flags=re.M):
-        tests[f"tests/{path.name}: {name}"] = True
+        tests[f"{path.relative_to(repository).as_posix()}: {name}"] = True
 fixture_checks = set()
-for scenario in sorted((repository / "conformance" / "fixtures").glob("*/scenario.json")):
+for scenario in sorted((repository / "tests" / "cts" / "fixtures").glob("*/scenario.json")):
     for item in load(scenario).get("checks", []):
         fixture_checks.add(f"{scenario.parent.name}/{item.get('id')}")
 
@@ -432,7 +479,7 @@ def evidence_ok(entry):
     if "check" in entry:
         return entry["check"] in fixture_checks, f"no conformance check {entry['check']!r}"
     if "review" in entry:
-        return (repository / "tools" / "bench" / "review" / entry["review"] / "review.json").is_file(), f"no review fixture {entry['review']!r}"
+        return (repository / "tests" / "bench" / "review" / entry["review"] / "review.json").is_file(), f"no review fixture {entry['review']!r}"
     if "script" in entry:
         path = repository / entry["script"]
         return path.is_file() and entry.get("contains", "\0") in path.read_text(encoding="utf-8"), \
@@ -441,7 +488,7 @@ def evidence_ok(entry):
         return len(entry["manual"].strip()) >= 20, "a manual entry states why no automated evidence exists"
     return False, f"unknown evidence {entry}"
 
-traceability = load(repository / "conformance" / "traceability.json")
+traceability = load(repository / "tests" / "cts" / "traceability.json")
 pending = traceability.get("$pending", {})
 kinds = {}
 for rule, where in rules.items():

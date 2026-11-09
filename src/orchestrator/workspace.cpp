@@ -703,7 +703,10 @@ struct Workspace::Impl final : engine::Host {
         cacheDirectory = base::canonical_path(cacheDirectory);
         // 0.0.14 E1: on Windows, a cache off a Dev Drive has every file clangd writes and reads there scanned by
         // Microsoft Defender as it happens. Said once, in the log and the overview; nothing is changed for the person.
-        if constexpr (os::is_windows) cacheOnDevDrive = os::windows::on_dev_drive(std::filesystem::path { cacheDirectory });
+        // A native Windows build and an image on Windows alike (mcpplibs.os 0.4.0).
+        os::on<os::platform::windows>([&](auto) {
+            cacheOnDevDrive = os::windows::on_dev_drive(std::filesystem::path { cacheDirectory });
+        });
         if (cacheOnDevDrive == false) {
             log::info("the cache {} is not on a Dev Drive: Microsoft Defender scans the module and preamble files clangd writes and reads "
                       "there as it does; a Dev Drive scans them asynchronously (docs/50-troubleshooting.md, \"Windows\")", cacheDirectory);
@@ -2130,7 +2133,7 @@ struct Workspace::Impl final : engine::Host {
         job.coreAnswered = true;
         job.answeredBy = std::string { coreEngine->id() };
         ++completionsFromWord;
-        finish_job(jobId, completion::retarget(answer->second.result, position));
+        finish_job(jobId, completion::retarget(answer->second.result, answer->second.key, *key));
         return true;
     }
 
@@ -2148,7 +2151,7 @@ struct Workspace::Impl final : engine::Host {
                 job.coreAnswered = true;
                 job.answeredBy = std::string { coreEngine->id() };
                 ++lateCompletionsServed;
-                finish_job(jobId, completion::retarget(answer->second.result, position));
+                finish_job(jobId, completion::retarget(answer->second.result, answer->second.key, *key));
                 return true;
             }
             lateAnswers.erase(answer);
@@ -2187,10 +2190,12 @@ struct Workspace::Impl final : engine::Host {
             if (job == jobs.end()) continue;
             const auto position = position_of(job->second.params);
             if (!position) continue;
+            const auto key = completion::word_key(job->second.text, *position);
+            if (!key) continue;
             job->second.coreAnswered = true;
             job->second.answeredBy = std::string { coreEngine->id() };
             ++lateCompletionsServed;
-            finish_job(waiter, completion::retarget(answer.value, *position));
+            finish_job(waiter, completion::retarget(answer.value, late.key, *key));
         }
     }
 

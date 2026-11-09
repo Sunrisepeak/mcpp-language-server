@@ -41,6 +41,8 @@ runs:
         restore-keys: mcpp-xpkgs-${{ runner.os }}-${{ runner.arch }}-${{ env.MCPP_VERSION }}-
     - name: Install mcpp and LLVM
       shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
       run: bash .github/scripts/install-mcpp.sh
     # A branch of mcpp under review (MCPP_SOURCE_REF): the latest released mcpp builds it, once per commit and
     # system, and it is the mcpp of every step after this one. The commit is the cache key, so the jobs of one run

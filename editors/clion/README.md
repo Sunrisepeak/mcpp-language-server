@@ -22,7 +22,7 @@ the same. Without a payload, `gradle buildPlugin` makes a plugin that carries no
 Gradle is installed for you if it is missing — `xim:gradle` declares the JDK it runs on, so the one
 package brings both.
 
-`--features clion` is what asks for it. `[xlings.workspace]` is provisioned as a set, so an
+`--features clion` is what asks for it. `[workspace.xlings.workspace]` is provisioned as a set, so an
 unconditional Gradle entry would make every other `mcpp run` in this project wait for it — or fail,
 on a machine whose index does not carry it. Behind the feature, it costs only the person building
 this plugin.

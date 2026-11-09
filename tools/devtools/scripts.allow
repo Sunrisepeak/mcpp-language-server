@@ -7,7 +7,6 @@ docs/specs/tools/validate.py	JSON Schema 2020-12 validation, and no C++ library 
 .github/scripts/install-mcpp.sh	CI bootstrap: installs mcpp itself, before any mcpp-built program can run.
 .github/scripts/wait-engine-candidate.py	CI input admission: queries GitHub run/job/artifact metadata before any mcpp-built payload assembler runs; waits for all five immutable engine parts and their exact run/head while independent server builds proceed.
 .github/scripts/test_wait_engine_candidate.py	CI input admission controls: incomplete parts, failed jobs, changed run/head, missing bundle identity, stale or malformed artifacts, and retry attempts cannot bypass the payload gate.
-.github/scripts/timing_evidence.py	CI timing diagnostics: captures bounded per-round engine reports and cache log excerpts around the native conformance executable; preserves its exit status and keeps collection outside measured latency.
 editors/zed/tests/smoke.sh	The real-Zed smoke (plan 0.0.8 part 2 Z-2, Z-3): drives a GUI editor binary under xvfb, starts and stops it, and inspects its process tree; that is shell work, and no mcpp-built program can stand in for Zed.
 editors/zed/tests/lsp_frames.py	The smoke's helper that reads the LSP frames a wrapper recorded between Zed and mcppls; kept beside smoke.sh, which needs it only in the same CI job.
 editors/zed/tests/payload_processes.py	The Linux GUI smoke's process observer: reads /proc and the installed payload manifest to distinguish the server and its engine even when both run through the same loader; used only beside smoke.sh in that CI job.
@@ -17,3 +16,5 @@ editors/zed/tests/test_payload_processes.py	CI controls for the GUI smoke's obse
 .github/scripts/archive-tests.py	CI test transport: verifies and streams mcpp-produced test archive parts into one container per package, reclaiming only verified executable bytes on the cross-build host before native tests run.
 .github/scripts/test_archive_tests.py	CI test transport controls: exercises the archive merger with discovered test names, PAX paths, changed common payloads and corrupt archives before any real executable is reclaimed.
 .github/scripts/check-action-refs.py	CI workflow admission: resolves every `uses:` reference of every workflow against GitHub with git ls-remote, so a release-only workflow cannot name a missing action version (0.0.20 JetBrains submission); network metadata, before any mcpp-built program runs.
+.github/scripts/changes.sh	CI change classification: decides which jobs a pull request runs, in the first job, before any mcpp-built program exists.
+.github/scripts/test_changes.sh	The cases of changes.sh, run by the same first job.

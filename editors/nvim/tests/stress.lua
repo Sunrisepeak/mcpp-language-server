@@ -7,7 +7,7 @@
 --
 --   MCPPLS_SERVER=<payload>/bin/mcppls.okb nvim --headless --clean -l editors/nvim/tests/stress.lua [FIXTURE]
 --
--- FIXTURE (default "module-faults") names a conformance/fixtures directory; its files are copied
+-- FIXTURE (default "module-faults") names a tests/cts/fixtures directory; its files are copied
 -- to a private workspace, as smoke.lua does. Env vars, all optional:
 --   ACTIONS (default 60), SEED (default 1), REQUEST_TIMEOUT_MS (default 10000)
 --   STRESS_BUDGET_TIMEOUTS, STRESS_BUDGET_P90_MS, STRESS_BUDGET_MAX_STALL_MS: a budget crossed
@@ -48,7 +48,7 @@ local function copy(from, to)
   end
 end
 local workspace = vim.fn.tempname() .. '-mcppls-nvim-stress'
-copy(table.concat({ repo, 'conformance', 'fixtures', fixture }, sep), workspace)
+copy(table.concat({ repo, 'tests', 'cts', 'fixtures', fixture }, sep), workspace)
 vim.fn.chdir(workspace)
 
 vim.opt.runtimepath:prepend(plugin)

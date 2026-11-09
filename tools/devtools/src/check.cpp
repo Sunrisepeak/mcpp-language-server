@@ -18,8 +18,16 @@ namespace {
 
 constexpr std::array<std::string_view, 2> SOURCE_EXTENSIONS { ".cppm", ".cpp" };
 constexpr std::array<std::string_view, 0> NO_SKIP {};
+// The projects the conformance fixtures are (tests/cts/fixtures): other programs' sources, read by the server under
+// test, not this repository's.
+constexpr std::array<std::string_view, 1> FIXTURES { "fixtures" };
 
-// ---- os-surface: the system is a value, never a preprocessor branch -----------------------------
+// ---- os-surface: the system is a value, never a preprocessor branch, never a header -------------
+//
+// A source names the system through modules: mcpplibs.os for the operating system (files,
+// processes, the network, the system's identity) and mcpplibs.mwrap.libc for the C library. A
+// header (`<unistd.h>`, `<windows.h>`, `<cerrno>`) is one system's surface, which an ok image
+// cannot present for all of them at once.
 
 // The macros a platform branch would test. mcpplibs.os answers the system as `host()`, a constant
 // expression on a native target and the loaded system in an ok image, so code branches with `if`;
@@ -107,7 +115,8 @@ int layer_of_path(std::string_view path) {
     if (path == "modules/base") return 1;
     if (path == "modules/toolrun") return 2;
     if (path == "modules/pack") return 3;
-    return 4;   // root "." and every tools/* member: the application layer
+    if (path == "tests/harness") return 3;   // what the test programs drive the server with, beside packaging
+    return 4;   // root ".", every tools/* member and the test programs: the application layer
 }
 
 } // namespace
@@ -122,7 +131,7 @@ base::Result<Report> os_surface(const std::string& root) {
         for (const std::string_view dir : { "src", "tests" }) {
             const std::string at { member == "." ? base::join_path(root, dir) : base::join_path(root, member + "/" + std::string { dir }) };
             if (!std::filesystem::is_directory(at, ignored)) continue;
-            for (const auto& file : base::files_under(at, SOURCE_EXTENSIONS, NO_SKIP)) {
+            for (const auto& file : base::files_under(at, SOURCE_EXTENSIONS, FIXTURES)) {
                 auto text = os::fs::read(file);
                 if (!text) return base::fail("read-file", text.error());
                 ++files;
@@ -130,6 +139,13 @@ base::Result<Report> os_surface(const std::string& root) {
                 for (const auto line : base::split_lines(*text)) {
                     ++lineNumber;
                     const auto trimmed = base::trim(line);
+                    if (trimmed.starts_with("#include")) {
+                        report.ok = false;
+                        report.problems.push_back(std::format(
+                            "{}:{} includes a header ({}); import mcpplibs.os, or mcpplibs.mwrap.libc for the C library",
+                            file, lineNumber, base::trim(trimmed.substr(8))));
+                        continue;
+                    }
                     if (!trimmed.starts_with("#if") && !trimmed.starts_with("#elif")) continue;
                     for (const auto macro : PLATFORM_MACROS) {
                         if (!trimmed.contains(macro)) continue;
@@ -143,7 +159,7 @@ base::Result<Report> os_surface(const std::string& root) {
             }
         }
     }
-    if (report.ok) report.notes.push_back(std::format("OK: {} sources, no preprocessor platform branch; the system is mcpplibs.os's host()", files));
+    if (report.ok) report.notes.push_back(std::format("OK: {} sources, no header and no preprocessor platform branch; the system is mcpplibs.os's", files));
     return report;
 }
 
@@ -185,7 +201,6 @@ base::Result<Report> layers(const std::string& root) {
         const int myLayer { layer_of_path(info.path) };
         const std::string displayPath { info.path == "." ? std::string { "the root package" } : info.path };
         for (const auto& dep : info.pathDeps) {
-            if (dep == "mcppls-testing") continue;   // a dev-only harness, not part of the product layering
             if (dep == "mcppls-pack" && info.path != "tools/devtools") {
                 report.ok = false;
                 report.problems.push_back(std::format(
@@ -517,7 +532,7 @@ base::Result<Report> platforms(const std::string& root) {
         std::string_view file;
         std::string_view job;
     };
-    for (const Job job : { Job { "ci.yml", "build" }, Job { "ci.yml", "test" }, Job { "ci.yml", "kits" }, Job { "ci.yml", "conformance" },
+    for (const Job job : { Job { "ci.yml", "build" }, Job { "ci.yml", "test" }, Job { "ci.yml", "openkal-test" }, Job { "ci.yml", "kits" }, Job { "ci.yml", "conformance" },
                            Job { "ci.yml", "vscode-e2e" }, Job { "ci.yml", "distribution" }, Job { "release-checks.yml", "install" } }) {
         const std::string path { base::join_path(root, std::format(".github/workflows/{}", job.file)) };
         auto text = os::fs::read(path);

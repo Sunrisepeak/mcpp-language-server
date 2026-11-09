@@ -9,6 +9,7 @@ This directory holds the normative specifications that let C++ named modules be 
 | [S3](s3-lsp-extensions.md) | Language Server Protocol Extensions for C++ Modules | protocol version 1 | Draft | TypeScript interfaces in the text; [target selection field](schema/s3-target-selection.schema.json) |
 | [S4](s4-semantic-kit.md) | Semantic Kit | kit-version 1 | Draft | [s4-kit.schema.json](schema/s4-kit.schema.json) |
 | [S5](s5-semantic-query.md) | Semantic Queries for C++ Code | 0.1.0 | Draft | TypeScript interfaces in the text |
+| [S6](s6-payload.md) | Payload Manifest | payload-version 4 and 5 | Draft | [s6-payload.schema.json](schema/s6-payload.schema.json) |
 
 ## How the specifications fit together
 
@@ -27,6 +28,7 @@ editor (VS Code extension, other LSP clients)
 - **S3** is what a module-aware language server adds to LSP 3.18, negotiated through `experimental.cxxModules`.
 - **S4** is the manifest of a data-only semantic kit that stands in for a compiler installation. The kits mcppls distributes are published as `mcppls-kit`.
 - **S5** is what a coding agent or a script asks a language server about the code — symbols, references, calls, modules, build contexts, fresh diagnostics — and the shape of the answers, bound to the Model Context Protocol and a command line.
+- **S6** is the manifest of an mcppls payload, `payload.json`: where the server, the engine and the kit are, and the command that starts the server on each system. Editor integrations and package recipes start mcppls by it.
 
 ## Relationship to standardization work
 
@@ -50,7 +52,7 @@ These specifications are self-contained. They are compatible with, and borrow th
 
 Every requirement of S1 to S4 written with a capitalized RFC 2119 keyword (MUST, MUST NOT, REQUIRED, SHALL, SHOULD, SHOULD NOT, RECOMMENDED) carries an identifier `S<n>-<section>-<ordinal>` where it is stated, rendered as a superscript with an anchor, for example [`S2-3.3-8`](s2-discovery.md#S2-3.3-8). Identifiers are stable: a new rule takes the next ordinal of its section, and a removed rule's identifier is not reused.
 
-[`conformance/traceability.json`](../../conformance/traceability.json) maps each identifier to its evidence: a check of `tools/validate.py` (schema, example and semantic checks), a unit test, a conformance fixture check, a line of a script that enforces the rule, or, rarely, the reason no automated evidence can exist. `tools/validate.py` fails when a keyword has no identifier, an identifier has no evidence, or evidence names a check, test, fixture or script line that does not exist. A known gap may be listed under `$pending` with what is missing; it is printed on every run until it has evidence.
+[`tests/cts/traceability.json`](../../tests/cts/traceability.json) maps each identifier to its evidence: a check of `tools/validate.py` (schema, example and semantic checks), a unit test, a conformance fixture check, a line of a script that enforces the rule, or, rarely, the reason no automated evidence can exist. `tools/validate.py` fails when a keyword has no identifier, an identifier has no evidence, or evidence names a check, test, fixture or script line that does not exist. A known gap may be listed under `$pending` with what is missing; it is printed on every run until it has evidence.
 
 ## License
 

@@ -3,7 +3,7 @@
 [English](../30-settings.md) | **简体中文**
 
 mcppls 的每一个可配置行为都只有一处定义：`src/config/settings.cppm` 里注册表的一行。下面这张表——VS Code 设置、命令行选项，以及会影响行为的环境变量——是从这份注册表生成的
-（`mcppls settings --format markdown --lang zh-CN`），`tests/test_settings.cpp` 把它、英文版和
+（`mcppls settings --format markdown --lang zh-CN`），`tests/unit/test_settings.cpp` 把它、英文版和
 `editors/vscode/package.json` 都与注册表互相校验，三者不会走样。
 
 **优先级。** 命令行 > `initializationOptions` > 默认值；之后的 `workspace/didChangeConfiguration`

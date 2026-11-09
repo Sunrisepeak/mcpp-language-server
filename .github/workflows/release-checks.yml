@@ -51,7 +51,10 @@ jobs:
           mcpp build --release -p devtools
           devtools=$(find target -type f -name mcppls-devtools -path '*/bin/*' | head -1)
           "$devtools" version --check
-          echo "version=$("$devtools" version --print)" >> "$GITHUB_OUTPUT"
+          # Each package is named with its own component's version (docs/92-release.md "Versions").
+          { echo "version=$("$devtools" version --print)"
+            echo "zed=$("$devtools" version --print --component zed)"
+            echo "clion=$("$devtools" version --print --component clion)"; } >> "$GITHUB_OUTPUT"
       # No rust or java action here on purpose. `[xlings.workspace]` declares what packaging needs
       # and `mcpp run` provisions it, so this job is the thing that proves that claim on a machine
       # which has neither.
@@ -63,10 +66,10 @@ jobs:
         run: |
           set -euo pipefail
           mcpp run --release -p devtools -- extension --editor zed
-          tar -czf "mcppls-zed-${{ steps.version.outputs.version }}.tar.gz" -C editors \
+          tar -czf "mcppls-zed-${{ steps.version.outputs.zed }}.tar.gz" -C editors \
               --transform 's,^zed,mcppls-zed,' \
               zed/extension.toml zed/extension.wasm zed/README.md zed/Cargo.toml zed/Cargo.lock zed/src
-          tar -tzf "mcppls-zed-${{ steps.version.outputs.version }}.tar.gz"
+          tar -tzf "mcppls-zed-${{ steps.version.outputs.zed }}.tar.gz"
       - uses: ./.github/actions/payload
         with:
           platform: linux-x64
@@ -74,8 +77,8 @@ jobs:
         run: |
           set -euo pipefail
           mcpp run --release --features clion -p devtools -- extension --editor clion --payload "$PWD/payload"
-          cp target/pack/mcppls-clion-${{ steps.version.outputs.version }}.zip .
-          package=mcppls-clion-${{ steps.version.outputs.version }}.zip
+          cp target/pack/mcppls-clion-${{ steps.version.outputs.clion }}.zip .
+          package=mcppls-clion-${{ steps.version.outputs.clion }}.zip
           echo "$package: $(unzip -l "$package" | tail -1)"
           unzip -p "$package" mcppls-clion/payload/payload.json | jq -e '.platforms | has("linux-x64") and has("linux-arm64") and has("darwin-arm64") and has("win32-x64")' 
       - uses: actions/upload-artifact@v7
@@ -135,10 +138,10 @@ jobs:
           for server in "$t/server" "$plugin/payload"; do
             "$server/$(jq -r '.platforms["${{ matrix.platform }}"].runner' "$server/payload.json")" "$server/bin/mcppls.okb" --version
             "stage/mcppls-conformance${{ matrix.exe }}" run --server "$server/bin/mcppls.okb" --payload "$server" \
-                --fixture conformance/fixtures/inferred --timeout 180
+                --fixture tests/cts/fixtures/inferred --timeout 180
             # The status a program reads (S3 section 8), from the installed payload.
             "$server/$(jq -r '.platforms["${{ matrix.platform }}"].runner' "$server/payload.json")" "$server/bin/mcppls.okb" \
-                status --root conformance/fixtures/inferred --format json | jq -e '.schema == 1 and (.capabilities | index("status"))'
+                status --root tests/cts/fixtures/inferred --format json | jq -e '.schema == 1 and (.capabilities | index("status"))'
           done
 
           "$dev" uninstall --editor zed "${where[@]}"
@@ -155,6 +158,9 @@ jobs:
     name: real Zed
     uses: ./.github/workflows/zed-smoke.yml
 
+  # The release's measurements (tests/bench/README.md): the cases of mcppls-bench tagged `release` that this platform
+  # runs -- five cold and five warm starts, whose medians decide, and on Windows a project the size where module
+  # checks cost (thirty module units with <windows.h>, built by MSVC), cold and then warm on one cache.
   performance:
     name: performance (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
@@ -171,70 +177,40 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
       - uses: ./.github/actions/payload
         with:
           platform: ${{ matrix.platform }}
           kit: 'true'
-      # Budgets are on medians, so one slow runner does not decide a release. Measured medians of
-      # first navigation (nightly, 2026-09-14): cold 5.5 / 4.4 / 8.5 s and warm 2.0 / 1.9 / 2.9 s on
-      # Linux / macOS / Windows. 12 s cold and 5 s warm is room for a slow runner, not for a
-      # regression that doubles startup.
-      - name: Five cold and warm starts
-        run: |
-          set -euo pipefail
-          results="$RUNNER_TEMP/timing"
-          rm -rf "$results"; mkdir -p "$results"
-          for round in 1 2 3 4 5; do
-            for start in cold warm; do
-              warm=(); [ "$start" = warm ] && warm=(--expect-warm)
-              python3 .github/scripts/timing_evidence.py --output "$results/evidence/$start-$round" -- \
-                  "stage/mcppls-conformance${{ matrix.exe }}" run --server "payload/bin/mcppls.okb" --payload payload \
-                  --fixture conformance/fixtures/timing \
-                  --workspace-dir "$RUNNER_TEMP/timing-$round/workspace" --cache-dir "$RUNNER_TEMP/timing-$round/cache" \
-                  --timeout 120 --measure "$results/$start-$round.json" ${warm[@]+"${warm[@]}"}
-            done
-          done
-          "stage/mcppls-devtools${{ matrix.exe }}" measure summary "$results" --max-cold 12 --max-warm 5 \
-              | tee "$results/summary.md" >> "$GITHUB_STEP_SUMMARY"
-      # 0.0.14 Windows plan, phase 0: a project the size where module checks cost (thirty module units with
-      # <windows.h>, built by MSVC), opened cold and then warm with the same cache. Each run's measures and the
-      # server's log are files of their own, and the step summary says what the two runs measured.
-      - name: The MSVC developer environment, for the large fixture's own build
+      - uses: ./.github/actions/mtest
+      - name: The MSVC developer environment, for the large project's own build
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           Set-Content -Path "$env:RUNNER_TEMP\capture-msvc.cmd" -Value "@call `"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul`r`n@set"
           cmd /d /c "$env:RUNNER_TEMP\capture-msvc.cmd" | Out-File -Encoding utf8 "$env:RUNNER_TEMP\msvc.env"
-      - name: A large module project, cold and warm
-        if: runner.os == 'Windows'
+      - name: The release's measurements
         run: |
           set -euo pipefail
-          large="$RUNNER_TEMP/timing/large"
-          mkdir -p "$large"
-          for start in cold warm; do
-            warm=(); [ "$start" = warm ] && warm=(--expect-warm)
-            status=0
-            "stage/mcppls-conformance${{ matrix.exe }}" run --server "payload/bin/mcppls.okb" --payload payload \
-                --fixture conformance/fixtures/ux-modules-windows-large --msvc-env "$RUNNER_TEMP/msvc.env" \
-                --workspace-dir "$RUNNER_TEMP/large/workspace" --cache-dir "$RUNNER_TEMP/large/cache" \
-                --timeout 900 --measure "$large/$start.json" --verbose ${warm[@]+"${warm[@]}"} > "$large/$start.log" 2>&1 || status=$?
-            grep -E '^(PASS|FAIL) |failure\(s\)' "$large/$start.log" > "$large/$start-checks.txt" || true
-            grep -E "Prerequisites of |Completion in .*: [0-9]+ ms|Module memos: |Module inputs: |ahead of the editor|ready in clangd|startup \(" "$large/$start.log" \
-                | sed -E 's/^.*\[(info|warning)\] //' > "$large/$start-costs.txt" || true
-            { echo "### Large module project, $start"; echo; echo '```'; cat "$large/$start-checks.txt"; echo '```'; } >> "$large/summary.md"
-            [ "$status" = 0 ] || echo "::warning::the large fixture's $start run failed: see prerelease-timing-${{ matrix.platform }}/large/$start-checks.txt"
-          done
-          cat "$large/summary.md" >> "$GITHUB_STEP_SUMMARY"
-          ! grep -q '^FAIL ' "$large/cold-checks.txt" "$large/warm-checks.txt"
+          export MCPPLS_CTS_MEASURES="$RUNNER_TEMP/timing"
+          [ "$RUNNER_OS" != Windows ] || export MCPPLS_CTS_MSVC_ENV="$RUNNER_TEMP/msvc.env"
+          status=0
+          "$MTEST" run --tag "on:${{ matrix.platform }}&release" "stage/mcppls-bench${{ matrix.exe }}" || status=$?
+          "$MTEST" analyze trend --runs 1 | tee -a "$GITHUB_STEP_SUMMARY" || true
+          [ "$status" = 0 ] || { "$MTEST" explain || true; exit 1; }
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: prerelease-timing-${{ matrix.platform }}
           path: ${{ runner.temp }}/timing
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: prerelease-mtest-${{ matrix.platform }}
+          path: .mtest
+          include-hidden-files: true
+          if-no-files-found: ignore
 
   # The mcpp repository (at the fixed commit the self-mcpp fixture names) opened in the server: a
   # real mcpp project, the size a fixture is not.
@@ -266,9 +242,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/self"
-          if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture conformance/fixtures/self-mcpp \
+          if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture tests/cts/fixtures/self-mcpp \
                 --timeout 900 --measure "$RUNNER_TEMP/self/self-mcpp.json"; then
-            stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture conformance/fixtures/self-mcpp \
+            stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture tests/cts/fixtures/self-mcpp \
                 --timeout 300 --verbose 2>&1 | tail -300 || true
             exit 1
           fi
@@ -277,9 +253,9 @@ jobs:
       - name: mcppls on its own repository, timed
         run: |
           set -euo pipefail
-          if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture conformance/fixtures/self-mcppls \
+          if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture tests/cts/fixtures/self-mcppls \
                 --timeout 900 --measure "$RUNNER_TEMP/self/self-mcppls.json"; then
-            stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture conformance/fixtures/self-mcppls \
+            stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture tests/cts/fixtures/self-mcppls \
                 --timeout 300 --verbose 2>&1 | tail -300 || true
             exit 1
           fi
@@ -291,9 +267,12 @@ jobs:
           set -euo pipefail
           xlings install mcpp@2026.8.8.4 -y -g
           xlings use mcpp "$MCPP_VERSION"
-          if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture conformance/fixtures/real-xlings-old-mcpp \
+          # The project's own mcpp is the one xlings starts for its pin: an mcpp under review that stands
+          # first on PATH (MCPP_SOURCE_REF) would answer for it, and nothing would be negotiated.
+          PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -vx "$HOME/mcpp-under-review" | paste -sd: -)
+          if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture tests/cts/fixtures/real-xlings-old-mcpp \
                 --timeout 900 --measure "$RUNNER_TEMP/self/real-xlings-old-mcpp.json"; then
-            stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture conformance/fixtures/real-xlings-old-mcpp \
+            stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture tests/cts/fixtures/real-xlings-old-mcpp \
                 --timeout 300 --verbose 2>&1 | tail -300 || true
             exit 1
           fi
@@ -370,7 +349,7 @@ jobs:
               scratch="$RUNNER_TEMP/stability-scratch/$key"
               if ! python3 .github/scripts/stability_evidence.py --output "$evidence/$key" --scratch "$scratch" -- \
                     "stage/mcppls-conformance${{ matrix.exe }}" run --server "payload/bin/mcppls.okb" --payload payload \
-                    ${extra[@]+"${extra[@]}"} --fixture "conformance/fixtures/${fixture%@*}" --timeout 180 \
+                    ${extra[@]+"${extra[@]}"} --fixture "tests/cts/fixtures/${fixture%@*}" --timeout 180 \
                     --workspace-dir "$scratch/workspace" --cache-dir "$scratch/cache" --keep --measure "$scratch/measure.json"; then
                 failed="$failed $round:$fixture"
               fi

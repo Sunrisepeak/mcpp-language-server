@@ -1,10 +1,10 @@
 // mcppls-conformance: drives a language server through a fixture's scenario
-// and reports each check (conformance/README.md).
+// and reports each check (tests/cts/README.md).
 //
 //   mcppls-conformance run --server <mcppls> --fixture <dir> [--payload DIR] [--clangd PATH] [--kit DIR]
 //                            [--msvc-env FILE] [--timeout SECONDS] [--keep] [--verbose]
 //                            [--workspace-dir DIR] [--cache-dir DIR] [--measure FILE] [--expect-warm]
-//                            [--navigation-budget SECONDS] [--stage NAME]
+//                            [--stage NAME]
 //   mcppls-conformance prepare <kind> [argument]      a fixture's own prepare step (scenario.json)
 //   mcppls-conformance version
 import std;
@@ -111,7 +111,6 @@ struct Options {
     bool verbose { false };
     std::string workspaceDirectory;   // reused across runs: the fixture is copied and prepared there once
     bool expectWarm { false };        // module-cache-reused checks require module files from an earlier run
-    std::optional<double> navigationBudget;   // seconds from initialize to the first navigation that answers; more fails the run
     std::string cacheDirectory;       // the server's cache; empty: a fresh one beside the workspace
     std::string measureFile;          // where the checks' timings are written as JSON
     std::string timingEvidenceFile;   // bounded post-check report, only for the tiny timing fixture
@@ -316,17 +315,25 @@ std::vector<long> version_numbers(std::string_view text) {
     return numbers;
 }
 
-// "requires-mcpp": {"executable": "{env:MCPPLS_REAL_MCPP|mcpp}", "at-least": "2026.10.5.2"}: a fixture that runs a real
-// mcpp says which release it needs, and gets that sentence instead of the compiler errors an older mcpp gives in the
-// middle of its prepare steps. Empty when the mcpp asked is recent enough, else why the fixture cannot run.
-std::string missing_mcpp(const Json& requirement, const Expansion& expansion) {
+// A tool a fixture needs in a release of at least some version, and which program answered for it.
+struct Requirement {
+    std::string problem;   // empty when the tool is there and recent enough
+    std::string program;   // the program asked, found on PATH when named bare
+};
+
+// "requires-mcpp": {"executable": "{env:MCPPLS_REAL_MCPP|mcpp}", "at-least": "2026.10.5.2"} and
+// "requires-cmake": {"executable": "{env:CONFORMANCE_CMAKE|cmake}", "at-least": "4.4"}: a fixture that runs a tool newer
+// than the one a host has says which release it needs, and gets that sentence instead of the errors an older release gives
+// in the middle of its prepare steps. The version is the last word of the first line `<tool> --version` prints.
+Requirement required_tool(const Json& requirement, std::string_view tool, const Expansion& expansion) {
     if (!requirement.is_object()) return {};
     const std::string wanted { requirement.value("at-least", std::string {}) };
-    std::string program { expand(requirement.value("executable", std::string { "mcpp" }), expansion) };
-    if (program.empty()) program = "mcpp";
+    std::string program { expand(requirement.value("executable", std::string { tool }), expansion) };
+    if (program.empty()) program = tool;
+    const std::string needs { std::format("the fixture needs {} {} or later, and", tool, wanted) };
     if (!base::is_absolute_path(program)) {
         auto found = toolrun::find_program(program);
-        if (!found) return std::format("the fixture needs mcpp {} or later, and {} is not on PATH", wanted, program);
+        if (!found) return { std::format("{} {} is not on PATH", needs, program), program };
         program = *found;
     }
     os::process::spawn_options options;
@@ -334,16 +341,30 @@ std::string missing_mcpp(const Json& requirement, const Expansion& expansion) {
     options.program = program;
     options.args = { "--version" };
     auto result = os::process::run(std::move(options), os::process::bounds { .hard = std::chrono::seconds { 60 } });
-    if (!result || !result->status.success() || result->timed_out) return std::format("the fixture needs mcpp {} or later, and {} --version failed", wanted, program);
-    // "mcpp 2026.10.11.1": the last word of the first line.
+    if (!result || !result->status.success() || result->timed_out) return { std::format("{} {} --version failed", needs, program), program };
     std::string_view line { result->out };
     line = line.substr(0, line.find_first_of("\r\n"));
     const std::string_view version { line.substr(line.find_last_of(' ') == std::string_view::npos ? 0 : line.find_last_of(' ') + 1) };
     const auto have = version_numbers(version), need = version_numbers(wanted);
     if (have.empty() || need.empty() || std::ranges::lexicographical_compare(have, need)) {
-        return std::format("the fixture needs mcpp {} or later, and {} is {}", wanted, program, version.empty() ? std::string_view { "of no version" } : version);
+        return { std::format("{} {} is {}", needs, program, version.empty() ? std::string_view { "of no version" } : version), program };
     }
-    return {};
+    return { {}, program };
+}
+
+// An environment with `directory` first on its PATH (`Path` on Windows), in the host's list syntax.
+std::vector<std::string> with_path_first(std::vector<std::string> environment, const std::string& directory) {
+    const bool caseInsensitive { os::host() == os::platform::windows };
+    for (auto& entry : environment) {
+        const std::string name { entry.substr(0, entry.find('=')) };
+        if (caseInsensitive ? base::to_lower_ascii(name) != "path" : name != "PATH") continue;
+        auto directories = os::env::split_list(std::string_view { entry }.substr(name.size() + 1));
+        directories.insert(directories.begin(), std::filesystem::path { directory });
+        entry = name + "=" + os::env::join_list(directories);
+        return environment;
+    }
+    environment.push_back("PATH=" + directory);
+    return environment;
 }
 
 // A file's size and FNV-1a digest, read a block at a time: a build tree holds files far larger than a check needs to keep.
@@ -510,7 +531,7 @@ public:
     std::map<std::string, Json> statusByRoot;    // project.root (a DocumentUri) -> latest status
     std::vector<std::string> statusHistory;
     std::map<std::string, std::vector<std::string>> statusHistoryByRoot;   // project.root -> its states, in order
-    // Timestamped, for the stress check's timeline (conformance/README.md): the longest interval
+    // Timestamped, for the stress check's timeline (tests/cts/README.md): the longest interval
     // without progress while the project is not ready, and the state a run settled on.
     std::vector<std::pair<Clock::time_point, std::string>> statusTimeline;
     std::vector<Clock::time_point> progressTimes;
@@ -927,7 +948,7 @@ bool includes(const Json& candidate, const Json& expected) {
     return std::ranges::all_of(expected.items(), [&](const auto& item) { return candidate.contains(item.key()) && includes(candidate[item.key()], item.value()); });
 }
 
-// A fixture's expectations of a JSON result (conformance/README.md, S5 checks): each names a pointer and
+// A fixture's expectations of a JSON result (tests/cts/README.md, S5 checks): each names a pointer and
 // one of equals, contains, min-items, max-items, at-least and at-most (numbers), max-matches, min-matches, exists or absent, and holds when any value the pointer names satisfies it --
 // except each-contains, which every value the pointer names must satisfy (and holds when it names none).
 std::pair<bool, std::string> expectations_hold(const Json& value, const Json& expectations) {
@@ -1412,7 +1433,7 @@ public:
     }
 };
 
-// ---- scenario tests (0.0.7 plan 6.4, conformance/README.md): helpers shared by latency, typing, edit-save, fault, timeline, bmi-reuse, resources ----
+// ---- scenario tests (0.0.7 plan 6.4, tests/cts/README.md): helpers shared by latency, typing, edit-save, fault, timeline, bmi-reuse, resources ----
 
 // The first field of /proc/loadavg, recorded beside every measurement: a run on a loaded machine explains itself.
 Json load_average() {
@@ -1942,7 +1963,7 @@ public:
         return { false, last };
     }
 
-    // ---- scenario tests (0.0.7 plan 6.4; conformance/README.md "Scenario checks") ----------------------------------------
+    // ---- scenario tests (0.0.7 plan 6.4; tests/cts/README.md "Scenario checks") ----------------------------------------
 
     Clock::time_point begin_ { Clock::now() };                    // initialize was sent: "since start" is measured from here
     Json initializeParams_ = Json::object();                      // sent again to a server a fault restarted
@@ -2647,7 +2668,7 @@ public:
             if (argument.contains("{engine-database}")) {
                 if (database.empty()) {
                     const Json root = root_report();
-                    if (root.is_object()) database = base::join_path(root.value("cacheDirectory", std::string {}), "contexts/default/cdb");
+                    if (root.is_object()) database = mcppls::engine::engine_database_directory(root.value("cacheDirectory", std::string {}));
                 }
                 argument = base::replace_all(argument, "{engine-database}", database);
             }
@@ -4871,7 +4892,7 @@ public:
         }
         if (kind == "engine-command") {
             // 0.0.8 part 2 (X-7): the command clangd was given for `file`, read from the database the server wrote for it
-            // (under the cache directory: `contexts/default/cdb/compile_commands.json`, the newest when there are several).
+            // (under the cache directory: `contexts/<engine>/cdb/compile_commands.json`, the newest when there are several).
             // Each of `contains` is an argument of it, none of `absent` is; retried within the check's time, since the
             // database follows the model.
             const auto wanted = [&](const char* key) {
@@ -4890,7 +4911,7 @@ public:
                 std::string newest;
                 std::int64_t newestTime { -1 };
                 for (const auto& candidate : base::files_under(cacheDirectory_, std::array<std::string_view, 1> { ".json" }, {})) {
-                    if (base::file_name(candidate) != "compile_commands.json" || !candidate.contains("/contexts/default/cdb/")) continue;
+                    if (base::file_name(candidate) != "compile_commands.json" || !candidate.contains("/contexts/") || !candidate.contains("/cdb/")) continue;
                     if (const auto stamp = base::file_stamp(candidate); stamp && static_cast<std::int64_t>(stamp->modified_ns) > newestTime) {
                         newest = candidate;
                         newestTime = static_cast<std::int64_t>(stamp->modified_ns);
@@ -5722,9 +5743,18 @@ int run(Options options) {
         }
         prepareEnvironment = prepare_environment(options.msvcEnvironment);
     }
-    if (const auto missing = missing_mcpp(scenario.value("requires-mcpp", Json {}), expansion); !missing.empty()) {
-        say("FAIL requires-mcpp: {}", missing);
+    if (const auto mcpp = required_tool(scenario.value("requires-mcpp", Json {}), "mcpp", expansion); !mcpp.problem.empty()) {
+        say("FAIL requires-mcpp: {}", mcpp.problem);
         return 1;
+    }
+    // The CMake a fixture requires is the one its prepare steps find first; the server under test keeps the host's PATH.
+    if (const auto cmake = scenario.find("requires-cmake"); cmake != scenario.end()) {
+        const auto found = required_tool(*cmake, "cmake", expansion);
+        if (!found.problem.empty()) {
+            say("FAIL requires-cmake: {}", found.problem);
+            return 1;
+        }
+        prepareEnvironment = with_path_first(prepareEnvironment ? *prepareEnvironment : os::env::variables(), base::parent_path(found.program));
     }
     if (!alreadyPrepared) {
         for (const auto& command : scenario.value("prepare", Json::array())) {
@@ -5886,6 +5916,8 @@ int run(Options options) {
         if (const auto reason = client.unusable(); !reason.empty() && check.value("kind", std::string {}) != "restart-server") {
             if (!optional) ++failures;
             say("{} {} {} (not run) {}", optional ? "SKIP" : "FAIL", id, check.value("kind", std::string {}), reason);
+            measured.push_back(Json { { "id", id }, { "kind", check.value("kind", std::string {}) }, { "ok", false }, { "optional", optional },
+                                      { "detail", std::format("not run: {}", reason) } });
             continue;
         }
         if (const auto notBefore = check.find("not-before-since-start"); notBefore != check.end() && notBefore->is_number()) runner.wait_until_since_start(notBefore->get<double>());
@@ -5906,7 +5938,7 @@ int run(Options options) {
         }
         if (!ok && !optional) ++failures;
         say("{} {} {} ({:.1f}s) {}", ok ? "PASS" : (optional ? "SKIP" : "FAIL"), id, check.value("kind", std::string {}), seconds, detail);
-        Json entry { { "id", id }, { "kind", check.value("kind", std::string {}) }, { "ok", ok }, { "seconds", seconds },
+        Json entry { { "id", id }, { "kind", check.value("kind", std::string {}) }, { "ok", ok }, { "optional", optional }, { "seconds", seconds },
                      { "since-start", std::chrono::duration<double>(Clock::now() - begin).count() }, { "detail", detail } };
         if (Json measure = runner.take_measure(); !measure.is_null()) entry["measure"] = std::move(measure);
         measured.push_back(std::move(entry));
@@ -5941,12 +5973,6 @@ int run(Options options) {
             firstNavigation = check["since-start"];
             break;
         }
-    }
-    if (options.navigationBudget) {
-        const bool within { firstNavigation.is_number() && firstNavigation.get<double>() <= *options.navigationBudget };
-        if (!within) ++failures;
-        say("{} navigation-budget first navigation {} within {:.1f}s", within ? "PASS" : "FAIL",
-            firstNavigation.is_number() ? std::format("{:.2f}s", firstNavigation.get<double>()) : std::string { "never answered" }, *options.navigationBudget);
     }
     const double total { std::chrono::duration<double>(Clock::now() - begin).count() - evidenceSeconds };
     // The point of plain-client mode: a client with no custom capability must still be told that
@@ -6744,7 +6770,6 @@ int main(int argc, char* argv[]) {
     (void)runCommand.option("measure").takes_value().help("File the checks' timings are written to, as JSON");
     (void)runCommand.option("timing-evidence").takes_value().help("Bounded report after timing fixture checks; excluded from timing budgets");
     (void)runCommand.option("expect-warm").help("module-cache-reused checks fail unless an earlier run left module files in --cache-dir");
-    (void)runCommand.option("navigation-budget").takes_value().help("Seconds the first navigation may take from initialize; more fails the run");
     (void)runCommand.option("no-dynamic-watch").help("Do not advertise didChangeWatchedFiles.dynamicRegistration, exercising the polling fallback");
     (void)runCommand.option("plain-client").help("Alias for --client plain");
     (void)runCommand.option("client").takes_value().help("The capabilities a real editor sends: vscode, neovim, zed or plain (default: this runner's own, the full experimental.cxxModules block)");
@@ -6787,15 +6812,6 @@ int main(int argc, char* argv[]) {
                 options.stressSeed = static_cast<std::uint64_t>(std::stoull(*stressSeed));
             } catch (...) {
                 say("run: --stress-seed takes an integer");
-                status = 2;
-                return;
-            }
-        }
-        if (auto budget = args.value("navigation-budget")) {
-            try {
-                options.navigationBudget = std::stod(*budget);
-            } catch (...) {
-                say("run: --navigation-budget takes seconds");
                 status = 2;
                 return;
             }

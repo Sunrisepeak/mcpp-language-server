@@ -1,7 +1,7 @@
 // The release manifest data model (packaging/scripts/release_manifest.py, ported): what a release
 // declares, what "matches a staged directory" means, and MANIFEST.md's rendering.
 import std;
-import mcppls.testing;
+import mcpplibs.mtest;
 import mcppls.base.path;
 import mcppls.pack.release;
 import mcpplibs.os;
@@ -28,9 +28,9 @@ constexpr std::string_view MANIFEST = R"({
   "platforms": ["linux-x64", "darwin-arm64"],
   "assets": [
     { "id": "payload", "pattern": "payload-{platform}.tar.gz", "per-platform": true, "required": true,
-      "what": "The payload", "install": "Unpack it" },
+      "what": "The payload", "install": "Unpack it", "component": "server" },
     { "id": "clion", "pattern": "mcppls-clion-{version}.zip", "per-platform": false, "required": false,
-      "what": "The CLion plugin", "install": "Install from disk" },
+      "what": "The CLion plugin", "install": "Install from disk", "component": "clion" },
     { "id": "checksums", "pattern": "SHA256SUMS", "per-platform": false, "required": true,
       "what": "Checksums", "install": "sha256sum -c" },
     { "id": "manifest", "pattern": "MANIFEST.md", "per-platform": false, "required": true,
@@ -41,20 +41,20 @@ constexpr std::string_view MANIFEST = R"({
 
 } // namespace
 
-int main() {
+using namespace mcpplibs::mtest;
+
+UTest release_tests{"release", [] {
     std::error_code ignored;
-    using namespace mcppls::testing;
 
     const std::string work { scratch("work") };
     const std::string manifestPath { base::join_path(work, "release.manifest.json") };
     expect(os::fs::write(manifestPath, MANIFEST).has_value());
 
     auto manifest = release::load_manifest(manifestPath);
-    expect(manifest.has_value());
-    if (!manifest) return 1;
+    expect(fatal(manifest.has_value()));
 
     "expected_files expands per-platform assets across every platform"_test = [&] {
-        const auto files = release::expected_files(*manifest, "2026.9.16.1");
+        const auto files = release::expected_files(*manifest, release::one_version("2026.9.16.1"));
         expect(files.size() == 5);   // 2 platforms x payload, + clion, + checksums, + manifest
         const bool sawLinux = std::ranges::any_of(files, [](const release::Expected& f) { return f.name == "payload-linux-x64.tar.gz"; });
         const bool sawMac = std::ranges::any_of(files, [](const release::Expected& f) { return f.name == "payload-darwin-arm64.tar.gz"; });
@@ -67,7 +67,7 @@ int main() {
         expect(os::fs::write(base::join_path(directory, "payload-linux-x64.tar.gz"), "x").has_value());
         expect(os::fs::write(base::join_path(directory, "payload-darwin-arm64.tar.gz"), "x").has_value());
         expect(os::fs::write(base::join_path(directory, "SHA256SUMS"), "x").has_value());
-        auto report = release::check(*manifest, "2026.9.16.1", directory, false);
+        auto report = release::check(*manifest, release::one_version("2026.9.16.1"), directory, false);
         expect(report.has_value());
         if (!report) return;
         expect(report->ok);
@@ -81,7 +81,7 @@ int main() {
         const std::string directory { scratch("missing") };
         expect(os::fs::write(base::join_path(directory, "payload-linux-x64.tar.gz"), "x").has_value());
         // darwin payload and SHA256SUMS both missing
-        auto report = release::check(*manifest, "2026.9.16.1", directory, false);
+        auto report = release::check(*manifest, release::one_version("2026.9.16.1"), directory, false);
         expect(report.has_value());
         if (!report) return;
         expect(!report->ok);
@@ -96,7 +96,7 @@ int main() {
         expect(os::fs::write(base::join_path(directory, "payload-darwin-arm64.tar.gz"), "x").has_value());
         expect(os::fs::write(base::join_path(directory, "SHA256SUMS"), "x").has_value());
         expect(os::fs::write(base::join_path(directory, "nobody-declared-this.bin"), "x").has_value());
-        auto report = release::check(*manifest, "2026.9.16.1", directory, false);
+        auto report = release::check(*manifest, release::one_version("2026.9.16.1"), directory, false);
         expect(report.has_value());
         if (!report) return;
         expect(!report->ok);
@@ -110,7 +110,7 @@ int main() {
         expect(os::fs::write(base::join_path(directory, "payload-linux-x64.tar.gz"), "").has_value());
         expect(os::fs::write(base::join_path(directory, "payload-darwin-arm64.tar.gz"), "x").has_value());
         expect(os::fs::write(base::join_path(directory, "SHA256SUMS"), "x").has_value());
-        auto report = release::check(*manifest, "2026.9.16.1", directory, false);
+        auto report = release::check(*manifest, release::one_version("2026.9.16.1"), directory, false);
         expect(report.has_value());
         if (!report) return;
         expect(!report->ok);
@@ -123,7 +123,7 @@ int main() {
         expect(os::fs::write(base::join_path(directory, "payload-linux-x64.tar.gz"), "x").has_value());
         expect(os::fs::write(base::join_path(directory, "payload-darwin-arm64.tar.gz"), "x").has_value());
         expect(os::fs::write(base::join_path(directory, "SHA256SUMS"), "x").has_value());
-        auto report = release::check(*manifest, "2026.9.16.1", directory, true);
+        auto report = release::check(*manifest, release::one_version("2026.9.16.1"), directory, true);
         expect(report.has_value());
         if (!report) return;
         expect(report->ok);
@@ -135,6 +135,33 @@ int main() {
         expect(text->contains("The source code: it is the repository itself."));
     };
 
+    "a component's release carries its assets at its own version, and nothing of another component"_test = [&] {
+        release::Versions v {};
+        v.release = "0.21.1";
+        v.byComponent = { { "server", "0.21.0" }, { "clion", "0.21.1" } };
+        v.components = { "clion" };
+        const auto files = release::expected_files(*manifest, v);
+        expect(files.size() == 3);   // the clion zip, checksums, manifest
+        expect(std::ranges::any_of(files, [](const release::Expected& f) { return f.name == "mcppls-clion-0.21.1.zip"; }));
+        const std::string directory { scratch("component") };
+        expect(os::fs::write(base::join_path(directory, "mcppls-clion-0.21.1.zip"), "x").has_value());
+        expect(os::fs::write(base::join_path(directory, "SHA256SUMS"), "x").has_value());
+        auto report = release::check(*manifest, v, directory, true);
+        expect(report.has_value() && report->ok);
+        auto text = os::fs::read(base::join_path(directory, "MANIFEST.md"));
+        expect(text.has_value() && text->contains("mcpp-language-server 0.21.1 (clion)"));
+        expect(os::fs::write(base::join_path(directory, "payload-linux-x64.tar.gz"), "x").has_value());
+        report = release::check(*manifest, v, directory, false);
+        expect(report.has_value() && !report->ok) << "another component's asset in a component's release is undeclared";
+    };
+
+    "a series release names each asset with its component's version"_test = [&] {
+        release::Versions v {};
+        v.release = "0.21.0";
+        v.byComponent = { { "server", "0.21.0" }, { "clion", "0.21.2" } };
+        const auto files = release::expected_files(*manifest, v);
+        expect(std::ranges::any_of(files, [](const release::Expected& f) { return f.name == "mcppls-clion-0.21.2.zip"; }));
+    };
+
     std::filesystem::remove_all(work);
-    return report();
-}
+}};

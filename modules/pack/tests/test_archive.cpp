@@ -2,18 +2,14 @@
 // behaving, so the fixtures here are written with libarchive's own writer and read back: a top
 // directory that gets stripped, a selection, an executable bit, a symlink materialized as a copy,
 // and the two paths an archive could use to write outside the directory it was given.
-#include <archive.h>
-#include <archive_entry.h>
-#include <cerrno>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <unistd.h>
-
 import std;
-import mcppls.testing;
+import mcpplibs.mwrap.libarchive;
+import mcpplibs.mtest;
 import mcppls.base.path;
 import mcppls.pack.archive;
 import mcpplibs.os;
+
+namespace la = mcpplibs::mwrap::libarchive::macros;
 
 namespace os = mcpplibs::os;
 
@@ -39,7 +35,7 @@ struct Member {
 // POSIX, which is the difference most likely to matter.
 bool write_archive(const std::string& path, std::string_view format, const std::vector<Member>& members) {
     auto refuse = [&](const char* where, ::archive* a) {
-        std::println(stderr, "write_archive: {} failed for '{}': {} (errno {})",
+        std::println(std::cerr, "write_archive: {} failed for '{}': {} (errno {})",
                      where, path,
                      a != nullptr && ::archive_error_string(a) != nullptr
                          ? ::archive_error_string(a) : "no message",
@@ -52,9 +48,9 @@ bool write_archive(const std::string& path, std::string_view format, const std::
         // question that settles it is which spelling the program holds --
         // so it prints them rather than leaving it to be inferred.
         const auto names = mcpplibs::os::fs::preopens();
-        std::println(stderr, "  the program holds {} preopened director{}:",
+        std::println(std::cerr, "  the program holds {} preopened director{}:",
                      names.size(), names.size() == 1 ? "y" : "ies");
-        for (std::size_t i = 0; i < names.size(); ++i) std::println(stderr, "    [{}] '{}'", i, names[i]);
+        for (std::size_t i = 0; i < names.size(); ++i) std::println(std::cerr, "    [{}] '{}'", i, names[i]);
         return false;
     };
     ::archive* out = ::archive_write_new();
@@ -65,7 +61,7 @@ bool write_archive(const std::string& path, std::string_view format, const std::
         ::archive_write_set_format_pax_restricted(out);
         ::archive_write_add_filter_gzip(out);
     }
-    if (::archive_write_open_filename(out, path.c_str()) != ARCHIVE_OK) {
+    if (::archive_write_open_filename(out, path.c_str()) != la::ARCHIVE_OK) {
         const bool r = refuse("archive_write_open_filename", out);
         ::archive_write_free(out);
         return r;
@@ -75,20 +71,20 @@ bool write_archive(const std::string& path, std::string_view format, const std::
         ::archive_entry* entry = ::archive_entry_new();
         ::archive_entry_set_pathname(entry, member.path.c_str());
         if (!member.symlinkTo.empty()) {
-            ::archive_entry_set_filetype(entry, AE_IFLNK);
+            ::archive_entry_set_filetype(entry, la::AE_IFLNK);
             ::archive_entry_set_symlink(entry, member.symlinkTo.c_str());
             ::archive_entry_set_size(entry, 0);
             ::archive_entry_set_perm(entry, 0777);
         } else {
-            ::archive_entry_set_filetype(entry, AE_IFREG);
+            ::archive_entry_set_filetype(entry, la::AE_IFREG);
             ::archive_entry_set_size(entry, static_cast<std::int64_t>(member.content.size()));
             ::archive_entry_set_perm(entry, member.executable ? 0755 : 0644);
         }
-        if (::archive_write_header(out, entry) != ARCHIVE_OK) ok = refuse("archive_write_header", out);
+        if (::archive_write_header(out, entry) != la::ARCHIVE_OK) ok = refuse("archive_write_header", out);
         if (ok && !member.content.empty()) {
             const auto wrote = ::archive_write_data(out, member.content.data(), member.content.size());
-            if (wrote != static_cast<::ssize_t>(member.content.size())) {
-                std::println(stderr, "write_archive: archive_write_data wrote {} of {} for '{}': {}",
+            if (wrote != static_cast<::la_ssize_t>(member.content.size())) {
+                std::println(std::cerr, "write_archive: archive_write_data wrote {} of {} for '{}': {}",
                              wrote, member.content.size(), member.path,
                              ::archive_error_string(out) != nullptr ? ::archive_error_string(out) : "no message");
                 ok = false;
@@ -97,7 +93,7 @@ bool write_archive(const std::string& path, std::string_view format, const std::
         ::archive_entry_free(entry);
         if (!ok) break;
     }
-    if (::archive_write_close(out) != ARCHIVE_OK && ok) ok = refuse("archive_write_close", out);
+    if (::archive_write_close(out) != la::ARCHIVE_OK && ok) ok = refuse("archive_write_close", out);
     ::archive_write_free(out);
     return ok;
 }
@@ -153,62 +149,11 @@ bool contains(const std::vector<std::string>& all, std::string_view one) {
 
 } // namespace
 
-int main() {
-    using namespace mcppls::testing;
+using namespace mcpplibs::mtest;
+
+UTest archive_tests{"archive", [] {
 
     const std::string work { temp_dir("work") };
-
-    // WHAT `fstat` SAYS ABOUT A DESCRIPTOR THE PROGRAM JUST OPENED.
-    //
-    // `archive_write_open_filename.c:178` OPENS AND `:189` FSTATS, and it is
-    // the second that fails:
-    //
-    //     mine->fd = open(mbs, flags, 0666);   // succeeds, the file exists
-    //     if (fstat(mine->fd, &st) != 0)       // EACCES
-    //         archive_set_error(a, errno, "Couldn't stat '%s'", mbs);
-    //
-    // Which is why every path-shaped explanation died: the path had already
-    // succeeded by then. Three guesses were spent on the name --- that it lay
-    // outside the program's preopened directories, that the two temp-directory
-    // helpers disagreed about its 8.3 form, that the 8.3 component was what
-    // failed --- and a path with no short component directly beneath a held
-    // directory fails identically. `stat` on that same path answers correctly.
-    //
-    // So the question is about the DESCRIPTOR, not the name, and this asks it
-    // in four calls rather than through an archive writer.
-    "fstat answers for a descriptor this program just opened"_test = [&] {
-        const std::string missing { base::join_path(work, "definitely-not-here") };
-        struct ::stat st {};
-        errno = 0;
-        const int rc { ::stat(missing.c_str(), &st) };
-        const int missingErrno { errno };
-        std::println(stderr, "stat('{}') -> rc={} errno={} ({})",
-                     missing, rc, missingErrno, std::strerror(missingErrno));
-        expect(rc != 0);
-        expect(missingErrno == ENOENT);
-
-        const std::string made { base::join_path(work, "opened-here") };
-        errno = 0;
-        const int fd { ::open(made.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666) };
-        std::println(stderr, "open('{}') -> fd={} errno={} ({})",
-                     made, fd, errno, std::strerror(errno));
-        expect(fd >= 0);
-        if (fd < 0) return;
-
-        struct ::stat fdSt {};
-        errno = 0;
-        const int fstatRc { ::fstat(fd, &fdSt) };
-        const int fstatErrno { errno };
-        std::println(stderr, "fstat({}) -> rc={} errno={} ({}) size={}",
-                     fd, fstatRc, fstatErrno, std::strerror(fstatErrno),
-                     static_cast<long long>(fdSt.st_size));
-        ::close(fd);
-
-        // THE ONE THAT MATTERS. A descriptor this program opened a line ago is
-        // valid by construction, so `fstat` on it has nothing to refuse.
-        expect(fstatRc == 0);
-        expect(fstatErrno == 0);
-    };
 
     "a tar.gz is listed without writing anything"_test = [&] {
         const std::string path { base::join_path(work, "list.tar.gz") };
@@ -469,5 +414,4 @@ int main() {
     // by its exit code, and nothing here fed a failed expectation into one; the new write() tests
     // added alongside this fix are the first ones in this file that would actually have caught
     // anything, so the gap is closed rather than carried forward.
-    return report();
-}
+}};

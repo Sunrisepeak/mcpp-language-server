@@ -1,0 +1,32 @@
+# How the tests drive what they test. mcppls.harness: a session of mcppls-conformance on a fixture
+# of tests/cts/fixtures, judged as a case, with the environment that names what it runs against
+# (the head of src/harness.cppm). mcppls.harness.tasks, .patch, .review and .agent: the agent task
+# benchmark's tasks and their checks, the reference patches, the review fixtures and the agent runs
+# (tests/bench/README.md). The conformance cases (tests/cts) and the measurements (tests/bench) are
+# its users; its own tests are under tests/.
+[package]
+name        = "mcppls-harness"
+version     = "0.1.0"
+description = "How the conformance cases and the measurements of mcpp-language-server drive what they test"
+license     = "Apache-2.0"
+authors     = ["Sunrisepeak"]
+
+[targets.mcppls-harness]
+kind = "lib"
+
+[dependencies]
+mcpplibs.mtest.workspace = true
+mcpplibs.os.workspace    = true
+nlohmann.json.workspace  = true
+mcppls-base              = { path = "../../modules/base" }
+mcppls-toolrun           = { path = "../../modules/toolrun" }
+
+[dev-dependencies]
+mcpplibs.mtest.workspace = true
+
+[lib]
+path = "src/harness.cppm"
+
+# The files of tests/unit are one program (mcpp 2026.11.8.1).
+[test]
+programs = "directory"

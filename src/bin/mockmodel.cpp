@@ -11,7 +11,7 @@
 // describes for the real gateway's own polling.
 //
 //   mcppls-mock-model [--script <path>] [--trace <path>]
-//   mcppls-mock-model --self-check <path>   # exercises the script parser directly; see tests/test_model.cpp
+//   mcppls-mock-model --self-check <path>   # exercises the script parser directly; see tests/unit/test_model.cpp
 //
 // Script fields, all optional: "model" (the id `initialize` advertises and `complete` echoes back,
 // default "mock-model"), "initializeDelayMs" (before the initialize answer), "delayMs" (before
@@ -42,7 +42,7 @@ struct Script {
 };
 
 // Exposed for --self-check as well as the real stdio loop, so the parser has a code path a test can
-// reach even where spawning the built binary is not possible (see tests/test_model.cpp).
+// reach even where spawning the built binary is not possible (see tests/unit/test_model.cpp).
 Script load_script(const std::string& path) {
     Script script;
     if (path.empty()) return script;

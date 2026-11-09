@@ -8,7 +8,7 @@
 |---|---|---|
 | `mcpp` | 构建、测试、运行，以及环境 | `mcpp build`、`mcpp test --workspace`、`mcpp run -p devtools -- …` |
 | `mcppls` | 用户排查自己机器上的问题时需要的东西 | `mcppls cache`、`mcppls check FILE`、`mcppls report`、`mcppls print-environment` |
-| `mcppls-devtools` | 只有参与本仓库开发的人才需要的东西 | 打包、发布、仓库检查、基准测试 |
+| `mcppls-devtools` | 只有参与本仓库开发的人才需要的东西 | 打包、发布、仓库检查、压力测试、场景数值的分布 |
 
 **新命令该归到哪一个。** 排查自己问题的用户会跑它，就归服务端；只有参与本仓库开发的人才会跑它，就归 devtools；mcpp 已经能做的事，两边都不归。devtools 从不包装 mcpp 的动词，也从不重复服务端的诊断功能。
 
@@ -37,7 +37,7 @@ mcpp run -p devtools -- extension --editor vscode --install  # payload、VS Code
 操作系统是 mcpplibs.os 的，每个成员直接调用它：文件、进程、环境变量、目录、回环 socket 与标准流。mcppls 不在它之上另设一层；`modules/base` 与 `modules/toolrun` 只放 mcppls 自己的东西（它的缓存目录、payload 名称、不经相对 PATH 项找程序的规则）。
 | `tools/model-gateway` | `mcppls-model`，参考实现的 model gateway | openkal, tinyhttps |
 
-`mcpp build -p <member>` 和 `mcpp test -p <member>` 只作用于一个成员；`--workspace` 作用于全部成员（根包用不带参数的命令就能作用到）。系统是值而不是预处理分支：mcpplibs.os 的 `host()` 在原生构建中为常量表达式，ok 映像（`<arch>-openkal`）中为装载时的系统；`mcppls::base::payload_platform()` 连同架构给出名称，所以 arm64 构建为 `linux-arm64`（`mcppls-devtools check os-surface`）。平台本身就是 `packaging/payload.lock.json` 里的各行；VS Code 扩展、CLion 构建、`release.manifest.json` 和 CI 按平台运行的 job（`build`、`test`、`kits`、`conformance`、`vscode-e2e`、`distribution`，以及 release checks 的 `install`）列出的必须是同一组平台，每一行还要写明它的工具包（`mcppls-devtools check platforms`）。
+`mcpp build -p <member>` 和 `mcpp test -p <member>` 只作用于一个成员；`--workspace` 作用于全部成员（根包用不带参数的命令就能作用到）。系统是值，既不是预处理分支，也不是头文件：mcpplibs.os 的 `host()` 在原生构建中为常量表达式，ok 映像（`<arch>-openkal`）中为装载时的系统；`mcppls::base::payload_platform()` 连同架构给出名称，所以 arm64 构建为 `linux-arm64`；操作系统从 mcpplibs.os 导入，C 库从 mcpplibs.mwrap.libc 导入，任何源文件和测试都不包含头文件（`mcppls-devtools check os-surface`）。平台本身就是 `packaging/payload.lock.json` 里的各行；VS Code 扩展、CLion 构建、`release.manifest.json` 和 CI 按平台运行的 job（`build`、`test`、`kits`、`conformance`、`vscode-e2e`、`distribution`，以及 release checks 的 `install`）列出的必须是同一组平台，每一行还要写明它的工具包（`mcppls-devtools check platforms`）。
 
 ## 按任务分类的命令
 
@@ -48,7 +48,7 @@ mcpp run -p devtools -- extension --editor vscode --install  # payload、VS Code
 | 构建服务端 | `mcpp build` |
 | 为另一个平台构建 | `mcpp build --target aarch64-macos` / `--target x86_64-windows-gnu` / `--target aarch64-linux-musl` |
 | 从 LSP meta model 重新生成 `src/lsp` | `mcpp run mcppls-lspgen -- generate --meta-model vendor/lsp-metamodel/metaModel-3.18.json --out src/lsp` |
-| 一次性改遍产品版本号 | `mcpp run -p devtools -- version --set 0.0.2` |
+| 开始一个系列，或发布一个组件的补丁 | `mcpp run -p devtools -- version --series 0.22`、`version --bump vscode` |
 
 ### 测试
 
@@ -56,10 +56,9 @@ mcpp run -p devtools -- extension --editor vscode --install  # payload、VS Code
 |---|---|
 | 单元测试 | `mcpp test`、`mcpp test --workspace` |
 | 仓库不变量检查 | `mcpp run -p devtools -- check all` |
-| 一致性测试用例 | `mcppls-conformance run --server … --payload … --fixture conformance/fixtures/<name>`（[conformance/README.md](../../conformance/README.md)） |
-| 审查测试用例（精确率、召回率） | `mcpp run -p devtools -- bench review --server … --payload … --mock-model …` |
-| Agent 任务基准测试，基线与参考结果 | `mcpp run -p devtools -- bench tasks validate` |
-| 大文件的语义高亮相对首个补全的时延，以及一次编辑的字节数 | `mcpp run -p devtools -- bench tokens --server … --payload … [--out NEW.json] [--compare OLD.json]` |
+| 一致性测试用例 | `mcppls-conformance run --server … --payload … --fixture tests/cts/fixtures/<name>`（[tests/cts/README.md](../../tests/cts/README.md)） |
+| 一致性用例的选择、调度与记录 | `mtest run --isolate --jobs 2 [--case 'inferred*'] mcppls-cts`（[tests/cts/README.md](../../tests/cts/README.md)） |
+| 度量：会话启动、审查用例、大文件的语义高亮、Agent 任务基准的数据、用户体验场景 | `mtest run [--case startup] mcppls-bench`，再 `mtest analyze trend`（[tests/bench/README.md](../../tests/bench/README.md)） |
 | 规范文档的 schema | `python3 docs/specs/tools/validate.py`——唯一还留着的 Python，见[下文](#不是-c-的部分) |
 | 真实项目压力测试：多套 fixture × 客户端画像的矩阵 | `mcpp run -p devtools -- stress --payload … --fixture module-faults --client vscode --client neovim` |
 | 同上，针对本仓库已带 fixture 的某个真实、锁定版本的项目 | `mcpp run -p devtools -- stress --payload … --project self`（`mcpp`、`xlings` 或 `self`；`self` 即 `self-mcppls`，也就是本仓库自身） |
@@ -71,8 +70,8 @@ mcpp run -p devtools -- extension --editor vscode --install  # payload、VS Code
 | 模块缓存里有什么，以及怎么清 | `mcppls cache [--modules] [--format json]`、`mcppls cache --clean <name>` |
 | 服务端怎么理解某个文件 | `mcppls check FILE` |
 | bug report 需要的一切信息 | `mcppls report` |
-| 多次运行的启动耗时，可选对照预算值 | `mcpp run -p devtools -- measure summary DIR [--max-cold S] [--max-warm S]` |
 | 各场景在多次运行中的数值（中位数、p95、最大值、1.3 × p95），用来定预算 | `mcpp run -p devtools -- measure budgets DIR` |
+| 候选版本与基线在同一机器上测得的场景数值并列 | `mcpp run -p devtools -- measure compare CANDIDATE BASELINE [--fail-worse]` |
 
 ### 打包与发布
 
@@ -98,8 +97,8 @@ devtools 自己不装任何东西。它要运行的工具都声明在根目录�
 
 | 工具 | 给谁用 | 声明位置 |
 |---|---|---|
-| Node（npm、npx） | VS Code 扩展 | `[xlings.workspace]`，`when = "dev"` |
-| Rust（cargo、rustup） | Zed 扩展 | `[xlings.workspace]`，`when = "dev"` |
+| Node（npm、npx） | VS Code 扩展 | `[workspace.xlings.workspace]`，`when = "dev"` |
+| Rust（cargo、rustup） | Zed 扩展 | `[workspace.xlings.workspace]`，`when = "dev"` |
 | Gradle 及其 JDK | CLion 插件 | `[feature-xlings.clion]`：`mcpp run -p devtools --features clion -- extension --editor clion` |
 | cmake、ninja | 语义工具包里 libc++ 的 configure 步骤 | 由宿主机提供（CI 会安装） |
 

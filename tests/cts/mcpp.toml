@@ -1,0 +1,25 @@
+# The conformance cases (README.md): one program, `mcppls-cts`, whose cases are the fixtures of
+# fixtures/, each an object of a topic's file (mcpp.cpp, cmake.cpp, ...) that states where it runs,
+# what it holds and how the runner drives it, and runs its fixture with mcppls-conformance
+# (mcppls.harness). It speaks the mtest protocol, so mtest lists, selects, schedules and records
+# the cases; alone it runs them one after another.
+[package]
+name        = "mcppls-cts"
+version     = "0.1.0"
+description = "The conformance fixtures of mcpp-language-server as test cases"
+license     = "Apache-2.0"
+authors     = ["Sunrisepeak"]
+
+[build]
+sources = ["*.cppm", "*.cpp"]
+
+[targets.mcppls-cts]
+kind = "bin"
+main = "main.cpp"
+
+[dependencies]
+mcpplibs.mtest.workspace = true
+"mcpplibs.mtest.manifest".workspace = true
+mcpplibs.os.workspace    = true
+nlohmann.json.workspace  = true
+mcppls-harness           = { path = "../harness" }

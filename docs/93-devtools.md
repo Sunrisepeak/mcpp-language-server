@@ -8,7 +8,7 @@ on openkal, the same source for Linux, macOS and Windows.
 |---|---|---|
 | `mcpp` | Build, test, run, and the environment | `mcpp build`, `mcpp test --workspace`, `mcpp run -p devtools -- …` |
 | `mcppls` | What a user debugging their own machine needs | `mcppls cache`, `mcppls check FILE`, `mcppls report`, `mcppls print-environment` |
-| `mcppls-devtools` | What only someone working on this repository needs | packaging, releases, repository checks, benchmarks |
+| `mcppls-devtools` | What only someone working on this repository needs | packaging, releases, repository checks, stress, the scenarios' distributions |
 
 **Which one a new command belongs to.** If a user looking at their own problem would run it, it is
 the server's. If only someone working on this repository would, it is devtools'. If mcpp already
@@ -49,9 +49,11 @@ its payload names, its rule that a program is never found through a relative PAT
 
 `mcpp build -p <member>` and `mcpp test -p <member>` reach one member; `--workspace` reaches all of
 them (the root package is reached by the plain command). The system is a value, never a
-preprocessor branch: mcpplibs.os's `host()` is a constant expression on a native build and the
-loaded system in an ok image (`<arch>-openkal`), and `mcppls::base::payload_platform()` names it with
-the architecture, so an arm64 build says `linux-arm64` (`mcppls-devtools check os-surface`).
+preprocessor branch and never a header: mcpplibs.os's `host()` is a constant expression on a native
+build and the loaded system in an ok image (`<arch>-openkal`), and `mcppls::base::payload_platform()`
+names it with the architecture, so an arm64 build says `linux-arm64`; the operating system is
+imported from mcpplibs.os and the C library from mcpplibs.mwrap.libc, and no source or test includes
+a header (`mcppls-devtools check os-surface`).
 The platforms themselves are the rows of `packaging/payload.lock.json`; the VS Code extension, the
 CLion build, `release.manifest.json` and CI's per-platform jobs (`build`, `test`, `kits`,
 `conformance`, `vscode-e2e`, `distribution`, the release checks' `install`) list the same ones, and
@@ -66,7 +68,7 @@ each row names its kit (`mcppls-devtools check platforms`).
 | Build the server | `mcpp build` |
 | Build for another platform | `mcpp build --target aarch64-macos` / `--target x86_64-windows-gnu` / `--target aarch64-linux-musl` |
 | Regenerate `src/lsp` from the LSP meta model | `mcpp run mcppls-lspgen -- generate --meta-model vendor/lsp-metamodel/metaModel-3.18.json --out src/lsp` |
-| Change the product version everywhere | `mcpp run -p devtools -- version --set 0.0.2` |
+| Start a series, or release one component's patch | `mcpp run -p devtools -- version --series 0.22`, `version --bump vscode` |
 
 ### Test
 
@@ -74,10 +76,9 @@ each row names its kit (`mcppls-devtools check platforms`).
 |---|---|
 | Unit tests | `mcpp test`, `mcpp test --workspace` |
 | Repository invariants | `mcpp run -p devtools -- check all` |
-| A conformance fixture | `mcppls-conformance run --server … --payload … --fixture conformance/fixtures/<name>` ([conformance/README.md](../conformance/README.md)) |
-| Review fixtures (precision, recall) | `mcpp run -p devtools -- bench review --server … --payload … --mock-model …` |
-| Agent task benchmark, baseline and reference | `mcpp run -p devtools -- bench tasks validate` |
-| Semantic tokens of a large file against its first completion, and the bytes of an edit | `mcpp run -p devtools -- bench tokens --server … --payload … [--out NEW.json] [--compare OLD.json]` |
+| A conformance fixture | `mcppls-conformance run --server … --payload … --fixture tests/cts/fixtures/<name>` ([tests/cts/README.md](../tests/cts/README.md)) |
+| The conformance cases, selected, scheduled and recorded | `mtest run --isolate --jobs 2 [--case 'inferred*'] mcppls-cts` ([tests/cts/README.md](../tests/cts/README.md)) |
+| The measurements: a session's start, the review fixtures, the semantic tokens of a large file, the agent task benchmark's data, the user-experience scenarios | `mtest run [--case startup] mcppls-bench`, then `mtest analyze trend` ([tests/bench/README.md](../tests/bench/README.md)) |
 | The specifications' schemas | `python3 docs/specs/tools/validate.py` — the one Python left, see [below](#what-is-not-c) |
 | Real-project stress testing, a matrix of fixtures and client profiles | `mcpp run -p devtools -- stress --payload … --fixture module-faults --client vscode --client neovim` |
 | The same, against a pinned real project this checkout carries a fixture for | `mcpp run -p devtools -- stress --payload … --project self` (`mcpp`, `xlings` or `self`; `self` is `self-mcppls`, this repository) |
@@ -89,8 +90,8 @@ each row names its kit (`mcppls-devtools check platforms`).
 | What the module caches hold, classified, and clearing one | `mcppls cache [--modules] [--instances] [--format json]`, `mcppls cache --clean <name>`, `mcppls cache --prune [--dry-run] [--older-than 7d] [--max-size 4G]`, `mcppls cache --prompt agent\|issue` |
 | What the server makes of one file | `mcppls check FILE` |
 | Everything a bug report needs | `mcppls report` |
-| Startup timings over several runs, optionally against a budget | `mcpp run -p devtools -- measure summary DIR [--max-cold S] [--max-warm S]` |
 | Each scenario's numbers over many runs (median, p95, largest, 1.3 x p95), for setting its budgets | `mcpp run -p devtools -- measure budgets DIR` |
+| A candidate's scenario numbers beside a baseline's, measured on the same machines | `mcpp run -p devtools -- measure compare CANDIDATE BASELINE [--fail-worse]` |
 
 ### Package and release
 
@@ -117,8 +118,8 @@ devtools` provisions it first:
 
 | Tool | For | Declared in |
 |---|---|---|
-| Node (npm, npx) | the VS Code extension | `[xlings.workspace]`, `when = "dev"` |
-| Rust (cargo, rustup) | the Zed extension | `[xlings.workspace]`, `when = "dev"` |
+| Node (npm, npx) | the VS Code extension | `[workspace.xlings.workspace]`, `when = "dev"` |
+| Rust (cargo, rustup) | the Zed extension | `[workspace.xlings.workspace]`, `when = "dev"` |
 | Gradle and its JDK | the CLion plugin | `[feature-xlings.clion]`: `mcpp run -p devtools --features clion -- extension --editor clion` |
 | cmake, ninja | a target kit's libc++ configure | the host (CI installs them) |
 

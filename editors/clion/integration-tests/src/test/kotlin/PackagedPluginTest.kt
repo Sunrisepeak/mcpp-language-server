@@ -306,11 +306,22 @@ class PackagedPluginTest {
                             openEditor(requireNotNull(vfs.refreshAndFindFileByPath(fixture.resolve("src/scratch.cpp").toString())))
                             val scratch = requireNotNull(editors.getSelectedTextEditor())
                             withContext(OnDispatcher.EDT) { scratch.getCaretModel().moveToOffset(scratch.getDocument().getText().length) }
+                            // Asked once the project is indexed, and asked again while a popup without
+                            // the module stands: a popup shown before the server answered is not its
+                            // answer (the first ask raced indexing on CLion 2026.2).
+                            await("project indexing settles before completion", 120) { !utility<DumbServiceFactory>().getInstance(project).isDumb() }
                             invokeAction("CodeCompletion")
+                            var asked = System.nanoTime()
                             val lookups = utility<LookupManagerFactory>().getInstance(project)
                             var module: LookupItemRemote? = null
                             await("the actual completion popup offers the project's module", 120) {
-                                withContext(OnDispatcher.EDT) { module = lookups.getActiveLookup()?.getItems()?.firstOrNull { it.getLookupString() == "hello.greet" }; module != null }
+                                withContext(OnDispatcher.EDT) { module = lookups.getActiveLookup()?.getItems()?.firstOrNull { it.getLookupString() == "hello.greet" } }
+                                if (module == null && System.nanoTime() - asked > TimeUnit.SECONDS.toNanos(10)) {
+                                    withContext(OnDispatcher.EDT) { scratch.getCaretModel().moveToOffset(scratch.getDocument().getText().length) }
+                                    invokeAction("CodeCompletion")
+                                    asked = System.nanoTime()
+                                }
+                                module != null
                             }
                             stage = Stage.COMPLETION_ORIGIN
                             val mark = requireNotNull(utility<KeyFactory>().findKeyByName("community.mcpp.mcppls.item"))

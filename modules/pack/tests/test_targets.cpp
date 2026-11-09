@@ -2,13 +2,14 @@
 // say. These are the facts every packaging step derives from a name instead of comparing it to a
 // literal: the suffix, xlings' spelling, Apple's architecture name.
 import std;
-import mcppls.testing;
+import mcpplibs.mtest;
 import mcppls.pack.targets;
 
 namespace targets = mcppls::pack::targets;
 
-int main() {
-    using namespace mcppls::testing;
+using namespace mcpplibs::mtest;
+
+UTest targets_tests{"targets", [] {
 
     "every platform the lock has today reads as its os and arch"_test = [] {
         const auto linuxX64 = targets::parse("linux-x64");
@@ -45,5 +46,4 @@ int main() {
         expect(targets::apple_arch(targets::Arch::x64) == "x86_64");
     };
 
-    return report();
-}
+}};

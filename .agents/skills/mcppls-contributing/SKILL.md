@@ -10,12 +10,12 @@ description: Use when contributing to mcpp-language-server (mcppls) — building
 | Directory | What is in it |
 |---|---|
 | `src/` | The server. C++23 modules only, no headers, no macros. `src/<dir>/<name>.cppm` is `mcppls.<dir>.<name>` |
-| `tests/` | Unit tests, one `test_<subject>.cpp` each, run by `mcpp test` |
-| `modules/testing/` | The in-repo test harness package `mcppls.testing` that `tests/` depends on |
-| `modules/os/` | Three platform-constant packages; one is chosen by the build target and used with `if constexpr` |
+| `tests/unit/` | Unit tests, one `test_<subject>.cpp` each: `UTest` objects of mtest (`mcpplibs.mtest`), one program run by `mcpp test` as a process per file; a test that starts copies of itself declares an mtest `child`, and one that must run with a cache of its own is a directory of `tests/isolated/` |
+| `tests/cts/` | The conformance fixtures (`fixtures/`) and the cases that run them (`mcppls-cts`: one `Fixture` object each, in a topic's file, stating its platforms, resources and how it is driven) |
+| `tests/bench/` | The measurements (`mcppls-bench`): startup, tokens, review fixtures (`review/`), the agent task benchmark (`tasks/`), the user-experience scenarios; `Bench` objects with bounded metrics |
+| `tests/harness/` | How the cases drive the server (`mcppls.harness`), and the benchmark's tasks, patches, reviews and agent runs, with their tests |
+| `modules/` | `base` (shared by the server, the tools and the gateway), `toolrun` (how they run a project's programs), `pack` (packaging only) |
 | `docs/specs/` | The five normative specifications, their schemas and examples |
-| `conformance/` | Fixtures that drive a real server over LSP and check the answers |
-| `tools/bench/` | Review fixtures with expected findings: precision and recall for the review rules |
 | `editors/` | The VS Code extension and the coding-agent integrations |
 | `packaging/` | How the shipped payload (server + clangd + semantic kit) is assembled |
 | `tools/model-gateway/` | A separate package: the only thing that ever talks to a model endpoint |
@@ -38,9 +38,10 @@ Conformance needs a payload; `CONTRIBUTING.md` has the exact command and how to 
 | Change | Prove it with |
 |---|---|
 | Server behaviour | A unit test, and a conformance fixture if an editor would see it |
-| Anything about how a project is detected or planned | A conformance fixture — they drive the real LSP |
-| A review rule | A `bench/review/` fixture with its expected findings |
-| A specification | The text, its schema, its examples, the fixtures, and `conformance/traceability.json` together |
+| Anything about how a project is detected or planned | A conformance fixture — they drive the real LSP: a directory of `tests/cts/fixtures/` and its `Fixture` object in a topic's file of `tests/cts/` |
+| A review rule | A `tests/bench/review/` fixture with its expected findings |
+| A cost (a start, a completion, a refresh) | A bound on the metric a `Bench` of `tests/bench/` reports (`at_most`, `at_least`) |
+| A specification | The text, its schema, its examples, the fixtures, and `tests/cts/traceability.json` together |
 
 ## Rules that are not negotiable
 

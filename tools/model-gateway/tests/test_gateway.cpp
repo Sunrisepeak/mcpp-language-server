@@ -14,7 +14,7 @@
 import std;
 import nlohmann.json;
 import mcpplibs.tinyhttps;
-import mcppls.testing;
+import mcpplibs.mtest;
 import mcppls.model.gateway;
 import mcppls.base.path;
 import mcpplibs.os;
@@ -242,17 +242,18 @@ Json complete_params(const std::string& userMessage, const Json& schema = nullpt
     return params;
 }
 
-int run_tests() {
-    using namespace mcppls::testing;
+using namespace mcpplibs::mtest;
+
+UTest gateway_tests{"gateway", [] {
 
     auto provider = MockProvider::start();
     expect(fatal(provider.has_value())) << "the mock provider listens";
-    if (!provider) return report();
+    if (!provider) return;
     auto started = Gateway::start({ "--provider", "openai", "--endpoint",
                                     std::format("http://127.0.0.1:{}/v1", provider->port()),
                                     "--model", "test-model", "--timeout", "20" });
     expect(fatal(started.has_value())) << "the gateway starts";
-    if (!started) return report();
+    if (!started) return;
     Gateway& gateway { *started };
 
     "initialize answers protocol 1 and lists the configured model"_test = [&] {
@@ -318,8 +319,7 @@ int run_tests() {
         expect(gateway.close() == 0);
     };
 
-    return report();
-}
+}};
 
 } // namespace
 
@@ -332,5 +332,5 @@ int main(int argc, char* argv[]) {
         mcpplibs::tinyhttps::Socket::platform_cleanup();
         return status;
     }
-    return run_tests();
+    return mcpplibs::mtest::run(argc, argv);
 }

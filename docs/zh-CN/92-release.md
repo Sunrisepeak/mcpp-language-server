@@ -6,16 +6,25 @@
 
 ## 版本号
 
-产品的版本号只存在 `mcpp.toml` 里，别处没有第二份。由它派生出的一切，都靠一条命令写入或核对：
+版本号是 `X.Y.Z`。`X.Y` 是**系列**，由服务端与全部编辑器插件（VS Code、CLion、Zed、Claude Code 插件）共享；`Z` 是各组件自己的补丁号。插件接受同一系列的任何服务端，拒绝其他系列，并在提示中给出两个版本与匹配的安装命令：插件在 `initializationOptions.plugin` 中说明自己的版本，系列不同时服务端拒绝 `initialize`；VS Code 扩展与 CLion 插件在启动服务端之前也做同样的检查。Neovim 插件与 Copilot CLI 的配置片段没有自己的版本，随系列发布。
+
+服务端的版本写在 `mcpp.toml` 里，并由二进制报出（`modules/base/src/version.cppm`）；每个插件的版本写在它自己的清单里。一条命令写入或核对全部位置：
 
 ```bash
-mcpp run -p devtools -- version --check          # 检查各处版本一致
-mcpp run -p devtools -- version --set 0.0.2
+mcpp run -p devtools -- version --check                  # 服务端各处一致，每个插件属于它的系列
+mcpp run -p devtools -- version --print --component all  # 每个组件一行 `name=version`
+mcpp run -p devtools -- version --series 0.22            # 新的系列：每个组件为 0.22.0
+mcpp run -p devtools -- version --bump vscode            # VS Code 扩展的下一个补丁
 ```
 
-这条命令让这些地方保持一致：`mcpp.toml`、运行中的二进制文件报出的常量（`modules/base/src/version.cppm`）、每个编辑器插件的版本号（VS Code、Zed、CLion，以及 Claude Code 插件和它在 marketplace 里的条目），以及服务端声明的 clangd 和 kit 版本与 payload 实际构建所用版本的对应关系。
+`--check` 也核对服务端声明的 clangd 与 kit 版本与 payload 实际构建所用的版本。三段式是 VS Code Marketplace、Open VSX、Zed 和 JetBrains 都接受的唯一格式，其他格式（包括四段式的日期版本）一律拒绝。每个组件的 `Z` 只增不减，所以每个应用市场看到的版本都只升不降；一个版本号只要在任何地方发布过，就不再重复使用。
 
-版本号是三段式的语义化版本 `MAJOR.MINOR.PATCH`，从 `0.0.1` 开始，每个插件都原样使用它——三段式是 VS Code Marketplace、Open VSX、Zed 和 JetBrains 都接受的唯一格式。`version --set` 会拒绝其他格式，包括四段式的日期版本。应用市场只接受比已发布过的版本更高的版本号，所以一个版本号只要在任何地方发布过，就不再重复使用。
+| 发布 | 标签 | 内容 | CHANGELOG 小节 |
+|---|---|---|---|
+| 一个系列 | `vX.Y.0` | 全部组件，均为 `X.Y.0` | `## [X.Y.0]` |
+| 一个组件的补丁 | `<组件>-vX.Y.Z`（`server-`、`vscode-`、`clion-`、`zed-`、`claude-code-`） | 该组件的文件 | `## [<组件> X.Y.Z]` |
+
+每次发布都作为整体测试：候选物是整个产品，组件的发布从中取出自己的文件，并带自己的 MANIFEST.md 与 SHA256SUMS。Open VSX 接收含扩展的发布（`v*`、`vscode-v*`），JetBrains 接收含 CLion 插件的发布（`v*`、`clion-v*`）。插件的补丁内带其系列中最新的服务端补丁。系列的编号延续此前的版本：0.0.*N* 成为系列 0.*N*，所以 0.0.21 以 0.21.0 发布。
 
 CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里。
 
@@ -38,13 +47,14 @@ CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里
 
 增减 release 文件只需修改这份发布清单，workflow 不用改；模式里的 `*` 代表 release 不写出的版本（工具包的版本），`{kit}` 代表 `packaging/payload.lock.json` 为平台写的工具包名。
 
-**一个包服务所有系统**（生态设计 2026-10-29 §9）。服务端按架构构建为 ok 映像（mcpp 的 `openkal` 集合，平台为 openkal-platform），上表中凡是带服务端的文件，带的都是这些映像：okb 带两份；openkal 树在 `lib/<arch>/` 下带两份，并带启动器 `bin/mcppls`、`bin/mcppls.exe` 与它服务的每个系统的运行器；payload 把 okb 作为 `bin/mcppls.okb`，运行器放在 `libexec/okrun/<system>-<arch>/`，VSIX 与 CLion 插件带这个 payload；单文件是一个系统的运行器，里面装着一份映像。按平台不同的只有 clangd（`clangd/<platform>/`，各系统原生）和目标的工具包；payload.json 中每个平台的条目写出它的运行器和引擎。
+**一个包服务所有系统**（生态设计 2026-10-29 §9）。服务端按架构构建为 ok 映像（mcpp 的 `openkal` 集合，平台为 openkal-platform），上表中凡是带服务端的文件，带的都是这些映像：okb 带两份；openkal 树在 `lib/<arch>/` 下带两份，并带启动器 `bin/mcppls`、`bin/mcppls.exe` 与它服务的每个系统的运行器；payload 把 okb 作为 `bin/mcppls.okb`，运行器放在 `libexec/okrun/<system>-<arch>/`，VSIX 与 CLion 插件带这个 payload；单文件是一个系统的运行器，里面装着一份映像。引擎同样是一份 ok 映像，即 mcppls-clangd 的 `clangd.okb`，由各平台的运行器启动；按平台不同的只有运行器和目标的工具包，payload.json 中每个平台的条目写出它的运行器和引擎。原生程序是测试工具，不分发。
 
 | 任务（`ci.yml`） | 产出 | 运行于 |
 |---|---|---|
-| `build` | 每个平台的程序、测试工具（`stage-<platform>`）与单元测试，测试写成归档（`mcpp test --no-run --archive`） | Linux |
-| `test` | 不产出文件：每个平台的测试归档在它自己的系统上运行（`mcpp test --archive`），两种 profile | 每个平台 |
-| `server` | 一次构建得到 `mcppls-<version>-openkal.zip` 与 `mcppls-<version>.okb`（`mcpp pack --target openkal --mode self-contained --systems all --pkg-format zip,okb`），树的 `runs_on.self` 覆盖每个平台；以及单文件（`--pkg-format single-file --systems all`） | Linux |
+| `build` | 每个平台的测试工具（`stage-<platform>`，release profile）；原生服务端的单元测试写成归档（`mcpp test --no-run --archive`）：linux-x64 两种 profile，带 `native` 的运行中为每个平台 | Linux |
+| `test` | 不产出文件：测试归档在它自己的系统上运行（`mcpp test --archive`）：linux-x64 的，以及带 `native` 的运行（手动触发 CI）中每个平台的 | linux-x64；带 `native` 时每个平台 |
+| `openkal-test` | 不产出文件：服务端单元测试的 ok 映像（`mcpp test --target openkal --no-run --archive`，由 `server` 构建）经各系统的运行器在该系统上运行 | 每个平台 |
+| `server` | 一次构建得到 `mcppls-<version>-openkal.zip` 与 `mcppls-<version>.okb`（`mcpp pack --target openkal --mode self-contained --systems all --pkg-format zip,okb`），树的 `runs_on.self` 覆盖每个平台；以及单文件（`--pkg-format single-file --systems all`）；服务端单元测试的 ok 映像归档 | Linux |
 | `kits` | 每个平台的目标工具包 `mcppls-kit-<target>-<version>.tar.gz` | Linux、Linux arm64、macOS |
 | `payload` | openkal 工具包与唯一的 payload | Linux |
 | `vsix` | 唯一的 VSIX | Linux |
@@ -63,7 +73,7 @@ CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里
 运行之前：
 
 1. 一切都在 `main` 上，CI 是绿的。
-2. `mcpp run -p devtools -- version --set <version>` 的结果已经提交。这次运行会先检查这一点，各处版本不一致时会在构建前停止，避免花一个小时才发现一行写错。
+2. `mcpp run -p devtools -- version --series X.Y`（系列）或 `--bump <组件>`（补丁）的结果已经提交。这次运行会先检查这一点，各处版本不一致时会在构建前停止，避免花一个小时才发现一行写错。
 3. `CHANGELOG.md` 里有这次发布的条目。
 
 接下来这次运行会执行下面的 pre-release 测试：重新运行完整的 CI，构建 Zed 和 CLion 插件并安装，测性能和稳定性，把所有东西暂存好，对着发布清单检查，写出 `SHA256SUMS` 和 `MANIFEST.md`。只有全部通过，才会创建标签，把暂存好的候选版本逐个文件发布出去。
@@ -114,7 +124,7 @@ nightly 运行还多一个 `termux` job：termux 自己的用户空间和 PRoot�
 随附的 clangd 是 mcppls-clangd，在它自己的仓库发布，在这里由 `packaging/payload.lock.json` 锁定。
 同时涉及两边的改动按下面的顺序进行，保证引擎发布出来的东西已经和本仓库的 CI 一起通过，发布后不会再冒出问题：
 
-1. **引擎 PR 的 CI 为每个平台构建打包好的部件**（`clangd-<platform>-portable`，带写明平台的 `engine.json`），验证方式与正式发布相同。
+1. **引擎 PR 的 CI 构建打包好的部件**，即 ok 映像 `clangd-openkal`（`clangd.okb`，带 `engine.json`），验证方式与正式发布相同。引擎只以这份映像发布；它的原生构建用于测试与对比。
 2. **本仓库的 PR 在引擎合入之前就用这份构建测试。** 提交 `packaging/engine-candidate.json`，写明引擎 PR 的那次运行：
 
    ```json
@@ -122,7 +132,7 @@ nightly 运行还多一个 `termux` job：termux 自己的用户空间和 PRoot�
      "engine-commit": "<构建它的引擎 PR head>" }
    ```
 
-   服务器编译可与尚未结束的上游构建并行。`engine candidate parts` 任务仅在五份部件及通用载荷身份检查通过、run/head 元数据匹配且存在不可变构件摘要后允许装配；已知的上游失败或取消会拒绝准入。
+   服务器编译可与尚未结束的上游构建并行。`engine candidate parts` 任务仅在两个架构的映像、`clangd-openkal` 部件及其身份检查通过、run/head 元数据匹配且存在不可变构件摘要后允许装配；已知的上游失败或取消会拒绝准入。
 
    CI 的 `payload` 任务随后用那次运行的部件（`payload --clangd <platform>=<部件> ... --candidate`）组装 payload，而不是锁文件里的归档，之后的所有任务都测试它。发现的问题在哪个 PR 就在哪个 PR 修，并把文件指向新的运行，直到两边都通过。
 3. **合入并发布引擎**，再把锁文件切换到发布的归档（大小和 SHA-256，各自用两次下载和发布的 `.sha256` 核对），并在同一个提交里**删除候选文件**。CI 在发布的字节上再跑一次。
@@ -130,25 +140,11 @@ nightly 运行还多一个 `termux` job：termux 自己的用户空间和 PRoot�
 
 候选文件永远不会进入发布：CI 在 `main` 和发布的运行中拒绝它，Release 工作流发现它会立即停止。在 `main` 以外的分支上手动运行 CI 或 nightly 时可以使用它：引擎对空闲内存或输入延迟的影响要在 nightly 的 ux 轮次里才看得出来，所以这些轮次要在引擎发布之前就能测到它。构建产物保留 14 天；更早的运行可以重新运行引擎 PR 的 CI 重建。
 
-### 引擎 0.0.20 的性能例外
+### 引擎性能
 
-引擎的 warm-prime 报告分别记录 1.15 倍目标（`target_met`）和发布准入结果
-（`accepted`）。仅引擎 0.0.20 的 Linux x64 冷启动 CPU 可以超过该目标，条件是
-image/native CPU 不超过 1.25 倍，且在不变的 304 个翻译单元测试中额外 CPU 时间
-不超过 3.0 秒。报告保留原目标失败、Issue 引用、生产者提交，以及实测原生引擎、
-runner 和 image 的 SHA256 身份。
-
-该规则要求测量版本 3。冷、热启动就绪时间、热启动 CPU、其他受门槛约束宿主的
-CPU、完整生命周期缺页、语义检查、资源限制、取消、崩溃，以及最终服务端和编辑器
-体验，均保留现有门槛。缺失或无效的测量会拒绝准入。下一引擎版本重新使用原目标。
-服务端仅在使用已发布 0.0.20 引擎的确切字节，并通过候选及发布载荷检查后适用该例外。
-
-引擎 0.0.20 的资格 CI 测得 Linux x64 冷启动 CPU 比值为 1.109，已满足原有的
-1.15 目标，因此本次未实际应用该例外。
-
-[性能 Issue](https://github.com/Sunrisepeak/mcpp-language-server/issues/77)
-记录实测边界，包括 Windows 冷启动就绪时间的代价。发布说明披露实际应用的例外；
-发布准入通过不表示原性能目标已经达成。
+引擎的 warm-prime 门槛取四组交替的原生/映像样本的中位数，在 mcppls-clangd 的对比运行中测量（见其
+`ci/performance-policy.md`）；引擎发布写明该次运行。引擎 0.0.20 的一次性例外已失效。
+[性能议题](https://github.com/Sunrisepeak/mcpp-language-server/issues/77) 记录实测的限制，包括 Windows 冷启动就绪时间的取舍。
 
 ## 衡量一次改动
 

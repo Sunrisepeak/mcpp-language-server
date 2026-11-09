@@ -1,0 +1,57 @@
+# The components of this repository, by path (docs/92-release.md "Versions"; .github/scripts/changes.sh).
+# One `<component>\t<pattern>` line each; a pattern is a shell `case` glob over the path from the
+# repository's root, in which `*` crosses `/`. The first line that matches a path names its component;
+# a path no line matches, and the component `all`, run every job.
+#
+# `@core <component>`: the component whose change reaches every other (each plugin is tested over it).
+# `@flag <name>\t<pattern>`: a pull request's narrower question, true when a changed path matches (or the
+# pull request is from or into a release branch): `zed_real`, whether the real Zed runs; `packaging`, whether the
+# release checks run.
+@core	server
+@flag zed_real	editors/zed/*
+@flag zed_real	src/lsp/*
+@flag zed_real	src/orchestrator/*
+@flag zed_real	tools/devtools/*
+@flag zed_real	.github/workflows/zed-smoke.yml
+@flag zed_real	.github/versions.env
+@flag packaging	.github/workflows/release.yml
+@flag packaging	.github/workflows/prerelease.yml
+@flag packaging	.github/workflows/release-checks.yml
+@flag packaging	packaging/release.manifest.json
+@flag packaging	packaging/payload.lock.json
+@flag packaging	packaging/xlings/*
+@flag packaging	editors/zed/*
+@flag packaging	editors/clion/*
+@flag packaging	modules/pack/src/*
+@flag packaging	tools/devtools/src/editors.*
+@flag packaging	tools/devtools/src/packaging.*
+@flag packaging	tools/devtools/src/release.*
+@flag packaging	tools/devtools/src/kit.*
+#
+# server: everything the payload is built from, and the tests and tools of the server.
+server	src/*
+server	modules/*
+server	mcpp.toml
+server	mcpp.lock
+server	build.mcpp
+server	vendor/*
+server	packaging/*
+server	tests/*
+server	tools/*
+# The editor plugins, each tested over the payload of the server it is changed against.
+vscode	editors/vscode/*
+clion	editors/clion/*
+zed	editors/zed/*
+nvim	editors/nvim/*
+agents	editors/claude-code/*
+agents	editors/copilot-cli/*
+agents	editors/agents/*
+# What only people read.
+docs	editors/README.md
+docs	docs/*
+docs	*.md
+docs	LICENSE
+docs	NOTICE
+docs	CODEOWNERS
+# The workflows, the actions and the pins every job runs with.
+all	.github/*

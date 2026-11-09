@@ -5,7 +5,7 @@
 // step was a matter of remembering to. Here it lives once, as a row of `registry()`, and every one
 // of those sites is derived from it: `mcppls.cli.commands` builds the global options from it,
 // `session_options` and `handle_initialize_` fill a `Settings` from it, `mcppls settings` and
-// `mcppls report` render it, and `tests/test_settings.cpp` holds the rendered docs and
+// `mcppls report` render it, and `tests/unit/test_settings.cpp` holds the rendered docs and
 // `editors/vscode/package.json` to it.
 export module mcppls.config.settings;
 
@@ -56,7 +56,7 @@ std::string_view to_string(Origin origin);
 // is expected to expose this row at all: true for every `client` row and for a `server` row VS
 // Code's `package.json` should carry a matching property for; false for one that is command-line
 // only (a path to something on this machine, a workaround id, a timeout) or fixed by what a
-// client's own capabilities declare (`semanticTokens.moduleType`) -- `tests/test_settings.cpp`
+// client's own capabilities declare (`semanticTokens.moduleType`) -- `tests/unit/test_settings.cpp`
 // reads this to know which rows to expect in `package.json` and which to expect absent.
 struct Setting {
     std::string key;
@@ -158,7 +158,7 @@ std::string cache_max_bytes(const Settings& settings);
 
 // `mcppls settings --format markdown [--lang en|zh-CN]`: the reference table grouped by category
 // (`docs/30-settings.md` and its zh-CN mirror embed this verbatim between two markers, so
-// `tests/test_settings.cpp` can hold the file to the renderer byte for byte).
+// `tests/unit/test_settings.cpp` can hold the file to the renderer byte for byte).
 std::string to_markdown(std::span<const Setting> rows, std::string_view lang = "en");
 
 // `mcppls settings --format json`: every field of every row, for a machine reader.

@@ -217,12 +217,12 @@ that reaches a model endpoint. Results are specified as S5.
 ## 5. Specifications and evaluation
 
 Five specifications, versioned apart from the product, with rule identifiers (`S1-6-1`, ...) mapped
-to evidence in `conformance/traceability.json`: S1 build database, S2 discovery, S3 LSP extensions
+to evidence in `tests/cts/traceability.json`: S1 build database, S2 discovery, S3 LSP extensions
 (`cxxModules/status`, `report`, `setContext`, ...), S4 semantic kit, S5 semantic queries.
 
 Three kinds of evidence: conformance fixtures (the facts are right, against real toolchains on three
 hosts), the review fixtures (precision and recall per rule), and the agent task benchmark
-(`tools/bench`). A pre-release workflow runs all of CI, installs every editor plugin from the release
+(`tests/bench`, whose cases bound their metrics). A pre-release workflow runs all of CI, installs every editor plugin from the release
 archives, holds startup medians to a budget and repeats the key fixtures three rounds in a row
 before anything is published (`docs/92-release.md`).
 

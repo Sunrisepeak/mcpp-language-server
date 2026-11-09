@@ -11,6 +11,7 @@ export import mcppls.base.home;
 export import mcppls.base.log;
 export import mcppls.base.path;
 export import mcppls.base.payload;
+export import mcppls.base.series;
 export import mcppls.base.sha256;
 export import mcppls.base.text;
 export import mcppls.base.uri;

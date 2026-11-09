@@ -8,7 +8,7 @@ mcpp run -p devtools -- extension --editor vscode|zed|clion --install   # and in
 mcpp run -p devtools -- uninstall --editor vscode|zed|clion|all   # remove it again
 ```
 
-What packaging needs — Node and Rust — is declared in `mcpp.toml`'s `[xlings.workspace]`,
+What packaging needs — Node and Rust — is declared in `mcpp.toml`'s `[workspace.xlings.workspace]`,
 so `mcpp run` provisions it before the tool starts. Gradle and the JDK it runs on sit behind the
 `clion` feature, so only someone building that plugin downloads them:
 `mcpp run --features clion -p devtools -- extension --editor clion`. Zed and CLion have no

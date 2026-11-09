@@ -37,6 +37,14 @@ constexpr std::array PATH_FLAGS {
     PathFlag { "-isysroot", false },   PathFlag { "--sysroot", false },  PathFlag { "-resource-dir", false },
     PathFlag { "-B", false },          PathFlag { "-include", true },    PathFlag { "-fprebuilt-module-path", false },
     PathFlag { "-fmodule-file", true }, PathFlag { "-iprefix", false },  PathFlag { "-cxx-isystem", false },
+    // The MSVC toolchain and the Windows SDK the target's headers are found beneath (the driver reads
+    // <tools>/include and <sdk>/Include/<version>/... itself, so no -I names them): wherever Visual Studio
+    // is installed, outside Program Files included (#81). The clang driver's spellings, then clang-cl's.
+    PathFlag { "-Xmicrosoft-visualc-tools-root", false }, PathFlag { "-Xmicrosoft-windows-sdk-root", false },
+    PathFlag { "-Xmicrosoft-windows-sys-root", false },   PathFlag { "/winsysroot", false },
+    PathFlag { "-winsysroot", false },                    PathFlag { "/vctoolsdir", false },
+    PathFlag { "-vctoolsdir", false },                    PathFlag { "/winsdkdir", false },
+    PathFlag { "-winsdkdir", false },
 };
 
 // The value of `argument` (and of the one after it, `next`) when it is `flag`'s: `-I/x`, `-I /x`,

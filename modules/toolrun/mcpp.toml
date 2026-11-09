@@ -12,13 +12,11 @@ kind = "lib"
 
 [dependencies]
 mcpplibs.os.workspace = true
+nlohmann.json.workspace = true
 mcppls-base = { path = "../base" }
 
-[dependencies.nlohmann]
-json.workspace = true
-
 [dev-dependencies]
-mcppls-testing = { path = "../testing" }
+mcpplibs.mtest.workspace = true
 
 [lib]
 path = "src/toolrun.cppm"

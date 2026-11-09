@@ -153,8 +153,8 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 
 在 Windows 上，确认一个模块或 preamble 是否仍然可用，每一步都是要打开文件的文件操作；Microsoft Defender 还会在 clangd
 读写缓存里的每个文件时实时扫描。缓存不在 [Dev Drive](https://learn.microsoft.com/windows/dev-drive/) 上时（Dev Drive 上
-Defender 异步扫描），服务端会在日志里说一次，编辑器的概览里也会显示。下面两种做法都有帮助，由你决定；mcppls 不会修改任何
-安全设置：
+Defender 异步扫描），服务端会在日志里说一次，编辑器的概览里也会显示。发布的服务端是 ok 映像，它像原生构建一样询问 Windows
+（mcpplibs.os 0.4.0）。下面两种做法都有帮助，由你决定；mcppls 不会修改任何安全设置：
 
 - 把缓存放到 Dev Drive 上：把环境变量 `MCPPLS_CACHE_DIR` 设成 Dev Drive 上的一个文件夹。
 - 或者在 Windows 安全中心里把缓存文件夹排除在实时扫描之外。
@@ -172,6 +172,8 @@ Windows 上补全还慢在哪里、这一版做了什么，看日志里的 `Comp
 - **其他客户端**：`workspace/executeCommand` `mcppls.resetCache`
 
 它会停掉这个根目录的引擎，删除它的缓存——模型、引擎数据库、保存的语义 token、clangd 的模块缓存和锁，以及 mcppls 运行的构建工具（xmake、CMake、Meson）的私有状态（在下一次描述开始前删除，不会删在正在运行的描述底下）——然后重新开始。日志保留。之后的第一次会话是冷启动。
+
+每个引擎在缓存中有自己的部分：它的数据库、clangd 写出的索引分片和它构建的模块都放在以引擎身份（版本、平台与摘要）命名的上下文中。工作区里换了引擎时——升级之后，或在原生引擎与 ok 映像之间切换——之前引擎的上下文会在后台删除，所以一个引擎不会读取另一个引擎写出的分片或模块。
 
 旧的模块会自动清理：每个单元保留它最新两条编译命令构建出的模块（BMI），更旧的在 clangd 启动时于后台删除。`mcppls cache --prune` 会对所有没有实例打开的工作区做同样的清理。
 

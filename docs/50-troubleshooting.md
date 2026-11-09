@@ -379,8 +379,8 @@ what went wrong; see [Android, under Termux](00-install.md#android-under-termux)
 On Windows every check that a module or a preamble is still good is a file operation that opens the
 file, and Microsoft Defender scans each file clangd writes and reads in its cache as it happens. The
 server says once in the log, and the overview of the editor says too, when its cache is not on a
-[Dev Drive](https://learn.microsoft.com/windows/dev-drive/), where Defender scans asynchronously.
-Two ways help, both yours to choose; mcppls changes no security setting:
+[Dev Drive](https://learn.microsoft.com/windows/dev-drive/), where Defender scans asynchronously. The
+released server, an ok image, asks Windows as a native build does (mcpplibs.os 0.4.0). Two ways help, both yours to choose; mcppls changes no security setting:
 
 - Put the cache on a Dev Drive: set the environment variable `MCPPLS_CACHE_DIR` to a folder on it.
 - Or exclude the cache folder from real-time scanning in Windows Security.
@@ -404,6 +404,12 @@ It stops the root's engines, removes its cache — the models, the engine databa
 tokens, clangd's module cache and locks, and the private states of the build tools mcppls runs (xmake, CMake, Meson; removed
 before the next description starts, so never under one that is running) — and starts again. The logs stay. The first session afterwards is a cold
 one.
+
+Each engine keeps its own part of the cache: its database, the index shards clangd writes and the
+modules it builds live in a context named by the engine's identity (its version, platform and
+digest). When another engine starts in the workspace — after an update, or a switch between the
+native engine and the ok image — the contexts of the earlier ones are removed in the background, so
+an engine never reads a shard or a module another engine wrote.
 
 Old modules are pruned by themselves: each unit keeps the built modules (BMIs) of its two newest
 commands, and older ones are removed in the background when clangd starts. `mcppls cache --prune`

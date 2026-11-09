@@ -8,8 +8,6 @@ namespace mcppls::base::log {
 namespace {
 
 std::atomic<Level> gLevel { Level::info };
-std::mutex gWriteMutex;
-std::function<void(std::string_view)> gSink;
 
 // The file every line also goes to, and the lines kept for a report.
 struct LogFile {
@@ -19,9 +17,21 @@ struct LogFile {
     std::uintmax_t maxBytes { 0 };
     int keep { 0 };
 };
-std::optional<LogFile> gFile;
 constexpr std::size_t RECENT_LINES { 500 };
-std::deque<std::string> gRecent;
+
+// The log's state is never destroyed: a detached thread (a daemon's connection, a reader of a
+// child's output) may write a line while the process ends, after static objects are destroyed,
+// and it then finds the state whole rather than freed.
+struct State {
+    std::mutex mutex;
+    std::function<void(std::string_view)> sink;
+    std::optional<LogFile> file;
+    std::deque<std::string> recent;
+};
+State& state() {
+    static State* const instance { new State };
+    return *instance;
+}
 
 void rotate(LogFile& file) {
     file.stream.close();
@@ -51,8 +61,9 @@ std::string_view name_of(Level level) {
 void set_level(Level level) { gLevel.store(level); }
 
 void set_sink(std::function<void(std::string_view line)> sink) {
-    std::lock_guard lock { gWriteMutex };
-    gSink = std::move(sink);
+    auto& s { state() };
+    std::lock_guard lock { s.mutex };
+    s.sink = std::move(sink);
 }
 
 Level level() { return gLevel.load(); }
@@ -64,24 +75,26 @@ bool enabled(Level level) {
 void write(Level level, std::string_view message) {
     const auto now = std::chrono::floor<std::chrono::milliseconds>(std::chrono::system_clock::now());
     const std::string line { std::format("mcppls {:%FT%TZ} [{}] {}\n", now, name_of(level), message) };
-    std::lock_guard lock { gWriteMutex };
-    gRecent.emplace_back(line.substr(0, line.size() - 1));
-    if (gRecent.size() > RECENT_LINES) gRecent.pop_front();
-    if (gFile && gFile->stream) {
-        gFile->stream << line;
-        gFile->stream.flush();
-        gFile->written += line.size();
-        if (gFile->maxBytes > 0 && gFile->written >= gFile->maxBytes) rotate(*gFile);
+    auto& s { state() };
+    std::lock_guard lock { s.mutex };
+    s.recent.emplace_back(line.substr(0, line.size() - 1));
+    if (s.recent.size() > RECENT_LINES) s.recent.pop_front();
+    if (s.file && s.file->stream) {
+        s.file->stream << line;
+        s.file->stream.flush();
+        s.file->written += line.size();
+        if (s.file->maxBytes > 0 && s.file->written >= s.file->maxBytes) rotate(*s.file);
     }
-    if (gSink) {
-        gSink(line);
+    if (s.sink) {
+        s.sink(line);
         return;
     }
     (void)mcpplibs::os::stdio::write_error(line);
 }
 
 bool add_file(std::string_view path, std::uintmax_t maxBytes, int keep) {
-    std::lock_guard lock { gWriteMutex };
+    auto& s { state() };
+    std::lock_guard lock { s.mutex };
     LogFile file;
     file.path = std::string { path };
     file.maxBytes = maxBytes;
@@ -92,19 +105,21 @@ bool add_file(std::string_view path, std::uintmax_t maxBytes, int keep) {
     if (!file.stream) return false;
     file.written = std::filesystem::file_size(file.path, ignored);
     if (file.written == static_cast<std::uintmax_t>(-1)) file.written = 0;
-    gFile = std::move(file);
+    s.file = std::move(file);
     return true;
 }
 
 std::string file_path() {
-    std::lock_guard lock { gWriteMutex };
-    return gFile ? gFile->path : std::string {};
+    auto& s { state() };
+    std::lock_guard lock { s.mutex };
+    return s.file ? s.file->path : std::string {};
 }
 
 std::vector<std::string> recent(std::size_t limit) {
-    std::lock_guard lock { gWriteMutex };
-    const std::size_t count { std::min(limit, gRecent.size()) };
-    return { gRecent.end() - static_cast<std::ptrdiff_t>(count), gRecent.end() };
+    auto& s { state() };
+    std::lock_guard lock { s.mutex };
+    const std::size_t count { std::min(limit, s.recent.size()) };
+    return { s.recent.end() - static_cast<std::ptrdiff_t>(count), s.recent.end() };
 }
 
 std::optional<Level> parse_level(std::string_view name) {

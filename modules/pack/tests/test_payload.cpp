@@ -7,7 +7,7 @@
 // have something to check, so a real assemble+verify round trip runs clean.
 import std;
 import nlohmann.json;
-import mcppls.testing;
+import mcpplibs.mtest;
 import mcppls.base.path;
 import mcppls.pack.lock;
 import mcppls.pack.fetch;
@@ -164,15 +164,10 @@ payload::AssembleOptions options_for(const Fixture& fixture, std::vector<std::st
 
 } // namespace
 
-int main(int argc, char* argv[]) {
+using namespace mcpplibs::mtest;
+
+UTest payload_tests{"payload", [] {
     std::error_code ignored;
-    // Started as the fixture's clangd (runnable_clangd): answer the one question asked of it.
-    // As a runner (`okrun <image> --version`), the same.
-    if ((argc > 1 && std::string_view { argv[1] } == "--version") || (argc > 2 && std::string_view { argv[2] } == "--version")) {
-        std::println("clangd version 23.1.0-mcppls.5 (fixture)");
-        return 0;
-    }
-    using namespace mcppls::testing;
 
     const std::string work { scratch_dir() };
     const Fixture fixture { work, base::join_path(work, "repo"), base::join_path(work, "mcppls.okb") };
@@ -419,5 +414,14 @@ int main(int argc, char* argv[]) {
     };
 
     std::filesystem::remove_all(work);
-    return report();
+}};
+
+int main(int argc, char* argv[]) {
+    // Started as the fixture's clangd (runnable_clangd): answer the one question asked of it.
+    // As a runner (`okrun <image> --version`), the same.
+    if ((argc > 1 && std::string_view { argv[1] } == "--version") || (argc > 2 && std::string_view { argv[2] } == "--version")) {
+        std::println("clangd version 23.1.0-mcppls.5 (fixture)");
+        return 0;
+    }
+    return run(argc, argv);
 }

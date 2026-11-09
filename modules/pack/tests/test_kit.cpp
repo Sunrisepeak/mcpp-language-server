@@ -5,7 +5,7 @@
 // the network -- the recipes that do are exercised by hand in the parity check (tooling
 // architecture M2), not here.
 import std;
-import mcppls.testing;
+import mcpplibs.mtest;
 import mcppls.base.path;
 import mcppls.pack.kit;
 import nlohmann.json;
@@ -33,8 +33,9 @@ void write(const std::string& path, std::string_view content) {
 
 } // namespace
 
-int main() {
-    using namespace mcppls::testing;
+using namespace mcpplibs::mtest;
+
+UTest kit_tests{"kit", [] {
 
     // ---- file selection: recipe_libcxx_source's SOURCE_SUBTREES prefix test -------------------
 
@@ -294,5 +295,4 @@ int main() {
         std::filesystem::remove_all(kitDir);
     };
 
-    return report();
-}
+}};

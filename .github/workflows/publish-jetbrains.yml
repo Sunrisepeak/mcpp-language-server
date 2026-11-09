@@ -26,6 +26,8 @@ concurrency:
 
 jobs:
   publish:
+    # Only a release that carries the CLion plugin: the series (vX.Y.0) or the plugin's patch (clion-v*).
+    if: startsWith(inputs.tag || github.event.release.tag_name, 'v') || startsWith(inputs.tag || github.event.release.tag_name, 'clion-v')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -37,7 +39,8 @@ jobs:
           python3 - <<'PY'
           import os, re
           from pathlib import Path
-          match = re.fullmatch(r'v(\d+\.\d+\.\d+)', os.environ['TAG'])
+          # A series release (vX.Y.0) or the CLion plugin's own patch (clion-vX.Y.Z; docs/92-release.md "Versions").
+          match = re.fullmatch(r'(?:clion-)?v(\d+\.\d+\.\d+)', os.environ['TAG'])
           assert match, 'Expected a versioned release tag'
           with Path(os.environ['GITHUB_ENV']).open('a') as out:
               out.write('VERSION=' + match[1] + '\n')

@@ -31,6 +31,7 @@ export interface PayloadManifest {
     platform?: string;                                  // versions 1 to 4: the one platform
     server: PayloadServer;
     clangd?: PayloadEntry;                              // versions 1 to 4
+    engines?: { clangd: PayloadEntry };                 // versions 3 and 4: the engine (S6 3.2)
     kit: { name: string; path: string };
     platforms?: Record<string, PayloadPlatform>;        // version 5: every platform
     // Version 2 (usable plan W9.4): size and sha256 of the files the server verifies at startup.
@@ -124,7 +125,7 @@ export function readManifest(payloadDir: string): { manifest?: PayloadManifest; 
         && manifest.kit !== undefined && insideRelative(manifest.kit.path);
     const perPlatform = version >= 5
         ? wellFormedPlatforms(manifest.platforms)
-        : typeof manifest.platform === 'string' && manifest.clangd !== undefined && insideRelative(manifest.clangd.path);
+        : typeof manifest.platform === 'string' && insideRelative((manifest.engines?.clangd ?? manifest.clangd)?.path);
     if (!common || !perPlatform) {
         return { problem: `The payload manifest ${file} is incomplete.` };
     }
@@ -146,10 +147,12 @@ export function platformPart(manifest: PayloadManifest, platform: string): Platf
         const entry = manifest.platforms[platform];
         return entry ? { runner: entry.runner, clangd: entry.engines.clangd.path } : undefined;
     }
-    if (manifest.platform !== platform || !manifest.clangd) {
+    // Versions 3 and 4 state the engine under `engines.clangd`; 1 and 2 under `clangd` (S6 section 4).
+    const clangd = manifest.engines?.clangd ?? manifest.clangd;
+    if (manifest.platform !== platform || !clangd) {
         return undefined;
     }
-    return { runner: manifest.server.runner, clangd: manifest.clangd.path };
+    return { runner: manifest.server.runner, clangd: clangd.path };
 }
 
 // Packages lose the executable bit in some installation paths; restore it when possible.

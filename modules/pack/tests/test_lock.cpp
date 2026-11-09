@@ -4,7 +4,7 @@
 // should not depend on the repository's current lock contents (see test_archive.cpp for why
 // scratch lives beside the test binary rather than in the system temp).
 import std;
-import mcppls.testing;
+import mcpplibs.mtest;
 import mcppls.base.path;
 import mcppls.pack.lock;
 import mcpplibs.os;
@@ -68,8 +68,9 @@ constexpr std::string_view FIXTURE = R"JSON({
 
 } // namespace
 
-int main() {
-    using namespace mcppls::testing;
+using namespace mcpplibs::mtest;
+
+UTest lock_tests{"lock", [] {
 
     const std::string work { scratch_dir() };
     const std::string lockPath { base::join_path(work, "payload.lock.json") };
@@ -170,5 +171,4 @@ int main() {
     };
 
     std::filesystem::remove_all(work);
-    return report();
-}
+}};

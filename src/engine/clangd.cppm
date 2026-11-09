@@ -38,6 +38,9 @@ struct Options {
     std::string executable;        // empty, or a file that does not exist: the engine is unavailable
     std::string runner;            // the program that starts an ok-image engine (`okrun clangd.okb`); empty for a program
     std::string version;
+    // The cache context this engine keeps its database, index shards and module builds in (engine_context, D14); empty
+    // is `default`. The contexts of other engines are retired when this one starts.
+    std::string context;
     bool payloadCorrupt { false };
     bool verboseLog { false };
     // The payload bound of mcppls-clangd's owned module cache, in MiB (0: none); unset, the engine's own (1 GiB).

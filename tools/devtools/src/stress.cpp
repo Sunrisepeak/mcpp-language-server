@@ -239,7 +239,7 @@ void run_matrix(const cmdline::ParsedArgs& args, bool& handled, int& status) {
     std::vector<stress::StressRow> rows;
     bool anyFailed { false };
     for (const auto& spec : *specs) {
-        const std::string fixtureDir { base::join_path(root, "conformance/fixtures/" + spec.fixture) };
+        const std::string fixtureDir { base::join_path(root, "tests/cts/fixtures/" + spec.fixture) };
         if (!std::filesystem::is_directory(fixtureDir, ignored)) {
             rows.push_back({ .fixture = spec.fixture, .client = spec.client, .ok = false,
                             .note = std::format("no fixture at {}", fixtureDir) });
@@ -316,7 +316,7 @@ void run_matrix(const cmdline::ParsedArgs& args, bool& handled, int& status) {
 cmdline::App stress_command(bool& handled, int& status) {
     cmdline::App command { "stress" };
     (void)command.description("Real-project stress testing: run the conformance runner's stress check over a matrix of fixtures and client profiles");
-    (void)command.option("fixture").takes_value().multiple().help("A fixture under conformance/fixtures to stress; repeatable");
+    (void)command.option("fixture").takes_value().multiple().help("A fixture under tests/cts/fixtures to stress; repeatable");
     (void)command.option("project").takes_value().multiple().help("xlings, mcpp or self: the pinned real-project fixture for it, when this checkout has one; repeatable");
     (void)command.option("client").takes_value().multiple().help("vscode, neovim, zed or plain; repeatable. Omitted: this runner's own default profile");
     (void)command.option("seed").takes_value().help("Overrides every stressed fixture's own stress-check seed, for a reproducible matrix run");

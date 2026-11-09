@@ -94,6 +94,16 @@ EngineCommand engine_command(std::string_view clangd, std::string_view runner);
 // for this platform, else the conventional layout); then clangd on PATH. The kits are --kit, the
 // payload's and those installed by xlings whose libc++ is the core engine's version.
 PayloadPaths resolve_payload(const PayloadRequest& request);
+
+// The cache context of an engine (mcpp design 2026-11-07, D14): its database, the index shards clangd keeps beside it
+// and its module builds, under `contexts/<name>` of a workspace's cache. Named by the engine's identity -- version,
+// platform and the first twelve hex digits of its digest -- so that an engine never reads the shards or the BMIs
+// another engine wrote; an engine without one (an external clangd) by `external-<version>`.
+std::string engine_context(const PayloadPaths& paths);
+
+// The engine database a workspace's cache holds: the `cdb` of its newest context that has one, else
+// `contexts/default/cdb`.
+std::string engine_database_directory(std::string_view cacheDirectory);
 // The macOS SDK path for kits that need one, or empty.
 std::string macos_sdk_path();
 

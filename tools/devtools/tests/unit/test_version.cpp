@@ -1,0 +1,200 @@
+// The version sites (.github/scripts/version.py, ported): a synthetic repository root with the
+// minimal file set every site reads, so this does not depend on -- or risk writing into -- the
+// real checkout.
+import std;
+import mcpplibs.mtest;
+import mcppls.base.path;
+import mcppls.devtools.version;
+import mcpplibs.os;
+
+namespace os = mcpplibs::os;
+
+namespace version = mcppls::devtools::version;
+namespace base = mcppls::base;
+
+namespace {
+
+std::string scratch(std::string_view name) {
+    std::error_code ignored;
+    const std::string directory { base::join_path(
+        base::spelled(os::dirs::temp()),
+        std::format("mcppls-test-version-{}-{}", name, std::chrono::steady_clock::now().time_since_epoch().count())) };
+    (void)std::filesystem::create_directories(directory, ignored);
+    return directory;
+}
+
+void write(const std::string& path, std::string_view content) {
+    std::error_code ignored;
+    (void)std::filesystem::create_directories(base::parent_path(path), ignored);
+    (void) os::fs::write(path, content);
+}
+
+// A minimal root with every site version.py's --check reads, all agreeing on 0.0.1.
+std::string make_consistent_root() {
+    const std::string root { scratch("root") };
+    write(base::join_path(root, "mcpp.toml"), "[package]\nname = \"mcpp-language-server\"\nversion     = \"0.0.1\"\n");
+    write(base::join_path(root, "modules/base/src/version.cppm"),
+          "export module mcppls.base.version;\n"
+          "inline constexpr std::string_view VERSION { \"0.0.1\" };\n"
+          "inline constexpr std::string_view CLANGD_VERSION { \"23.1.0\" };\n"
+          "inline constexpr std::string_view MINIMUM_MCPP_VERSION { \"2026.9.15.1\" };\n");
+    write(base::join_path(root, "editors/vscode/package.json"), "{\n  \"name\": \"mcppls\",\n  \"version\": \"0.0.1\"\n}\n");
+    write(base::join_path(root, "editors/zed/extension.toml"), "id = \"mcppls\"\nversion = \"0.0.1\"\n");
+    write(base::join_path(root, "editors/zed/src/resolve.rs"), "pub const PLUGIN_VERSION: &str = \"0.0.1\";\n");
+    write(base::join_path(root, "editors/clion/gradle.properties"), "pluginVersion = 0.0.1\n");
+    write(base::join_path(root, "editors/claude-code/mcppls-lsp/.claude-plugin/plugin.json"),
+          "{\n  \"name\": \"mcppls-lsp\",\n  \"version\": \"0.0.1\",\n  \"author\": {\n    \"name\": \"Sunrisepeak\"\n  }\n}\n");
+    write(base::join_path(root, "editors/claude-code/.claude-plugin/marketplace.json"),
+          "{\n  \"name\": \"mcppls\",\n  \"plugins\": [\n    {\n      \"name\": \"mcppls-lsp\",\n      \"version\": \"0.0.1\"\n    }\n  ]\n}\n");
+    write(base::join_path(root, ".github/versions.env"), "MCPP_VERSION=2026.9.21.3\nLLVM_VERSION=22.1.8\n");
+    write(base::join_path(root, "packaging/payload.lock.json"), "{\n  \"clangd-version\": \"23.1.0\"\n}\n");
+    write(base::join_path(root, "src/spec/kit.cppm"), "inline constexpr int KIT_VERSION { 1 };\n");
+    write(base::join_path(root, "modules/pack/src/kit.cppm"), "inline constexpr int KIT_VERSION { 1 };\n");
+    return root;
+}
+
+} // namespace
+
+using namespace mcpplibs::mtest;
+
+UTest version_tests{"version", [] {
+
+    "extension_version is the product version, a three-part semantic version"_test = [&] {
+        auto v = version::extension_version("0.0.1");
+        expect(v.has_value() && *v == "0.0.1");
+        auto w = version::extension_version("1.20.3");
+        expect(w.has_value() && *w == "1.20.3");
+    };
+
+    "extension_version refuses a date version rather than mapping it"_test = [&] {
+        // The scheme this replaced: a four-part date the Marketplace saw as 2026.916.1. Accepting
+        // it again would publish a version above every 0.x one, which no later 0.x could follow.
+        expect(!version::extension_version("2026.9.16.1").has_value());
+    };
+
+    "extension_version refuses what is not MAJOR.MINOR.PATCH"_test = [&] {
+        expect(!version::extension_version("not-a-version").has_value());
+        expect(!version::extension_version("0.1").has_value());
+        expect(!version::extension_version("0.01.1").has_value()) << "a leading zero is not semantic versioning";
+        expect(!version::extension_version("1.0.0-rc1").has_value());
+    };
+
+    "a consistent root has no problems, and --print/--print --extension agree"_test = [&] {
+        const std::string root { make_consistent_root() };
+        auto problems = version::check(root);
+        expect(problems.has_value());
+        if (problems) {
+            for (const auto& p : *problems) std::println(std::cerr, "  unexpected problem: {}", p);
+            expect(problems->empty());
+        }
+        auto product = version::manifest_version(root);
+        expect(product.has_value() && *product == "0.0.1");
+        auto extension = version::extension_version(*product);
+        expect(extension.has_value() && *extension == "0.0.1");
+        std::filesystem::remove_all(root);
+    };
+
+    "set_everywhere writes the one version to every site"_test = [&] {
+        const std::string root { make_consistent_root() };
+        auto wanted = version::set_everywhere(root, "0.2.0");
+        expect(wanted.has_value());
+        if (wanted) expect(*wanted == "0.2.0");
+
+        expect(version::manifest_version(root).value_or("") == "0.2.0");
+        expect(version::module_version(root).value_or("") == "0.2.0");
+        expect(version::extension_manifest_version(root).value_or("") == "0.2.0");
+        expect(version::zed_manifest_version(root).value_or("") == "0.2.0");
+        expect(version::clion_plugin_version(root).value_or("") == "0.2.0");
+        expect(version::claude_plugin_version(root).value_or("") == "0.2.0");
+        expect(version::claude_marketplace_version(root).value_or("") == "0.2.0");
+
+        auto problems = version::check(root);
+        expect(problems.has_value());
+        if (problems) expect(problems->empty());
+        std::filesystem::remove_all(root);
+    };
+
+    "set_everywhere refuses a date version and writes nothing"_test = [&] {
+        const std::string root { make_consistent_root() };
+        expect(!version::set_everywhere(root, "2026.10.5.2").has_value());
+        expect(version::manifest_version(root).value_or("") == "0.0.1");
+        std::filesystem::remove_all(root);
+    };
+
+    "a Claude Code plugin version that disagrees is reported by name"_test = [&] {
+        const std::string root { make_consistent_root() };
+        expect(version::claude_marketplace_version(root, "0.1.0").has_value());
+        auto problems = version::check(root);
+        expect(problems.has_value());
+        if (!problems) return;
+        const bool namesIt = std::ranges::any_of(*problems, [](const std::string& p) { return p.contains("marketplace.json"); });
+        expect(namesIt);
+        std::filesystem::remove_all(root);
+    };
+
+    "a site that disagrees is reported by name"_test = [&] {
+        const std::string root { make_consistent_root() };
+        expect(version::extension_manifest_version(root, "9.999.9").has_value());
+        auto problems = version::check(root);
+        expect(problems.has_value());
+        if (!problems) return;
+        expect(!problems->empty());
+        const bool namesIt = std::ranges::any_of(*problems, [](const std::string& p) { return p.contains("package.json"); });
+        expect(namesIt);
+        std::filesystem::remove_all(root);
+    };
+
+    "a plugin's own patch is of the series and is not a problem"_test = [&] {
+        const std::string root { make_consistent_root() };
+        auto next = version::bump(root, "vscode");
+        expect(next.has_value() && *next == "0.0.2");
+        expect(version::extension_manifest_version(root).value_or("") == "0.0.2");
+        expect(version::manifest_version(root).value_or("") == "0.0.1") << "the server keeps its own patch";
+        auto problems = version::check(root);
+        expect(problems.has_value() && problems->empty());
+        std::filesystem::remove_all(root);
+    };
+
+    "a series sets every component to X.Y.0, the Zed constant with its manifest"_test = [&] {
+        const std::string root { make_consistent_root() };
+        expect(version::set_series(root, "0.22").has_value());
+        for (auto c : version::components())
+            expect(version::component_version(root, c).value_or("") == "0.22.0") << c;
+        auto text = os::fs::read(base::join_path(root, "editors/zed/src/resolve.rs"));
+        expect(text.has_value() && text->contains("\"0.22.0\""));
+        expect(version::check(root).value_or(std::vector<std::string> { "x" }).empty());
+        std::filesystem::remove_all(root);
+    };
+
+    "a Zed constant that disagrees with its manifest is reported"_test = [&] {
+        const std::string root { make_consistent_root() };
+        write(base::join_path(root, "editors/zed/src/resolve.rs"), "pub const PLUGIN_VERSION: &str = \"0.0.7\";\n");
+        auto problems = version::check(root);
+        expect(problems.has_value());
+        if (!problems) return;
+        expect(std::ranges::any_of(*problems, [](const std::string& p) { return p.contains("resolve.rs"); }));
+        std::filesystem::remove_all(root);
+    };
+
+    "the series of a version"_test = [&] {
+        expect(version::series_of("0.21.4") == std::optional<std::string> { "0.21" });
+        expect(!version::series_of("2026.11.8.1").has_value());
+    };
+
+    "MINIMUM_MCPP_VERSION newer than the CI-tested mcpp is reported"_test = [&] {
+        const std::string root { make_consistent_root() };
+        write(base::join_path(root, "modules/base/src/version.cppm"),
+              "export module mcppls.base.version;\n"
+              "inline constexpr std::string_view VERSION { \"0.0.1\" };\n"
+              "inline constexpr std::string_view CLANGD_VERSION { \"23.1.0\" };\n"
+              "inline constexpr std::string_view MINIMUM_MCPP_VERSION { \"2027.1.1.1\" };\n");
+        auto problems = version::check(root);
+        expect(problems.has_value());
+        if (!problems) return;
+        expect(!problems->empty());
+        const bool namesIt = std::ranges::any_of(*problems, [](const std::string& p) { return p.contains("older than the MINIMUM_MCPP_VERSION"); });
+        expect(namesIt);
+        std::filesystem::remove_all(root);
+    };
+
+}};

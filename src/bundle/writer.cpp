@@ -14,6 +14,7 @@ import mcpplibs.os;
 import mcppls.base.home;
 import mcppls.base.payload;
 import mcppls.toolrun;
+import mcppls.engine.payload;
 
 namespace os = mcpplibs::os;
 
@@ -356,7 +357,7 @@ void add_incidents(std::vector<Candidate>& candidates, std::size_t rootIndex, st
 void add_engine(std::vector<Candidate>& candidates, std::size_t rootIndex, std::string_view cache, const Json& plan) {
     if (!plan.is_null()) candidates.push_back(Candidate { std::format("engine/root-{}/plan.json", rootIndex), dump(plan), Kind::engine });
     if (cache.empty()) return;
-    auto database = read_text(base::join_path(cache, "contexts/default/cdb/compile_commands.json"));
+    auto database = read_text(base::join_path(engine::engine_database_directory(cache), "compile_commands.json"));
     if (!database) return;
     Candidate candidate { std::format("engine/root-{}/compile_commands.json", rootIndex), {}, Kind::engine };
     if (database->size() > DATABASE_CAP) {

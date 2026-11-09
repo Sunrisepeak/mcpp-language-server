@@ -95,6 +95,11 @@ private class McpplsServerDescriptor(project: Project) :
             experimental = merged
         }
 
+    // The server serves a plugin of its own series only (docs/92-release.md "Versions"), and refuses another naming both.
+    override fun createInitializationOptions(): Any = JsonObject().apply {
+        add("plugin", JsonObject().apply { addProperty("name", "clion"); addProperty("version", pluginVersion()) })
+    }
+
     override fun createLsp4jClient(handler: LspServerNotificationsHandler): Lsp4jClient = McpplsLspClient(handler, project)
 
     override fun isSupportedFile(file: VirtualFile) = file.extension?.lowercase() in CXX_EXTENSIONS

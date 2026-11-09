@@ -21,13 +21,15 @@ clion = {}
 
 [dependencies]
 mcpplibs.os.workspace          = true
-cmdline.workspace              = true
+mcpplibs.cmdline.workspace     = true
+nlohmann.json.workspace        = true
 mcppls-base                    = { path = "../../modules/base" }
 mcppls-toolrun                 = { path = "../../modules/toolrun" }
 mcppls-pack                    = { path = "../../modules/pack" }
 
-[dependencies.nlohmann]
-json.workspace = true
-
 [dev-dependencies]
-mcppls-testing = { path = "../../modules/testing" }
+mcpplibs.mtest.workspace = true
+
+# The files of tests/unit are one program (mcpp 2026.11.8.1).
+[test]
+programs = "directory"

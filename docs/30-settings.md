@@ -3,7 +3,7 @@
 Every configurable behaviour of mcppls has exactly one definition: a row of the registry in
 `src/config/settings.cppm`. The table below -- the VS Code settings, the
 command-line options, and the environment variables that configure something -- is generated from
-that registry (`mcppls settings --format markdown`), and `tests/test_settings.cpp` holds it, the
+that registry (`mcppls settings --format markdown`), and `tests/unit/test_settings.cpp` holds it, the
 zh-CN mirror and `editors/vscode/package.json` to the registry so the three cannot drift apart.
 
 **Precedence.** The command line beats `initializationOptions` beats the default; a later

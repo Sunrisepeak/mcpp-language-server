@@ -10,6 +10,11 @@ on:
         description: "A branch of mcpp-community/mcpp to build and test with (empty: .github/versions.env's MCPP_SOURCE_REF, else the released mcpp)"
         required: false
         default: ''
+      native:
+        description: "Also build and test the native server of every platform (it is not distributed)"
+        type: boolean
+        required: false
+        default: false
   workflow_call:
     inputs:
       mcpp_ref:
@@ -17,6 +22,11 @@ on:
         type: string
         required: false
         default: ''
+      native:
+        description: "Also build and test the native server of every platform (it is not distributed)"
+        type: boolean
+        required: false
+        default: false
 
 # The caller's name is part of the group on purpose. `github.workflow` is the CALLING workflow's
 # name inside a `workflow_call`, so Release's copy of these jobs groups as `ci-Release-<ref>` and a
@@ -46,6 +56,88 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
+  # WHAT THE CHANGE REACHES (docs/92-release.md "Versions"; .github/components.tsv). A pull request runs
+  # the jobs of the components it changes: the server's change runs everything, a plugin's runs that
+  # plugin's jobs, the documentation's its checks. A push, a dispatch, a release or a pull request from
+  # or into a release branch runs everything. A plugin's jobs test it over the payload of the server it
+  # is changed against: the payload main built from the same server inputs (`digest`), lent by that
+  # run (`lend`, its artifacts kept 7 days); when there is none, the server is built as well.
+  changes:
+    name: what the change reaches
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      server: ${{ steps.classify.outputs.server }}
+      vscode: ${{ steps.classify.outputs.vscode }}
+      clion: ${{ steps.classify.outputs.clion }}
+      zed: ${{ steps.classify.outputs.zed }}
+      nvim: ${{ steps.classify.outputs.nvim }}
+      agents: ${{ steps.classify.outputs.agents }}
+      zed_real: ${{ steps.classify.outputs.zed_real }}
+      packaging: ${{ steps.classify.outputs.packaging }}
+      digest: ${{ steps.classify.outputs.digest }}
+      lend: ${{ steps.classify.outputs.lend }}
+    steps:
+      # The merge commit and its first parent, the base it merges into: their difference is what the pull
+      # request changes, with no API call.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - name: The classification's own cases
+        run: bash .github/scripts/test_changes.sh
+      - id: classify
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          changed="$RUNNER_TEMP/changed.txt"
+          if [ "$EVENT" = pull_request ]; then git diff --name-only HEAD^1 HEAD > "$changed"; else : > "$changed"; fi
+          bash .github/scripts/changes.sh "$changed" > "$RUNNER_TEMP/reached.txt"
+          cat "$RUNNER_TEMP/reached.txt"
+          get() { sed -n "s/^$1=//p" "$RUNNER_TEMP/reached.txt"; }
+          lend=""
+          if [ "$(get server)" = false ]; then
+            plugins=false
+            for c in vscode clion zed nvim agents; do [ "$(get "$c")" = true ] && plugins=true; done
+            if [ "$plugins" = true ]; then
+              # The newest main run that built the payload from these server inputs, still within its artifacts' days.
+              lend=$(gh api "repos/${{ github.repository }}/actions/artifacts?name=server-digest-$(get digest)&per_page=20" \
+                       --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == "main")][0].workflow_run.id // ""')
+              if [ -z "$lend" ]; then
+                echo "no main run lends the payload of these server inputs: the server is built as well"
+                sed -i 's/^\(server\|vscode\|clion\|zed\|nvim\|agents\)=.*/\1=true/' "$RUNNER_TEMP/reached.txt"
+              else
+                echo "the payload of run $lend, built from the same server inputs"
+              fi
+            fi
+          fi
+          cat "$RUNNER_TEMP/reached.txt" >> "$GITHUB_OUTPUT"
+          echo "lend=$lend" >> "$GITHUB_OUTPUT"
+
+  # The repository's invariants (docs/93-devtools.md) when the server is not built: the build job checks
+  # them where it builds devtools anyway.
+  invariants:
+    name: repository invariants
+    needs: changes
+    if: needs.changes.outputs.server != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-mcpp
+      - run: |
+          set -euo pipefail
+          mcpp build -p devtools
+          devtools=$(find target -type f -name mcppls-devtools -path '*/bin/*' | head -1)
+          "$devtools" check all
+
+  # ---------------------------------------------------------------------------
   # The specifications' schemas, examples and the fixtures' simulated producer data (docs/specs/tools/validate.py).
   # The one Python this repository keeps (docs/93-devtools.md "What is not C++"): JSON Schema 2020-12
   # validation, which no C++ package in the mcpp index provides yet.
@@ -69,6 +161,8 @@ jobs:
   # payload assembly waits: every part and its provenance must be ready first.
   engine-candidate-parts:
     name: engine candidate parts
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 100
     steps:
@@ -98,6 +192,8 @@ jobs:
   # Keep these per-host warmers independent: a queued host must not serialize other hosts' builds.
   mcpp:
     name: mcpp (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -116,25 +212,38 @@ jobs:
   # BUILT ONCE, ON LINUX (ecosystem design 2026-10-29 §3.4): every platform's server program, tools and unit
   # tests are built here, the tests written as archives (`mcpp test --no-run --archive`, mcpp SPEC-015 §4) that
   # the `test` job runs on the platform's own system. The release rows also give the platform's test tools
-  # (stage/: the conformance runner, the mocks, devtools) that every later job of that platform runs. The
+  # (stage/: the conformance runner and its cases, the mocks, devtools) that every later job of that platform runs. The
   # targets are packaging/payload.lock.json's `server-target`s; `mcppls-devtools check platforms` holds this
   # matrix to them. `--workspace` cannot write an archive, so each package with tests writes its own.
   build:
     name: build (${{ matrix.platform }}, ${{ matrix.profile }})
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
       fail-fast: false
+      # Every platform's release row builds its test tools (stage/), which every later job of the platform
+      # runs against the okb; the dev rows, and the native server's tests outside Linux x64, are a run's that
+      # asks for `native` (the server is distributed only as the ok image). The release rows are the base;
+      # the Linux x64 dev row is added by its own include, which merges into the base when `native` adds
+      # every dev row.
       matrix:
+        platform:
+          - linux-x64
+          - linux-arm64
+          - darwin-arm64
+          - win32-x64
+        profile: ${{ inputs.native && fromJSON('["dev","release"]') || fromJSON('["release"]') }}
         include:
-          - { platform: linux-x64,    target: x86_64-linux-gnu,   exe: '',     profile: dev }
-          - { platform: linux-x64,    target: x86_64-linux-gnu,   exe: '',     profile: release }
-          - { platform: linux-arm64,  target: aarch64-linux-musl, exe: '',     profile: dev }
-          - { platform: linux-arm64,  target: aarch64-linux-musl, exe: '',     profile: release }
-          - { platform: darwin-arm64, target: aarch64-macos,      exe: '',     profile: dev }
-          - { platform: darwin-arm64, target: aarch64-macos,      exe: '',     profile: release }
-          - { platform: win32-x64,    target: x86_64-windows-gnu, exe: '.exe', profile: dev }
-          - { platform: win32-x64,    target: x86_64-windows-gnu, exe: '.exe', profile: release }
+          - { platform: linux-x64,    target: x86_64-linux-gnu,   exe: '' }
+          - { platform: linux-arm64,  target: aarch64-linux-musl, exe: '' }
+          - { platform: darwin-arm64, target: aarch64-macos,      exe: '' }
+          - { platform: win32-x64,    target: x86_64-windows-gnu, exe: '.exe' }
+          - { platform: linux-x64,    target: x86_64-linux-gnu,   exe: '', profile: dev }
+    env:
+      # Whether this row builds its native server's tests for the `test` job.
+      NATIVE_TESTS: ${{ (inputs.native || matrix.platform == 'linux-x64') && 'yes' || 'no' }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mcpp
@@ -143,12 +252,19 @@ jobs:
           set -euo pipefail
           mcpp build --profile ${{ matrix.profile }} --target ${{ matrix.target }}
           mcpp build -p devtools --profile ${{ matrix.profile }} --target ${{ matrix.target }}
+          mcpp build -p mcppls-cts --profile ${{ matrix.profile }} --target ${{ matrix.target }}
+          mcpp build -p mcppls-bench --profile ${{ matrix.profile }} --target ${{ matrix.target }}
       - name: The executables are programs of ${{ matrix.target }}
         run: |
           set -euo pipefail
           mkdir -p stage
-          for exe in mcppls mcppls-conformance mcppls-lspgen mcppls-mock-mcpp mcppls-mock-model mcppls-devtools; do
-            path=$(find target/${{ matrix.target }} -type f -name "$exe${{ matrix.exe }}" -path '*/bin/*' | head -1)
+          # The request selects an identity (mcpp 2026.11.9.1, SPEC-016 §4): `aarch64-macos` from a Linux host is
+          # `aarch64-macos-musl`, served by the platform's hosted arrangement, and its outputs are under that name.
+          identity=$(mcpp why target --target ${{ matrix.target }} --format json | jq -r '.data.target.identity')
+          [ -n "$identity" ] && [ "$identity" != null ] || { echo "::error::no identity for ${{ matrix.target }}"; exit 1; }
+          echo "${{ matrix.target }} -> $identity"
+          for exe in mcppls mcppls-conformance mcppls-cts mcppls-bench mcppls-lspgen mcppls-mock-mcpp mcppls-mock-model mcppls-devtools; do
+            path=$(find "target/$identity" -type f -name "$exe${{ matrix.exe }}" -path '*/bin/*' | head -1)
             [ -n "$path" ] || { echo "::error::no $exe was built"; exit 1; }
             file "$path"
             case "${{ matrix.target }}" in
@@ -180,7 +296,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: The tests, built once and archived
-        if: matrix.platform != 'win32-x64' || matrix.profile != 'dev'
+        if: env.NATIVE_TESTS == 'yes' && (matrix.platform != 'win32-x64' || matrix.profile != 'dev')
         run: |
           set -euo pipefail
           mkdir -p test-archives
@@ -190,14 +306,14 @@ jobs:
           echo "::group::mcppls"
           mcpp test "${common[@]}" --archive test-archives/mcppls.tar.gz
           echo "::endgroup::"
-          for package in pack devtools model-gateway; do
+          for package in pack devtools model-gateway harness; do
             echo "::group::$package"
             mcpp test -p "$package" "${common[@]}" --archive "test-archives/$package.tar.gz"
             echo "::endgroup::"
           done
           ls -l test-archives
       - name: The Windows dev tests, archived before reclaiming their executable space
-        if: matrix.platform == 'win32-x64' && matrix.profile == 'dev'
+        if: env.NATIVE_TESTS == 'yes' && matrix.platform == 'win32-x64' && matrix.profile == 'dev'
         env:
           ARCHIVE_TARGET: ${{ matrix.target }}
           ARCHIVE_PROFILE: ${{ matrix.profile }}
@@ -226,6 +342,7 @@ jobs:
           mcpp run mcppls-lspgen -- generate --meta-model vendor/lsp-metamodel/metaModel-3.18.json --out src/lsp
           git diff --exit-code src/lsp
       - uses: actions/upload-artifact@v7
+        if: env.NATIVE_TESTS == 'yes'
         with:
           name: tests-${{ matrix.platform }}-${{ matrix.profile }}
           path: test-archives
@@ -263,17 +380,26 @@ jobs:
           - { platform: darwin-arm64, os: macos-15,         profile: release }
           - { platform: win32-x64,    os: windows-2022,     profile: dev }
           - { platform: win32-x64,    os: windows-2022,     profile: release }
+    # The native server is not distributed: its tests run on the other systems only in a run that asks for
+    # `native`, and a row of another system does nothing otherwise. The okb is tested on every system by
+    # `openkal-test` and the jobs that take the payload.
+    env:
+      NATIVE_ROW: ${{ (inputs.native || matrix.platform == 'linux-x64') && 'yes' || 'no' }}
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v7
+        if: env.NATIVE_ROW == 'yes'
       - uses: ./.github/actions/setup-mcpp
+        if: env.NATIVE_ROW == 'yes'
       - uses: actions/download-artifact@v8
+        if: env.NATIVE_ROW == 'yes'
         with:
           name: tests-${{ matrix.platform }}-${{ matrix.profile }}
           path: test-archives
       - name: Run the archived tests
+        if: env.NATIVE_ROW == 'yes'
         run: |
           set -euo pipefail
           failed=''
@@ -302,6 +428,75 @@ jobs:
             echo "::endgroup::"
           done
           if [ -n "$failed" ]; then echo "::error::failed:$failed"; exit 1; fi
+      - uses: ./.github/actions/test-report
+        if: always() && env.NATIVE_ROW == 'yes'
+        with:
+          name: mtest-unit-${{ matrix.platform }}-${{ matrix.profile }}
+
+  # ---------------------------------------------------------------------------
+  # THE SERVER'S UNIT TESTS AS USERS RUN IT: the ok images `server` built, on each platform's own system through its
+  # runner, the leg of the system's architecture (mcpp SPEC-015 §4). The distributed server is the okb; these are
+  # its tests in the same form, and the native `test` rows are the tools' and the native build's.
+  openkal-test:
+    name: unit tests (${{ matrix.platform }}, openkal)
+    needs: server
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux-x64,    os: ubuntu-24.04 }
+          - { platform: linux-arm64,  os: ubuntu-24.04-arm }
+          - { platform: darwin-arm64, os: macos-15 }
+          - { platform: win32-x64,    os: windows-2022 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-mcpp
+      - uses: actions/download-artifact@v8
+        with:
+          name: tests-openkal
+          path: test-archives
+      - name: Run the archived tests through this system's runner
+        run: mcpp test --archive test-archives/mcppls.tar.gz
+      - uses: ./.github/actions/test-report
+        if: always()
+        with:
+          name: mtest-unit-${{ matrix.platform }}-openkal
+
+  # THE UNIT TESTS OF EVERY SYSTEM AS ONE REPORT: each job's runs, taken into one store, reported together
+  # (`mtest ci report`, the workflow run's group): the summary, the failures, the slowest cases and the
+  # critical path of each run.
+  unit-test-report:
+    name: unit tests (report)
+    needs: [test, openkal-test]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/mtest
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: mtest-unit-*
+          path: ${{ runner.temp }}/stores
+      - name: Every job's runs, reported together
+        run: |
+          set -euo pipefail
+          found=0
+          for store in "$RUNNER_TEMP"/stores/*/; do
+            [ -f "$store/index.ndjson" ] || continue
+            "$MTEST" store import --from "$store"
+            found=1
+          done
+          if [ "$found" = 0 ]; then echo "no job kept a run of the unit tests" >> "$GITHUB_STEP_SUMMARY"; exit 0; fi
+          "$MTEST" ci report --out "$RUNNER_TEMP/unit-tests.md"
 
   # ---------------------------------------------------------------------------
   # THE HOST GRAPH ON THE PLATFORM (mcpp SPEC-013 §6): with `--host-platform openkal-platform@0.24.0`
@@ -310,6 +505,8 @@ jobs:
   # platform's runner. The server and the tools built over them are the same programs, and start.
   host-platform:
     name: build programs as images (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -347,6 +544,8 @@ jobs:
   # zip,okb`); the single files cover every leg and system (`--pkg-format single-file --systems all`).
   server:
     name: the server (one tree, one okb, the single files)
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -444,6 +643,20 @@ jobs:
         with:
           name: server
           path: server
+          retention-days: 7
+      # The server's unit tests as what users run: ok images of both architectures, built once here and run on
+      # every system by `openkal-test` (mcpp `test --archive`, SPEC-015 §4). The release profile is the one shipped.
+      - name: The server's tests, as ok images
+        run: |
+          set -euo pipefail
+          mkdir -p openkal-tests
+          mcpp test --profile release --target openkal --no-run --archive openkal-tests/mcppls.tar.gz
+          ls -l openkal-tests
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tests-openkal
+          path: openkal-tests
+          compression-level: 0
           retention-days: 7
 
   # ---------------------------------------------------------------------------
@@ -620,7 +833,11 @@ jobs:
   # job below installs this file, which is what a release ships.
   vsix:
     name: the VS Code extension (one VSIX)
-    needs: payload
+    needs: [changes, payload]
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.vscode == 'true' }}
+    permissions:
+      contents: read
+      actions: read
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     defaults:
@@ -636,6 +853,7 @@ jobs:
       - uses: ./.github/actions/payload
         with:
           platform: linux-x64
+          run-id: ${{ needs.changes.outputs.lend }}
       - name: Build and package the extension
         run: |
           set -euo pipefail
@@ -655,51 +873,28 @@ jobs:
           retention-days: 7
 
   # ---------------------------------------------------------------------------
-  # The specifications' executable part, against real toolchains (conformance/README.md).
+  # The specifications' executable part, against real toolchains (tests/cts/README.md). The cases are the objects of
+  # tests/cts's topic files: each states the platforms it runs on (`on:<platform>`), what it holds and how the runner
+  # drives it; a row runs the cases of its platform, two at a time. mtest's `--shard` divides programs, and the
+  # cases are one program, so a platform is one row (a part beside it was given nothing).
   conformance:
     name: conformance (${{ matrix.platform }}${{ matrix.part && format(', {0}', matrix.part) || '' }})
     needs: [payload, kits]
+    permissions:
+      contents: read
+      actions: read   # the stores main's last run kept, which divide the cases by time
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Linux and Windows run their fixtures in two parts side by side, balanced on measured
-          # times. `extras` marks the part that also runs the job's other checks (review fixtures,
-          # startup timing, the cached model, a linked workspace), which need running only once.
-          - platform: linux-x64
-            part: 1 of 2
-            os: ubuntu-24.04
-            fixtures: mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mingw mcpp-split-gcc mcpp-watch multi-root mcpp-llvm mcpp-build-programs mcpp-watch@polling mcpp-emit mcpp-rules-generated s1-two-sets compdb-lto-msvc failure-at-base@vscode generated-module-negotiated typing-import typing-import-spin workaround-canaries typing-autosave module-edit-autosave partial-scan-standins compdb-rejected-command compdb-mixed-standards mcpp-emit-partial mcpp-emit-partial-download compdb-midwrite xmake-basic xmake-late-config xmake-user-mode xmake-no-standard xmake-needs-download xmake-shared-tmp xmake-target-then-mode xmake-stale-state ux-modules-qt mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-target-selection@polling mcpp-producer-identity@polling mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve mcpp-watched-source-structure mcpp-autosave-import-typing
-          - platform: linux-x64
-            part: 2 of 2
-            os: ubuntu-24.04
-            extras: true
-            fixtures: inferred inferred-bom typing-pause module-fails-in-import save-plan build-discovery-off engine-none module-faults untrusted mcpp-gcc mcpp-gcc@plain mcpp-emit-package-std mcpp-emit-broken mcpp-emit-unavailable mcpp-emit-hang mcpp-emit-needs-download mcpp-emit-provisioned mcpp-emit-watch mcpp-emit-watch@polling mcpp-emit-edits mcpp-build-programs-cross cmake-clang cmake-clang-bdb cmake-fetchcontent-offline watch-polling payload-corrupt clangd-cannot-load generated-module generated-module@vscode generated-module-old-mcpp generated-module-old-mcpp@neovim module-faults@zed failure-at-base failure-at-base@neovim completion-keywords completion-templates diagnostic-bundle clangd-crash-context clangd-exit-strike clangd-crash-closure mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views format-explicit preparation-after-idle build-program-broken build-program-gated build-program-manual kit-openkal
-          # generated-module{,-old-mcpp,-negotiated}'s mcpp-mock.json bakes in a POSIX driver path
-          # (${env:HOME}/.mcpp/registry/..., no {exe}); it resolves the same way here as on Linux, so
-          # these run on macOS but are left off win32-x64 below rather than fixed unverified.
-          - platform: darwin-arm64
-            os: macos-15
-            extras: true
-            fixtures: inferred inferred-bom typing-pause module-fails-in-import save-plan build-discovery-off engine-none module-faults untrusted mcpp-llvm mcpp-build-programs mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-watch multi-root failure-at-base clangd-cannot-load failure-at-base@zed generated-module generated-module-old-mcpp generated-module-negotiated typing-import typing-import-spin workaround-canaries completion-keywords completion-templates diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context clangd-exit-strike clangd-crash-closure mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views format-explicit build-program-broken build-program-gated build-program-manual mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve mcpp-watched-source-structure mcpp-autosave-import-typing kit-openkal
-          # The arm64 row takes no mcpp: the server and mock producers are built on Linux. Most
-          # fixtures use the semantic kit; the SDK-free target fixtures probe distribution clang,
-          # installed below. Module faults, a corrupt payload and polling are included.
-          - platform: linux-arm64
-            os: ubuntu-24.04-arm
-            cross-tools: true
-            fixtures: inferred inferred-bom typing-pause module-fails-in-import build-discovery-off engine-none module-faults untrusted payload-corrupt clangd-cannot-load failure-at-base watch-polling typing-import typing-import-spin workaround-canaries completion-keywords completion-templates diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context clangd-exit-strike clangd-crash-closure inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve mcpp-watched-source-structure mcpp-autosave-import-typing kit-openkal
-          - platform: win32-x64
-            part: 1 of 2
-            os: windows-2022
-            fixtures: mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-split-msvc cmake-msvc-std compdb-clangxx-msvc-std multi-root compdb-clang-cl-std mcpp-llvm-msvc mcpp-build-programs failure-at-base@vscode typing-import typing-import-spin workaround-canaries typing-autosave module-edit-autosave partial-scan-standins ux-modules-windows mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-target-windows-real mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve mcpp-watched-source-structure mcpp-autosave-import-typing
-          - platform: win32-x64
-            part: 2 of 2
-            os: windows-2022
-            extras: true
-            fixtures: inferred inferred-bom typing-pause module-fails-in-import save-plan build-discovery-off engine-none module-faults mcpp-emit-hang inferred-msvc untrusted mingw cmake-msvc cmake-msvc-bdb cmake-clangxx-msvc cmake-clang-cl mcpp-msvc mcpp-watch failure-at-base clangd-cannot-load completion-keywords completion-templates diagnostic-bundle mcpp-emit-wait inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views format-explicit preparation-after-idle kit-openkal
+          - { platform: linux-x64, os: ubuntu-24.04 }
+          - { platform: darwin-arm64, os: macos-15 }
+          # The arm64 row takes no mcpp: the server and mock producers are built on Linux. Most fixtures use the
+          # semantic kit; the SDK-free target fixtures probe distribution clang, installed below.
+          - { platform: linux-arm64, os: ubuntu-24.04-arm, cross-tools: true }
+          - { platform: win32-x64, os: windows-2022 }
     defaults:
       run:
         shell: bash
@@ -707,20 +902,69 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mcpp
         if: '!matrix.cross-tools'
+      # The one payload, this platform's test tools, and its target kit installed as on a machine whose person agreed
+      # to install it: the fixtures read loose sources with this system's own target, as before the openkal kit.
+      - uses: ./.github/actions/payload
+        with:
+          platform: ${{ matrix.platform }}
+          kit: 'true'
+      # mtest runs the cases: the release .github/versions.env pins, its sha256 checked.
+      - uses: ./.github/actions/mtest
+      # The store of the first attempt, so that a second runs only what failed.
+      - uses: actions/cache/restore@v6
+        id: attempt-store
+        with:
+          path: .mtest
+          key: conformance-mtest-${{ github.run_id }}-${{ matrix.platform }}-${{ matrix.part || 'full' }}-${{ github.run_attempt }}
+          restore-keys: conformance-mtest-${{ github.run_id }}-${{ matrix.platform }}-${{ matrix.part || 'full' }}-
+      # A first attempt takes the stores main's last successful run kept for this platform, every part's: both parts
+      # read the same history, so `--shard` divides the cases by measured time the same way in each. Without them the
+      # cases are divided by count, and this run's stores become the next run's history.
+      - name: The stores of main's last run
+        if: steps.attempt-store.outputs.cache-matched-key == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run=$(gh run list -R "$GITHUB_REPOSITORY" --workflow ci.yml --branch main --status success --limit 1 \
+                  --json databaseId -q '.[0].databaseId' 2>/dev/null || true)
+          [ -n "$run" ] || { echo "no successful run of main: the cases are divided by count"; exit 0; }
+          rm -rf "$RUNNER_TEMP/cts-stores"
+          if ! gh run download "$run" -R "$GITHUB_REPOSITORY" -p "conformance-mtest-${{ matrix.platform }}-*" -D "$RUNNER_TEMP/cts-stores" 2>/dev/null; then
+            echo "main's run $run kept no store for ${{ matrix.platform }}: the cases are divided by count"; exit 0
+          fi
+          for store in "$RUNNER_TEMP"/cts-stores/*/; do "$MTEST" store import --from "$store"; done
+      # The cases of this row: its platform's, in its part. The steps below install what they build with.
+      - name: The cases of this row
+        run: |
+          set -euo pipefail
+          exe=''; [ "$RUNNER_OS" != Windows ] || exe='.exe'
+          select=(--tag "on:${{ matrix.platform }}")
+          [ -z "${{ matrix.shard }}" ] || select+=(--shard "${{ matrix.shard }}")
+          echo "CTS_SELECT=${select[*]}" >> "$GITHUB_ENV"
+          echo "CTS=stage/mcppls-cts$exe" >> "$GITHUB_ENV"
+          "$MTEST" plan --json "${select[@]}" "stage/mcppls-cts$exe" > "$RUNNER_TEMP/cts-plan.json"
+          cases=$(jq -r '[.units[].cases[].case] | join(" ")' "$RUNNER_TEMP/cts-plan.json")
+          fixtures=$(jq -r '[.units[].cases[].case | split("@")[0]] | unique | join(" ")' "$RUNNER_TEMP/cts-plan.json")
+          echo "$cases" | tr ' ' '\n' | sed 's/^/  /'
+          echo "CTS_FIXTURES= $fixtures " >> "$GITHUB_ENV"
       - name: Toolchains the fixtures build with
         run: |
           set -euo pipefail
-          case " ${{ matrix.fixtures }} " in *" mcpp-gcc "*|*" mcpp-split-gcc "*|*" mingw "*) mcpp toolchain install gcc 16.1.0 ;; esac
+          # GCC 16 for the fixtures that build with it.
+          gcc=no
+          case "$CTS_FIXTURES" in *" mcpp-gcc "*|*" mcpp-split-gcc "*|*" mingw "*) gcc=yes ;; esac
+          [ "$gcc" = no ] || mcpp toolchain install gcc 16.1.0
           if [ "$RUNNER_OS" = Linux ]; then sudo apt-get update -q && sudo apt-get install -y -q ninja-build; fi
           # The native mock target fixtures need only a compiler probe and SDK-free module sources.
           # arm64 has no mcpp toolchain store; its distribution clang is sufficient for these fixtures.
           if [ "${{ matrix.cross-tools }}" = true ]; then sudo apt-get install -y -q clang; fi
           # ux-modules-qt: Qt 5's headers in module units' global module fragments, from the distribution.
-          case " ${{ matrix.fixtures }} " in *" ux-modules-qt "*) sudo apt-get install -y -q qtbase5-dev ;; esac
+          case "$CTS_FIXTURES" in *" ux-modules-qt "*) sudo apt-get install -y -q qtbase5-dev ;; esac
       # 0.0.8 part 2 X-7: the xmake fixtures run xmake itself (pinned in .github/versions.env, from xlings like every other
       # tool here) with GCC 16 first on PATH: xmake picks the compiler it finds, and only GCC 16 has libstdc++'s std module.
       - name: xmake and GCC 16 for the xmake fixtures
-        if: runner.os == 'Linux' && contains(matrix.fixtures, 'xmake-')
+        if: runner.os == 'Linux' && contains(env.CTS_FIXTURES, ' xmake-')
         run: |
           set -euo pipefail
           for package in "xmake@$XMAKE_VERSION" gcc@16.1.0; do
@@ -740,8 +984,8 @@ jobs:
         run: |
           set -euo pipefail
           wanted=no
-          for fixture in ${{ matrix.fixtures }}; do
-            grep -q '"requires-mcpp"' "conformance/fixtures/${fixture%@*}/scenario.json" 2>/dev/null && wanted=yes
+          for fixture in $CTS_FIXTURES; do
+            grep -q '"requires-mcpp"' "tests/cts/fixtures/$fixture/scenario.json" 2>/dev/null && wanted=yes
           done
           [ "$wanted" = yes ] || exit 0
           # From mcpp's own release, its checksum checked: the index snapshot the pinned xlings syncs can lag a new mcpp
@@ -787,10 +1031,9 @@ jobs:
           venv="$temp/specs/bin/python"; [ "$RUNNER_OS" = Windows ] && venv="$temp/specs/Scripts/python.exe"
           "$venv" -m pip install --quiet --disable-pip-version-check 'jsonschema>=4.18'
           envelopes=()
-          for fixture in ${{ matrix.fixtures }}; do
-            fixture=${fixture%@*}
+          for fixture in $CTS_FIXTURES; do
             case "$fixture" in mcpp-*) ;; *) continue ;; esac
-            source="conformance/fixtures/$fixture"
+            source="tests/cts/fixtures/$fixture"
             [ -f "$source/mcpp.toml" ] && [ ! -f "$source/mcpp-mock.json" ] || continue
             [ -e "$temp/mcpp-emit/$fixture.json" ] && continue
             mkdir -p "$temp/mcpp-emit" && cp -R "$source" "$temp/mcpp-emit/$fixture"
@@ -799,16 +1042,12 @@ jobs:
             envelopes+=("$temp/mcpp-emit/$fixture.json")
           done
           "$venv" docs/specs/tools/validate.py ${envelopes[@]+"${envelopes[@]}"} | grep -v '^PASS'
-      # cmake-clang-bdb and cmake-msvc-bdb need CMake's build-database export,
-      # which only merges correctly from CMake 4.4 on (usable plan W4, E16);
-      # these hosts' own CMake is the 3.31.6 the runner images ship, so a
-      # matching official build is installed just for those two fixtures.
-      # It is deliberately NOT put first on PATH for the whole job: CMake
-      # rotates its experimental-feature UUIDs on its own schedule, and
-      # cmake-msvc-std already pins 3.31.6's CMAKE_EXPERIMENTAL_CXX_IMPORT_STD
-      # UUID as its default, which differs under 4.4 (E1/E7-E11); each
-      # bdb fixture gets CMake 4.4.2 individually below instead.
-      - name: Cache CMake 4.4.2 (cmake-clang-bdb, cmake-msvc-bdb)
+      # cmake-clang-bdb, cmake-msvc-bdb and cmake-clang-cl need CMake 4.4 (the build-database export merges
+      # correctly from 4.4 on, usable plan W4, E16; clang-cl module scanning, W1.8); these hosts' own CMake is the
+      # 3.31.6 the runner images ship. Each states it (`requires-cmake`, CONFORMANCE_CMAKE), and the runner puts
+      # this CMake first on the PATH of that fixture's prepare steps only: CMake rotates its experimental-feature
+      # UUIDs, and cmake-msvc-std pins 3.31.6's CMAKE_EXPERIMENTAL_CXX_IMPORT_STD UUID (E1/E7-E11).
+      - name: Cache CMake 4.4.2 (cmake-clang-bdb, cmake-msvc-bdb, cmake-clang-cl)
         if: matrix.platform == 'linux-x64' || matrix.platform == 'win32-x64'
         id: cmake-bdb-cache
         uses: actions/cache@v6
@@ -845,18 +1084,6 @@ jobs:
           Set-Content -Path "$env:RUNNER_TEMP\capture-msvc.cmd" -Value "@call `"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul`r`n@set"
           cmd /d /c "$env:RUNNER_TEMP\capture-msvc.cmd" | Out-File -Encoding utf8 "$env:RUNNER_TEMP\msvc.env"
           Select-String -Path "$env:RUNNER_TEMP\msvc.env" -Pattern '^(VCToolsInstallDir|WindowsSDKVersion)='
-          # A second snapshot, only for cmake-msvc-bdb and cmake-clang-cl: the same developer
-          # environment with CMake 4.4.2 first on PATH, so that fixture's own
-          # prepare steps use it while every other MSVC fixture keeps using
-          # the runner's own CMake untouched.
-          $env:PATH = "$env:RUNNER_TEMP\cmake-4.4.2\bin;$env:PATH"
-          cmd /d /c "$env:RUNNER_TEMP\capture-msvc.cmd" | Out-File -Encoding utf8 "$env:RUNNER_TEMP\msvc-bdb.env"
-      # The one payload, this platform's test tools, and its target kit installed as on a machine whose person agreed
-      # to install it: the fixtures read loose sources with this system's own target, as before the openkal kit.
-      - uses: ./.github/actions/payload
-        with:
-          platform: ${{ matrix.platform }}
-          kit: 'true'
       - name: The packaged mock producer starts on this host
         run: |
           set -euo pipefail
@@ -880,61 +1107,52 @@ jobs:
             export CONFORMANCE_CLANGXX
             "$CONFORMANCE_CLANGXX" --version
           fi
-          exe=''; extra=()
-          if [ "$RUNNER_OS" = Windows ]; then exe='.exe'; extra=(--msvc-env "$RUNNER_TEMP/msvc.env"); fi
-          # cmake-clang-bdb and cmake-msvc-bdb are the only fixtures that need
-          # CMake 4.4.2 (see the steps above): a PATH prefix for the former, a
-          # developer environment captured with it first on PATH for the
-          # latter, so every other fixture keeps using the runner's own CMake.
-          run_fixture() {
-            local fixture="$1"; shift
-            local path_prefix=''
-            local -a fixture_extra=(${extra[@]+"${extra[@]}"})
-            case "$fixture" in
-              cmake-clang-bdb) path_prefix="$RUNNER_TEMP/cmake-4.4.2/bin:" ;;
-              cmake-msvc-bdb|cmake-clang-cl) fixture_extra=(--msvc-env "$RUNNER_TEMP/msvc-bdb.env") ;;
-              # Preserve the real producer's first CDBs and server log independently
-              # of the diagnostic rerun: no reconstructed or rewritten target entries.
-              mcpp-target-windows-real)
-                local evidence="$RUNNER_TEMP/mcpp-target-windows-real-first"
-                case " $* " in *" --verbose "*) evidence="$RUNNER_TEMP/mcpp-target-windows-real-diagnostic" ;; esac
-                fixture_extra+=(--workspace-dir "$evidence/workspace" --cache-dir "$evidence/cache") ;;
-              # usable plan W9.3: the fallback runs only when the client never declares
-              # didChangeWatchedFiles.dynamicRegistration. NAME@polling runs fixture NAME that way.
-              watch-polling|*@polling) fixture_extra+=(--no-dynamic-watch) ;;
-              # Cold-start plan 4.1: NAME@plain runs fixture NAME as a client that declares no
-              # `experimental.cxxModules` — which is every editor but this repository's own VS Code
-              # extension. It asserts standard `$/progress` still arrives. Nothing covered that,
-              # which is how progress came to be sent only to the one client that already had it.
-              *@plain) fixture_extra+=(--plain-client) ;;
-              # Real-project plan RP0: NAME@vscode/@neovim/@zed
-              # run fixture NAME with the capabilities that editor actually sends
-              # (conformance/README.md "Client profiles").
-              *@vscode) fixture_extra+=(--client vscode) ;;
-              *@neovim) fixture_extra+=(--client neovim) ;;
-              *@zed) fixture_extra+=(--client zed) ;;
-            esac
-            # Issue #23 fix plan F18: the diagnostic bundles the bundle checks exported, kept for the artifact below.
-            PATH="$path_prefix$PATH" "stage/mcppls-conformance$exe" run --server "payload/bin/mcppls.okb" --payload payload \
-                --keep-bundles "$RUNNER_TEMP/bundles" \
-                ${fixture_extra[@]+"${fixture_extra[@]}"} --fixture "conformance/fixtures/${fixture%@*}" "$@"
-          }
-          mkdir -p "$RUNNER_TEMP/conformance-measures"
-          failed=''
-          for fixture in ${{ matrix.fixtures }}; do
-            echo "::group::$fixture"
-            if ! run_fixture "$fixture" --timeout 180 --measure "$RUNNER_TEMP/conformance-measures/${fixture//@/-}.json"; then
-              failed="$failed $fixture"
-            fi
-            echo "::endgroup::"
-          done
-          if [ -n "$failed" ]; then
-            echo "::error::failed fixtures:$failed"
-            # Rerun the first failure with the server's log, for the record.
-            first=${failed# }; first=${first%% *}
-            run_fixture "$first" --timeout 60 --verbose 2>&1 | tail -200 || true
+          # The cases of this row (above), each in a process of its own and two at a time; a case that holds the
+          # machine runs alone. A failing case runs once more with the server's log, kept in the store and named by
+          # `mtest explain` (the cases' `diagnose`). A second attempt of this job runs only the cases that failed.
+          export MCPPLS_CTS_MEASURES="$RUNNER_TEMP/conformance-measures" MCPPLS_CTS_BUNDLES="$RUNNER_TEMP/bundles"
+          export MCPPLS_CTS_EVIDENCE="$RUNNER_TEMP/evidence"
+          if [ "$RUNNER_OS" = Windows ]; then
+            export MCPPLS_CTS_MSVC_ENV="$RUNNER_TEMP/msvc.env" CONFORMANCE_CMAKE="$RUNNER_TEMP/cmake-4.4.2/bin/cmake.exe"
+          elif [ "${{ matrix.platform }}" = linux-x64 ]; then
+            export CONFORMANCE_CMAKE="$RUNNER_TEMP/cmake-4.4.2/bin/cmake"
+          fi
+          status=0
+          if [ "${{ github.run_attempt }}" -gt 1 ] && [ -f .mtest/index.ndjson ]; then
+            # `run --failed` (`rerun` takes a selection, not the run's options).
+            "$MTEST" run --failed --isolate --jobs "${CONFORMANCE_JOBS:-2}" --junit "$RUNNER_TEMP/conformance.xml" "$CTS" || status=$?
+          else
+            # shellcheck disable=SC2086 # CTS_SELECT is words
+            "$MTEST" run --isolate --jobs "${CONFORMANCE_JOBS:-2}" --junit "$RUNNER_TEMP/conformance.xml" $CTS_SELECT "$CTS" || status=$?
+          fi
+          if [ "$status" != 0 ]; then
+            "$MTEST" explain || true
+            for out in .mtest/runs/*/diagnoses/*/out.txt; do
+              [ -f "$out" ] || continue
+              echo "::group::diagnosis $(dirname "$out")"; tail -200 "$out"; echo "::endgroup::"
+            done
             exit 1
           fi
+
+      - uses: actions/cache/save@v6
+        if: always()
+        with:
+          path: .mtest
+          key: conformance-mtest-${{ github.run_id }}-${{ matrix.platform }}-${{ matrix.part || 'full' }}-${{ github.run_attempt }}
+      # The store alone, so its files are the artifact's (a hidden directory is uploaded only when asked).
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: conformance-mtest-${{ matrix.platform }}-${{ matrix.part || 'full' }}
+          path: .mtest
+          include-hidden-files: true
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: conformance-junit-${{ matrix.platform }}-${{ matrix.part || 'full' }}
+          path: ${{ runner.temp }}/conformance.xml
+          if-no-files-found: ignore
 
       # Preserve the first producer envelopes even when schema validation stops
       # the job before any LSP fixture starts.
@@ -953,14 +1171,14 @@ jobs:
           if-no-files-found: ignore
 
       - uses: actions/upload-artifact@v7
-        if: always() && contains(matrix.fixtures, 'mcpp-target-windows-real')
+        if: always() && contains(env.CTS_FIXTURES, ' mcpp-target-windows-real ')
         with:
           name: real-mcpp-target-cdb-${{ matrix.platform }}
           path: |
-            ${{ runner.temp }}/mcpp-target-windows-real-*/workspace/mcpp-target-windows-real/recorded-*.json
-            ${{ runner.temp }}/mcpp-target-windows-real-*/workspace/mcpp-target-windows-real/compile_commands.json
-            ${{ runner.temp }}/mcpp-target-windows-real-*/cache/logs/*.log
-            ${{ runner.temp }}/mcpp-target-windows-real-*/cache/workspaces/**/model.mcpp.json
+            ${{ runner.temp }}/evidence/mcpp-target-windows-real*/workspace/mcpp-target-windows-real/recorded-*.json
+            ${{ runner.temp }}/evidence/mcpp-target-windows-real*/workspace/mcpp-target-windows-real/compile_commands.json
+            ${{ runner.temp }}/evidence/mcpp-target-windows-real*/cache/logs/*.log
+            ${{ runner.temp }}/evidence/mcpp-target-windows-real*/cache/workspaces/**/model.mcpp.json
           if-no-files-found: ignore
 
       # Issue #23 fix plan F18: the bundles diagnostic-bundle exported on this runner's own account, whose
@@ -968,7 +1186,7 @@ jobs:
       # to its manifest and found no user name and no home directory in it; here another program's zip
       # reader opens them and checks every entry's CRC, and they are kept to look at.
       - name: The diagnostic bundles open with another program's zip reader
-        if: always() && contains(matrix.fixtures, 'diagnostic-bundle')
+        if: always() && contains(env.CTS_FIXTURES, ' diagnostic-bundle ')
         env:
           PYTHONUTF8: '1'
         run: |
@@ -980,81 +1198,11 @@ jobs:
           [ ${#bundles[@]} -gt 0 ] || { echo "::error::diagnostic-bundle left no bundle"; exit 1; }
           for bundle in "${bundles[@]}"; do "$python" -m zipfile -t "$bundle"; "$python" -m zipfile -l "$bundle"; done
       - uses: actions/upload-artifact@v7
-        if: always() && contains(matrix.fixtures, 'diagnostic-bundle')
+        if: always() && contains(env.CTS_FIXTURES, ' diagnostic-bundle ')
         with:
           name: diagnostic-bundle-${{ matrix.platform }}
           path: ${{ runner.temp }}/bundles/*.zip
           if-no-files-found: ignore
-
-      # The review of changes (overall design 7.4, 10.3, work item RV5): every tools/bench/review fixture's change
-      # reviewed by the payload's server; a missing finding or one a fixture rules out fails the job, and
-      # the precision and recall of each rule are printed.
-      - name: Review fixtures
-        if: matrix.extras
-        run: |
-          set -euo pipefail
-          exe=''; [ "$RUNNER_OS" = Windows ] && exe='.exe'
-          "stage/mcppls-devtools$exe" bench review --server "payload/bin/mcppls.okb" --payload payload --mock-model "stage/mcppls-mock-model$exe" \
-              --report "$RUNNER_TEMP/review-${{ matrix.platform }}.json"
-
-      # Startup timing (usable plan W7): the timing fixture cold, then warm with the same
-      # workspace and cache. A warm start must reuse the std module the cold one built
-      # (SC4). Only severe regressions fail here; nightly.yml records the medians. The
-      # budgets hold on every host: first runs measured cold 6.2, 4.5 and 8.7 s and warm
-      # 1.8, 1.9 and 3.5 s on Linux, macOS and Windows runners.
-      # Build description design 4.1: the second session plans with the model the first one cached,
-      # before the producer has said anything, and only then confirms it. The check reads which of
-      # the two the session started from, so "it felt fast" is not the evidence.
-      - name: The cached model is what the next session starts from
-        if: matrix.extras && runner.os == 'Linux'
-        run: |
-          set -euo pipefail
-          cached="$RUNNER_TEMP/cached"
-          rm -rf "$cached"
-          start() {
-            stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload \
-                --fixture conformance/fixtures/mcpp-emit --workspace-dir "$cached/workspace" \
-                --cache-dir "$cached/cache" --timeout 180 "$@"
-          }
-          start
-          start --expect-warm
-
-      - name: Cold and warm start
-        if: matrix.extras
-        run: |
-          set -euo pipefail
-          exe=''; [ "$RUNNER_OS" = Windows ] && exe='.exe'
-          timing="$RUNNER_TEMP/timing"
-          rm -rf "$timing"
-          start() {
-            "stage/mcppls-conformance$exe" run --server "payload/bin/mcppls.okb" --payload payload --fixture conformance/fixtures/timing \
-                --workspace-dir "$timing/workspace" --cache-dir "$timing/cache" --timeout 120 "$@"
-          }
-          start --measure "$timing/cold.json" --navigation-budget 15
-          start --measure "$timing/warm.json" --navigation-budget 5 --expect-warm
-          cat "$timing/cold.json" "$timing/warm.json"
-      - uses: actions/upload-artifact@v7
-        if: always() && matrix.extras
-        with:
-          name: timing-${{ matrix.platform }}
-          path: ${{ runner.temp }}/timing/*.json
-          if-no-files-found: ignore
-
-      # A workspace reached through a symbolic link, which is where every macOS
-      # temporary directory is (/var is /private/var): mcpp names files by their
-      # resolved path, and an unsaved edit must still reach the modules that
-      # import it (check C7), and a root the client names that way is still the server's
-      # own (mcppls.resetCache with the folder's URI, reset-cache R2).
-      - name: A workspace reached through a symbolic link
-        if: matrix.extras && runner.os == 'Linux'
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/real"
-          ln -sfn "$RUNNER_TEMP/real" "$RUNNER_TEMP/link"
-          for fixture in mcpp-llvm reset-cache; do
-            TMPDIR="$RUNNER_TEMP/link" stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload \
-                --fixture "conformance/fixtures/$fixture" --timeout 180
-          done
 
   # ---------------------------------------------------------------------------
   # termux / PRoot is a supported environment (issue #32, 0.0.7 plan §1, §10.2), so it is tested,
@@ -1162,7 +1310,7 @@ jobs:
           for mode in seccomp noseccomp; do
             echo "::group::report ($mode)"
             work="$RUNNER_TEMP/report-$mode"
-            rm -rf "$work" && mkdir -p "$work" && cp -R conformance/fixtures/inferred "$work/project"
+            rm -rf "$work" && mkdir -p "$work" && cp -R tests/cts/fixtures/inferred "$work/project"
             rm -f "$work/project/scenario.json"
             MCPPLS_CACHE_DIR="$work/cache" "$RUNNER_TEMP/proot/mcppls-$mode" report --root "$work/project" \
                 --settle 20 --payload "$PWD/payload" > "$work/report.json" 2> "$work/report.err"
@@ -1187,7 +1335,7 @@ jobs:
               # The polling fallback runs only when the client never declares dynamic watching.
               case "$fixture" in watch-polling) extra+=(--no-dynamic-watch) ;; esac
               if ! stage/mcppls-conformance run --server "$RUNNER_TEMP/proot/mcppls-$mode" --payload payload \
-                     ${extra[@]+"${extra[@]}"} --fixture "conformance/fixtures/$fixture" --timeout 180; then
+                     ${extra[@]+"${extra[@]}"} --fixture "tests/cts/fixtures/$fixture" --timeout 180; then
                 failed="$failed $fixture@$mode"
               fi
               echo "::endgroup::"
@@ -1197,7 +1345,7 @@ jobs:
             echo "::error::failed under proot:$failed"
             first=${failed# }; first=${first%% *}; mode=${first#*@}
             stage/mcppls-conformance run --server "$RUNNER_TEMP/proot/mcppls-$mode" --payload payload \
-                --fixture "conformance/fixtures/${first%@*}" --timeout 60 --verbose 2>&1 | tail -200 || true
+                --fixture "tests/cts/fixtures/${first%@*}" --timeout 60 --verbose 2>&1 | tail -200 || true
             exit 1
           fi
       # The editor's own suite, on the server under proot (the extension reads MCPPLS_SERVER; see
@@ -1230,7 +1378,7 @@ jobs:
           [ "$after" -gt "$before" ]
 
   # ---------------------------------------------------------------------------
-  # User-experience scenarios (0.0.7 plan 6.4, conformance/README.md "Scenario checks"): the mcpp and xlings
+  # User-experience scenarios (0.0.7 plan 6.4, tests/cts/README.md "Scenario checks"): the mcpp and xlings
   # repositories at pinned commits, a person's first minutes and worst moments with them, on the size of
   # machine the plan measures against: this runner's 4 vCPU and 16 GB are the `taskset -c 0-3` tier of a
   # developer's laptop. The budgets in the fixtures are the merge gate. Each stage is a run of the fixture
@@ -1271,49 +1419,18 @@ jobs:
         with:
           platform: linux-x64
           kit: 'true'
+      - uses: ./.github/actions/mtest
+      # The scenario's stages, each a case of mcppls-bench (tests/bench/ux.cpp), in order on one workspace.
       - name: The stages
         run: |
           set -euo pipefail
           nproc
           cat /proc/loadavg
-          results="$RUNNER_TEMP/ux-results"
-          work="$RUNNER_TEMP/ux-work"
-          mkdir -p "$results" "$work"
-          failed=''
-          # The workspace is fetched and prepared once, by the first stage, and every stage after it
-          # uses it as it is. A stage puts back the files it changed before it ends.
-          run_stage() {
-            local name="$1" cache="$2"; shift 2
-            echo "::group::${{ matrix.fixture }} $name"
-            if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload \
-                --fixture conformance/fixtures/${{ matrix.fixture }} --workspace-dir "$work/workspace" --cache-dir "$work/$cache" \
-                --stage "$name" --timeout 900 --measure "$results/${{ matrix.fixture }}-$name.json" "$@"; then
-              failed="$failed $name"
-            fi
-            echo "::endgroup::"
-          }
-          if [ "${{ matrix.fixture }}" = ux-heavy-headers ]; then
-            # 0.0.9 plan M-2: one run, of a generated project: completion through the server against clangd alone.
-            run_stage edits cache-a
-          else
-            run_stage cold cache-a
-            run_stage warm cache-a --expect-warm
-            run_stage edits cache-a --expect-warm
-            run_stage faults cache-b
-          fi
-          {
-            echo "### ${{ matrix.fixture }}"
-            echo
-            echo '| stage | check | ok | seconds | detail |'
-            echo '|---|---|---|---|---|'
-            for file in "$results"/*.json; do
-              jq -r --arg stage "$(basename "$file" .json)" '.checks[] | "| \($stage) | \(.id) | \(.ok) | \(.seconds * 10 | round / 10) | \(.detail | tostring | .[0:150] | gsub("\\|"; "/")) |"' "$file"
-            done
-          } >> "$GITHUB_STEP_SUMMARY"
-          if [ -n "$failed" ]; then
-            echo "::error::stages over budget or failing:$failed"
-            exit 1
-          fi
+          export MCPPLS_CTS_MEASURES="$RUNNER_TEMP/ux-results" MCPPLS_CTS_EVIDENCE="$RUNNER_TEMP/ux-work"
+          status=0
+          "$MTEST" run --case '${{ matrix.fixture }}' stage/mcppls-bench || status=$?
+          "$MTEST" analyze trend --runs 1 | tee -a "$GITHUB_STEP_SUMMARY" || true
+          [ "$status" = 0 ] || { "$MTEST" explain || true; exit 1; }
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -1326,8 +1443,8 @@ jobs:
         with:
           name: ux-${{ matrix.fixture }}-server
           path: |
-            ${{ runner.temp }}/ux-work/cache-*/logs
-            ${{ runner.temp }}/ux-work/cache-*/workspaces/*/incidents
+            ${{ runner.temp }}/ux-work/*/cache-*/logs
+            ${{ runner.temp }}/ux-work/*/cache-*/workspaces/*/incidents
           if-no-files-found: ignore
           retention-days: 7
 
@@ -1382,7 +1499,7 @@ jobs:
               if command -v "$tool"; then echo "::error::$tool is on PATH"; exit 1; fi
             done
             stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload \
-                --fixture conformance/fixtures/inferred-discover --timeout 180'
+                --fixture tests/cts/fixtures/inferred-discover --timeout 180'
       - name: The extension in the same kind of container
         if: runner.os == 'Linux'
         timeout-minutes: 40
@@ -1422,7 +1539,7 @@ jobs:
             if command -v "$tool"; then echo "::error::$tool is still visible"; exit 1; fi
           done
           stage/mcppls-conformance.exe run --server payload/bin/mcppls.okb --payload payload \
-              --fixture conformance/fixtures/inferred-discover --timeout 180
+              --fixture tests/cts/fixtures/inferred-discover --timeout 180
           # The packaged extension with the same machine view; node stays reachable for the test runner.
           # Git's /usr/bin goes first: npm starts through `env bash`, and System32's bash.exe is WSL's.
           export PATH="/usr/bin:$(dirname "$NODE_PATH_FOR_E2E"):/c/Windows/system32:/c/Windows:/c/Windows/System32/Wbem"
@@ -1442,7 +1559,7 @@ jobs:
             echo "::error::developer tools are still visible"; exit 1
           fi
           stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload \
-              --fixture conformance/fixtures/inferred-no-sdk --timeout 120
+              --fixture tests/cts/fixtures/inferred-no-sdk --timeout 120
           cd editors/vscode
           MCPPLS_E2E_VSIX="$RUNNER_TEMP/mcpp-language-server.vsix" MCPPLS_E2E_ONLY=sdk-missing.test.js MCPPLS_E2E_EXPECT_SDK_MISSING=1 npm test
 
@@ -1450,7 +1567,11 @@ jobs:
   # VS Code → extension → mcppls → clangd, the one VSIX on every system (design 16; ecosystem design 2026-10-29 §9.3).
   vscode-e2e:
     name: VS Code end to end (${{ matrix.platform }})
-    needs: [vsix, kits]
+    needs: [changes, vsix, kits]
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.vscode == 'true' }}
+    permissions:
+      contents: read
+      actions: read
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -1492,6 +1613,8 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: kit-${{ matrix.platform }}
+          run-id: ${{ needs.changes.outputs.lend || github.run_id }}
+          github-token: ${{ github.token }}
           path: kit-archive
       - name: The kit of this platform's target, installed
         run: |
@@ -1637,7 +1760,11 @@ jobs:
   # the unpacked editor (test/runTest.ts); the main suite checks the diagnostic environment names it.
   code-oss-e2e:
     name: Code-OSS (VSCodium) end to end (${{ matrix.platform }})
-    needs: [vsix, kits]
+    needs: [changes, vsix, kits]
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.vscode == 'true' }}
+    permissions:
+      contents: read
+      actions: read
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -1701,6 +1828,8 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: kit-${{ matrix.platform }}
+          run-id: ${{ needs.changes.outputs.lend || github.run_id }}
+          github-token: ${{ github.token }}
           path: kit-archive
       - name: The kit of this platform's target, installed, and the extension's test harness
         run: |
@@ -1736,7 +1865,11 @@ jobs:
   # other tool here (`nvim` in xim-pkgindex), each version installed and selected with `xlings use`.
   neovim:
     name: Neovim (${{ matrix.platform }})
-    needs: [payload, kits]
+    needs: [changes, payload, kits]
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.nvim == 'true' }}
+    permissions:
+      contents: read
+      actions: read
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -1755,6 +1888,7 @@ jobs:
       - uses: ./.github/actions/payload
         with:
           platform: ${{ matrix.platform }}
+          run-id: ${{ needs.changes.outputs.lend }}
           kit: 'true'
       - name: Neovim from xlings
         run: |
@@ -1791,6 +1925,8 @@ jobs:
   # runner, and the crate still compiling to the wasm Zed loads. Every pull request: a few seconds.
   zed-unit:
     name: Zed extension (cargo test)
+    needs: changes
+    if: needs.changes.outputs.zed == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -1802,44 +1938,18 @@ jobs:
           rustup target add wasm32-wasip2
           cargo build --release --target wasm32-wasip2 --manifest-path editors/zed/Cargo.toml
 
-  # Whether the pull request needs the real Zed (zed-smoke.yml): it touches the extension, the
-  # server's protocol layer or orchestrator, or devtools (which installs the extension), or it is
-  # the pull request of a release/* branch or into one. Same method as packaging-changes below.
-  zed-changes:
-    name: does the pull request need the real Zed
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    outputs:
-      run: ${{ steps.files.outputs.run }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 2
-      - id: files
-        env:
-          BASE_REF: ${{ github.base_ref }}
-          HEAD_REF: ${{ github.head_ref }}
-        run: |
-          set -euo pipefail
-          run=false
-          case "$BASE_REF" in release/*) echo "into $BASE_REF"; run=true ;; esac
-          case "$HEAD_REF" in release/*) echo "from $HEAD_REF"; run=true ;; esac
-          while read -r file; do
-            case "$file" in
-              editors/zed/*|src/lsp/*|src/orchestrator/*|tools/devtools/*|.github/workflows/zed-smoke.yml|.github/versions.env)
-                echo "the real Zed: $file"; run=true ;;
-            esac
-          done < <(git diff --name-only HEAD^1 HEAD)
-          echo "run=$run" >> "$GITHUB_OUTPUT"
-
   # A pull request that changes release packaging gets the same smoke from release-checks.yml, so
   # it is not run twice here. nightly.yml and every release candidate run it on their own.
   zed-smoke:
     name: real Zed
-    needs: [payload, kits, zed-changes, packaging-changes]
-    if: needs.zed-changes.outputs.run == 'true' && needs.packaging-changes.outputs.changed != 'true'
+    needs: [changes, payload, kits]
+    if: ${{ !cancelled() && !failure() && github.event_name == 'pull_request' && needs.changes.outputs.zed_real == 'true' && needs.changes.outputs.packaging != 'true' }}
+    permissions:
+      contents: read
+      actions: read
     uses: ./.github/workflows/zed-smoke.yml
+    with:
+      payload-run: ${{ needs.changes.outputs.lend }}
 
   # ---------------------------------------------------------------------------
   # The CLion plugin (editors/clion), 0.0.8 part 2 CL-2 and CL-3. Gradle comes from xlings like the
@@ -1851,6 +1961,8 @@ jobs:
   # 2026.1, the oldest build it claims, and against the one it is built on.
   clion-verify:
     name: CLion plugin verifier
+    needs: changes
+    if: needs.changes.outputs.clion == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -1874,44 +1986,6 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # Whether the real-CLion test below runs. It takes a CLion download and a few minutes, so a pull
-  # request runs it only when it reaches the plugin, the protocol layer the plugin talks, the part of
-  # the server that answers it, or the tool that installs it -- or is a release branch's. Everything
-  # that is not a pull request (a push to main, the nightly, Release, prerelease checks) runs it.
-  clion-changes:
-    name: does the change reach the CLion plugin
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    outputs:
-      changed: ${{ steps.files.outputs.changed }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 2
-      - id: files
-        env:
-          EVENT: ${{ github.event_name }}
-          HEAD_REF: ${{ github.head_ref }}
-          BASE_REF: ${{ github.base_ref }}
-        run: |
-          set -euo pipefail
-          changed=false
-          if [ "$EVENT" != pull_request ]; then
-            changed=true
-          elif [[ "$HEAD_REF" == release/* || "$BASE_REF" == release/* ]]; then
-            echo "a release branch"; changed=true
-          else
-            while read -r file; do
-              case "$file" in
-                .github/workflows/*|editors/clion/*)
-                  echo "reaches the adapter: $file"; changed=true ;;
-                src/*|modules/*|mcpp.toml|mcpp.lock|build.mcpp|packaging/*|tools/devtools/*|.github/versions.env|.github/actions/setup-mcpp/*|.github/actions/payload/*|.github/scripts/install-mcpp.sh)
-                  echo "reaches the server or payload: $file"; changed=true ;;
-              esac
-            done < <(git diff --name-only HEAD^1 HEAD)
-          fi
-          echo "changed=$changed" >> "$GITHUB_OUTPUT"
-
   # CLion 2026.2.3 itself, headless, with the platform's test framework: the sandbox holds the plugin,
   # carrying the one payload this run built (MCPPLS_PAYLOAD), and the
   # plugin starts that payload's server with nothing on the PATH. The test asserts what a person sees
@@ -1921,8 +1995,11 @@ jobs:
   # own engine answers for the same file is printed in the log.
   clion-e2e:
     name: CLion 2026.2.3 (headless)
-    needs: [payload, kits, clion-changes]
-    if: needs.clion-changes.outputs.changed == 'true'
+    needs: [changes, payload, kits]
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.clion == 'true' }}
+    permissions:
+      contents: read
+      actions: read
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -1933,6 +2010,7 @@ jobs:
       - uses: ./.github/actions/payload
         with:
           platform: linux-x64
+          run-id: ${{ needs.changes.outputs.lend }}
           kit: 'true'
       - name: Cache the CLion downloads
         uses: actions/cache@v6
@@ -1975,8 +2053,11 @@ jobs:
   # to pass a regression that checks the fix for those errors.
   clion-adapter-baseline-package:
     name: CLion current server with the published engine
-    needs: [build, clion-changes]
-    if: needs.clion-changes.outputs.changed == 'true'
+    needs: [changes, build]
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.clion == 'true' }}
+    permissions:
+      contents: read
+      actions: read
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -2001,6 +2082,8 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: native-server-linux-x64
+          run-id: ${{ needs.changes.outputs.lend || github.run_id }}
+          github-token: ${{ github.token }}
           path: native-server
       - name: Replace only the published server with the current native build
         run: |
@@ -2059,78 +2142,131 @@ jobs:
       plugin_artifact: mcppls-clion-zip
 
   # ---------------------------------------------------------------------------
-  # The agent task benchmark's baseline/reference pairs (tools/bench/README.md, design
-  # §10.2, work item A2): no agent and no API key, just `mcpp build`/`mcpp test`
-  # (and a declarative content check) against each task's baseline project copy,
-  # expected to fail at least one check, and its reference-patched copy,
-  # expected to pass every check.
-  #
-  # And the semantic-token timing of a large file (mcpp design 2026-10-28 §11.1): the release payload's server on
-  # tokens-large-file, cold and warm on one cache. Its budgets are the design's criteria -- on a warm open the
-  # compiler's tokens come no later than the first completion, an edit's answer is a delta under 5% of the file's,
-  # and updates come by refresh -- and `bench tokens` exits 1 when one is over.
-  bench-validate:
-    name: bench-validate
+  # The measurements (tests/bench/README.md): the cases of mcppls-bench this platform runs (`on:<platform>`), the
+  # release's own (`release`) and the user-experience scenarios (`ux`, the job below) left out: a session's start, cold and warm on one cache, with its first navigation
+  # bounded; the review fixtures, each rule's precision and recall bounded; on Linux the semantic tokens of a large
+  # file, whose checks are the design's criteria, and the agent task benchmark's data (each task's baseline fails a
+  # check and its reference passes them, with mcpp and GCC 16 and no agent). The store takes main's last one, so
+  # each metric is shown beside its history and its bounds (`mtest analyze trend`).
+  bench:
+    name: bench (${{ matrix.platform }})
     needs: [payload, kits]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read   # the store main's last run kept, each metric's history
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux-x64,    os: ubuntu-24.04 }
+          - { platform: darwin-arm64, os: macos-15 }
+          - { platform: win32-x64,    os: windows-2022 }
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mcpp
-      - name: GCC toolchain (two of the ten tasks pin gcc@16.1.0)
+      - name: GCC 16 (two of the ten tasks, and the review fixture toolchain-divergence, build with it)
+        if: runner.os == 'Linux'
         run: mcpp toolchain install gcc 16.1.0
-      - name: Validate every task's baseline/reference pair
-        run: mcpp run -p devtools -- bench tasks validate
       - uses: ./.github/actions/payload
         with:
-          platform: linux-x64
+          platform: ${{ matrix.platform }}
           kit: 'true'
-      - name: Semantic tokens of a large file
+      - uses: ./.github/actions/mtest
+      - name: The store of main's last run
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          stage/mcppls-devtools bench tokens --server payload/bin/mcppls.okb --payload payload --rounds 2 --out "$RUNNER_TEMP/tokens.json"
+          run=$(gh run list -R "$GITHUB_REPOSITORY" --workflow ci.yml --branch main --status success --limit 1 \
+                  --json databaseId -q '.[0].databaseId' 2>/dev/null || true)
+          [ -n "$run" ] || { echo "no successful run of main: no history"; exit 0; }
+          rm -rf "$RUNNER_TEMP/bench-store"
+          if ! gh run download "$run" -R "$GITHUB_REPOSITORY" -n "bench-mtest-${{ matrix.platform }}" -D "$RUNNER_TEMP/bench-store" 2>/dev/null; then
+            echo "main's run $run kept no store for ${{ matrix.platform }}: no history"; exit 0
+          fi
+          "$MTEST" store import --from "$RUNNER_TEMP/bench-store"
+      - name: The measurements
+        run: |
+          set -euo pipefail
+          exe=''; [ "$RUNNER_OS" != Windows ] || exe='.exe'
+          export MCPPLS_CTS_MEASURES="$RUNNER_TEMP/bench-measures"
+          status=0
+          "$MTEST" run --junit "$RUNNER_TEMP/bench.xml" --tag "on:${{ matrix.platform }}" --exclude-tag release --exclude-tag ux \
+              "stage/mcppls-bench$exe" || status=$?
+          "$MTEST" analyze trend --runs 10 | tee -a "$GITHUB_STEP_SUMMARY" || true
+          if [ "$status" != 0 ]; then
+            "$MTEST" explain || true
+            for out in .mtest/runs/*/diagnoses/*/out.txt; do
+              [ -f "$out" ] || continue
+              echo "::group::diagnosis $(dirname "$out")"; tail -200 "$out"; echo "::endgroup::"
+            done
+            exit 1
+          fi
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: bench-tokens
-          path: ${{ runner.temp }}/tokens.json
+          name: bench-mtest-${{ matrix.platform }}
+          path: .mtest
+          include-hidden-files: true
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: bench-results-${{ matrix.platform }}
+          path: |
+            ${{ runner.temp }}/bench.xml
+            ${{ runner.temp }}/bench-measures/*.json
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
-  # A pull request that changes release packaging is checked the way a release is: after every job
-  # above has passed, release-checks.yml runs on this run's own payloads and VSIX files. It used to
-  # be prerelease.yml on its own trigger, which ran all of CI a second time for the same commit.
-  # The paths are the ones that decide what a release builds, stages or checks.
-  packaging-changes:
-    name: does the pull request change release packaging
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    outputs:
-      changed: ${{ steps.files.outputs.changed }}
-    steps:
-      # The merge commit and its first parent, the base it merges into: their difference is what
-      # the pull request changes, with no API call and no permission beyond reading the repository.
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 2
-      - id: files
-        run: |
-          set -euo pipefail
-          changed=false
-          while read -r file; do
-            case "$file" in
-              .github/workflows/release.yml|.github/workflows/prerelease.yml|.github/workflows/release-checks.yml|\
-              packaging/release.manifest.json|packaging/payload.lock.json|packaging/xlings/*|editors/zed/*|editors/clion/*|\
-              modules/pack/src/*|tools/devtools/src/editors.*|tools/devtools/src/packaging.*|tools/devtools/src/release.*|\
-              tools/devtools/src/kit.*)
-                echo "release packaging: $file"; changed=true ;;
-            esac
-          done < <(git diff --name-only HEAD^1 HEAD)
-          echo "changed=$changed" >> "$GITHUB_OUTPUT"
-
+  # A pull request that changes release packaging (the `packaging` of `changes`) gets the release checks
+  # after the CI it runs anyway: the plugins packaged, installed and removed, performance, stability, the
+  # staged candidate.
   release-checks:
     name: release checks
-    needs: [packaging-changes, specifications, build, test, server, kits, payload, vsix, conformance, clean-machine, vscode-e2e, distribution, neovim, bench-validate]
-    if: needs.packaging-changes.outputs.changed == 'true'
+    needs: [changes, specifications, build, test, openkal-test, server, kits, payload, vsix, conformance, clean-machine, vscode-e2e, distribution, neovim, bench]
+    if: needs.changes.outputs.packaging == 'true'
     uses: ./.github/workflows/release-checks.yml
+
+  # ---------------------------------------------------------------------------
+  # Main lends what it built: a marker named after the server's inputs, which a pull request that changes
+  # only a plugin finds (`changes`), and whose run's payload, stage and kits it then tests over.
+  server-digest:
+    name: lend the payload of these server inputs
+    needs: [changes, build, kits, payload]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.server == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - run: echo '${{ needs.changes.outputs.digest }}' > "$RUNNER_TEMP/digest.txt"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: server-digest-${{ needs.changes.outputs.digest }}
+          path: ${{ runner.temp }}/digest.txt
+          retention-days: 7
+
+  # THE ONE CHECK A BRANCH REQUIRES. The jobs a change does not reach are skipped, so no job of them can be
+  # required; this one is, and it fails when any job that ran failed or was cancelled.
+  ci:
+    name: ci
+    if: always()
+    needs: [changes, invariants, specifications, engine-candidate-parts, mcpp, build, test, openkal-test, unit-test-report, host-platform,
+            server, kits, payload, vsix, conformance, proot, ux, clean-machine, vscode-e2e, distribution, code-oss-e2e,
+            neovim, zed-unit, zed-smoke, clion-verify, clion-e2e, clion-adapter-baseline-package, clion-stable-adapter,
+            clion-stable, bench, release-checks]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          set -euo pipefail
+          echo "$RESULTS"
+          if echo "$RESULTS" | grep -Eq '"(failure|cancelled)"'; then
+            echo "::error::a job this change reaches failed or was cancelled"; exit 1
+          fi

@@ -1,7 +1,3 @@
-module;
-
-#include <cstdio>
-
 module mcppls.pack.fetch;
 
 import std;

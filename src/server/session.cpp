@@ -8,6 +8,7 @@ import mcppls.base.path;
 import mcppls.base.text;
 import mcppls.base.uri;
 import mcppls.base.version;
+import mcppls.base.series;
 import mcppls.config.settings;
 import mcppls.lsp.jsonrpc;
 import mcppls.lsp.protocol;
@@ -450,6 +451,17 @@ private:
         if (initializeReceived_) {
             reply_error_(id, lsp::INVALID_REQUEST, "initialize was already received");
             return;
+        }
+        // A plugin that states its version (initializationOptions.plugin: { name, version }) is served only by
+        // a server of its series (docs/92-release.md "Versions"): Zed and Neovim find mcppls on the PATH, so
+        // this is where a plugin and a server of different series meet.
+        if (const Json* plugin = lsp::find_path(params, { "initializationOptions", "plugin" }); plugin != nullptr && plugin->is_object()) {
+            if (auto why = base::plugin_series_problem(plugin->value("name", std::string {}), plugin->value("version", std::string {}),
+                                                       base::VERSION)) {
+                log::error("{}", *why);
+                reply_error_(id, static_cast<int>(lsp::LSPErrorCodes::request_failed), *why);
+                return;
+            }
         }
         initializeReceived_ = true;
         clientInitializeId_ = id;
