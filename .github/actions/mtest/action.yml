@@ -1,35 +1,42 @@
 name: mtest
 description: >
-  The mtest engine the cases run with: the release .github/versions.env pins (MTEST_VERSION), its sha256
-  checked (MTEST_SHA256), unpacked under the runner's temporary directory; MTEST names its launcher.
+  The mtest engine the cases run with: the release .github/versions.env pins (MTEST_VERSION), an xlings
+  package (xim:mtest) that the index verifies; MTEST names its launcher. A job that has no xlings yet gets
+  the pinned one first (XLINGS_VERSION).
 runs:
   using: composite
   steps:
+    - name: xlings, where the job has none
+      if: runner.os != 'Windows'
+      shell: bash
+      run: |
+        set -euo pipefail
+        command -v xlings > /dev/null 2>&1 && exit 0
+        . .github/versions.env
+        curl -fsSL --retry 3 --retry-all-errors --retry-delay 2 \
+          https://raw.githubusercontent.com/openxlings/xlings/main/tools/other/quick_install.sh \
+          | bash -s "$XLINGS_VERSION"
+        echo "$HOME/.xlings/subos/current/bin" >> "$GITHUB_PATH"
+    - name: xlings, where the job has none (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        if (Get-Command xlings -ErrorAction SilentlyContinue) { exit 0 }
+        irm https://d2learn.org/xlings-install.ps1.txt | iex
+        "$env:USERPROFILE\.xlings\subos\current\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
     - shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
         . .github/versions.env
-        archive="mtest-$MTEST_VERSION-openkal-bundle-all.tar.gz"
-        # Git Bash's tar reads `D:\...` as a remote host's name: the POSIX spelling on Windows.
-        temp="$RUNNER_TEMP"; python=python3
-        if [ "$RUNNER_OS" = Windows ]; then temp=$(cygpath -u "$RUNNER_TEMP"); python=python; fi
-        # The release's web address, else the API's address of the same asset: the web one answered 504
-        # for minutes while the API's answered 200 (2026-11-09).
-        if ! curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$temp/$archive" \
-               "https://github.com/mcpp-community/mtest/releases/download/v$MTEST_VERSION/$archive"; then
-          id=$(curl -fsSL --retry 3 --retry-all-errors -H "Authorization: Bearer $GH_TOKEN" \
-                 "https://api.github.com/repos/mcpp-community/mtest/releases/tags/v$MTEST_VERSION" \
-               | "$python" -c 'import json,sys; print(next(str(a["id"]) for a in json.load(sys.stdin)["assets"] if a["name"] == sys.argv[1]))' "$archive")
-          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -H "Authorization: Bearer $GH_TOKEN" \
-               -H "Accept: application/octet-stream" -o "$temp/$archive" \
-               "https://api.github.com/repos/mcpp-community/mtest/releases/assets/$id"
-        fi
-        actual=$("$python" -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$temp/$archive")
-        [ "$actual" = "$MTEST_SHA256" ] || { echo "::error::$archive: sha256 $actual, versions.env says $MTEST_SHA256"; exit 1; }
-        mkdir -p "$temp/mtest" && tar xzf "$temp/$archive" -C "$temp/mtest"
-        launcher="$temp/mtest/mtest-$MTEST_VERSION-openkal-bundle-all/bin/mtest"
-        [ "$RUNNER_OS" = Windows ] && launcher="$launcher.exe"
+        # The index and the mirrors are reached over the network: an attempt refreshes the index first,
+        # as install-mcpp.sh does for mcpp.
+        for attempt in 1 2 3 4 5; do
+          xlings update > /dev/null 2>&1 || true
+          if xlings install "mtest@$MTEST_VERSION" -y -g; then break; fi
+          [ "$attempt" = 5 ] && { echo "::error::mtest@$MTEST_VERSION could not be installed"; exit 1; }
+          sleep 30
+        done
+        launcher=$(command -v mtest)
         "$launcher" --version
+        "$launcher" --version | grep -qF "$MTEST_VERSION" || { echo "::error::xlings's mtest is not $MTEST_VERSION"; exit 1; }
         echo "MTEST=$launcher" >> "$GITHUB_ENV"
