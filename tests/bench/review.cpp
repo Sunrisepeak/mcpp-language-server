@@ -23,11 +23,7 @@ std::string absolute(const std::string& path) {
 std::string mock_model() {
     if (const auto named = harness::env_or("MCPPLS_BENCH_MOCK_MODEL", ""); !named.empty())
         return absolute(named);
-    const auto self = self_command();
-    const std::string exe = os::host() == os::platform::windows ? ".exe" : "";
-    const auto beside = self.empty() ? std::filesystem::path{}
-                                     : os::fs::from_utf8(self.back()).parent_path() / ("mcppls-mock-model" + exe);
-    return !beside.empty() && std::filesystem::exists(beside) ? os::fs::utf8(beside) : std::string{};
+    return harness::beside_self("mcppls-mock-model");
 }
 
 // A directory the fixtures share -- their workspaces and one cache, so the std module is built

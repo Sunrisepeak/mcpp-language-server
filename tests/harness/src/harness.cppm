@@ -62,6 +62,11 @@ nlohmann::json run(const session& s);
 // The value of environment variable `name`, or `fallback` when it is unset or empty.
 std::string env_or(const char* name, std::string_view fallback);
 
+// The program `name` (`.exe` on Windows) in this program's directory, or empty. The directory is
+// read by the host's rules (`os::fs::generic`): the standard library's own reading, POSIX's in a
+// program over openkal, takes a Windows name for one component, and its parent was empty.
+std::string beside_self(std::string_view name);
+
 }  // namespace mcppls::harness
 
 namespace mcppls::harness {
@@ -84,18 +89,23 @@ client client_of(std::string_view variant) {
     return client::own;
 }
 
+std::string beside_self(std::string_view name) {
+    const auto self = mt::self_command();
+    if (self.empty())
+        return {};
+    const std::string exe = os::host() == os::platform::windows ? ".exe" : "";
+    const auto dir = os::fs::from_utf8(os::fs::generic(os::fs::from_utf8(self.back()))).parent_path();
+    const auto beside = dir / (std::string(name) + exe);
+    return std::filesystem::exists(beside) ? os::fs::utf8(beside) : std::string{};
+}
+
 namespace {
 
 std::string runner() {
     if (auto v = os::env::get("MCPPLS_CTS_RUNNER"); v && !v->empty())
         return *v;
-    const auto self = mt::self_command();
-    const std::string exe = os::host() == os::platform::windows ? ".exe" : "";
-    if (!self.empty()) {
-        const auto beside = os::fs::from_utf8(self.back()).parent_path() / ("mcppls-conformance" + exe);
-        if (std::filesystem::exists(beside))
-            return os::fs::utf8(beside);
-    }
+    if (auto beside = beside_self("mcppls-conformance"); !beside.empty())
+        return beside;
     return mt::e2e::program("mcppls-conformance");
 }
 
