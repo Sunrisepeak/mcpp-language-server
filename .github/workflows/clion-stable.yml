@@ -81,7 +81,9 @@ jobs:
           expected="${{ inputs.expected_server_version }}"
           if [ -z "$expected" ]; then
             if [ -n "${{ inputs.plugin_artifact }}" ]; then
-              expected="$(sed -n 's/^pluginVersion *= *//p' editors/clion/gradle.properties)"
+              # The zip carries the server this repository builds, which a server patch
+              # (docs/92-release.md "Versions") moves past the plugin's own version.
+              expected="$(sed -n 's/^version *= *"\(.*\)"/\1/p' mcpp.toml)"
             else
               expected="${{ inputs.release_tag || 'v0.0.19' }}"; expected="${expected#v}"
             fi
