@@ -1119,7 +1119,9 @@ jobs:
           fi
           status=0
           if [ "${{ github.run_attempt }}" -gt 1 ] && [ -f .mtest/index.ndjson ]; then
-            # `run --failed` (`rerun` takes a selection, not the run's options).
+            # `run --failed` (`rerun` takes a selection, not the run's options). The steps after it see that
+            # a case which passed before has not run again (CONFORMANCE_FAILED_ONLY).
+            echo "CONFORMANCE_FAILED_ONLY=1" >> "$GITHUB_ENV"
             "$MTEST" run --failed --isolate --jobs "${CONFORMANCE_JOBS:-2}" --junit "$RUNNER_TEMP/conformance.xml" "$CTS" || status=$?
           else
             # shellcheck disable=SC2086 # CTS_SELECT is words
@@ -1195,6 +1197,11 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then temp=$(cygpath -u "$RUNNER_TEMP"); python=python; fi
           shopt -s nullglob
           bundles=("$temp"/bundles/*.zip)
+          # An attempt that ran only the cases that failed ran diagnostic-bundle only if it had failed: then it
+          # left its bundles or failed again. Without them, it passed in an earlier attempt, which checked them.
+          if [ ${#bundles[@]} -eq 0 ] && [ "${CONFORMANCE_FAILED_ONLY:-}" = 1 ]; then
+            echo "diagnostic-bundle passed in an earlier attempt; this one ran only the cases that failed"; exit 0
+          fi
           [ ${#bundles[@]} -gt 0 ] || { echo "::error::diagnostic-bundle left no bundle"; exit 1; }
           for bundle in "${bundles[@]}"; do "$python" -m zipfile -t "$bundle"; "$python" -m zipfile -l "$bundle"; done
       - uses: actions/upload-artifact@v7
