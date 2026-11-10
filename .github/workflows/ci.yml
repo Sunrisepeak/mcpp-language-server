@@ -2067,6 +2067,8 @@ jobs:
       actions: read
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    outputs:
+      server_version: ${{ steps.server-version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mcpp
@@ -2131,6 +2133,9 @@ jobs:
           name: mcppls-clion-current-server-zip
           path: editors/clion/build/distributions/mcppls-clion-*.zip
           if-no-files-found: error
+      - id: server-version
+        name: The server version this adapter carries
+        run: echo "version=$(sed -n 's/^version *= *"\(.*\)"/\1/p' mcpp.toml)" >> "$GITHUB_OUTPUT"
 
   clion-stable-adapter:
     name: CLion stable current-server regression (public engine)
@@ -2139,6 +2144,9 @@ jobs:
     with:
       plugin_artifact: mcppls-clion-current-server-zip
       report_name: clion-stable-current-server
+      # The adapter carries the server this CI built, which a server patch (docs/92-release.md
+      # "Versions") may move past the plugin's own version: expect what mcpp.toml names.
+      expected_server_version: ${{ needs.clion-adapter-baseline-package.outputs.server_version }}
 
   # Both stable IDEs install the same candidate ZIP. This independent build has
   # no dependency on the plugin's source output or a per-IDE recompilation.
