@@ -87,9 +87,13 @@ std::string common_ancestor(std::string_view a, std::string_view b) {
 }
 
 // Of the read-only grants after the first, the directory two of them are beneath that is deepest;
-// empty when no two share one. A volume root ("/", "C:/") is never it: two grants beneath it are
-// not a reason to hand the engine every file on the drive.
-bool volume_root(std::string_view path) { return path == "/" || (path.size() == 3 && path[1] == ':'); }
+// empty when no two share one. A volume root ("/", "C:/") or the user's home is never it: two
+// grants beneath one of those are not a reason to hand the engine every file on the drive, or
+// every file the person owns.
+bool too_wide(std::string_view path) {
+    if (path == "/" || (path.size() == 3 && path[1] == ':')) return true;
+    return !path.empty() && base::same_path(path, base::home_directory());
+}
 
 std::string deepest_shared(std::span<const Grant> grants) {
     std::string best;
@@ -97,7 +101,7 @@ std::string deepest_shared(std::span<const Grant> grants) {
         for (std::size_t j { i + 1 }; j < grants.size(); ++j) {
             if (grants[i].writable || grants[j].writable) continue;
             std::string ancestor { common_ancestor(grants[i].path, grants[j].path) };
-            if (ancestor.empty() || volume_root(ancestor) || ancestor.size() <= best.size()) continue;
+            if (ancestor.empty() || too_wide(ancestor) || ancestor.size() <= best.size()) continue;
             best = std::move(ancestor);
         }
     }
@@ -212,12 +216,12 @@ std::vector<Grant> engine_grants(const GrantInputs& inputs) {
     }
     // AT MOST SIXTEEN, the number every implementation gives one start (openkal-linux, -macos and
     // -windows 0.23 refuse more). Read-only grants beneath one directory become it, deepest pair
-    // first, never a volume root. Windows, whose sandbox attenuates each read-only grant from a
-    // fixed table it never returns a slot of (issue 86), collapses always -- every start pays one
-    // table entry per read-only grant. A set that still does not fit is retained: the start is
-    // refused by the system, never given the runner's unrestricted defaults.
-    const bool attenuating { os::host() == os::platform::windows };
-    while (grants.size() > MAX_GRANTS || (attenuating && grants.size() > 1)) {
+    // first, never a volume root or the person's home -- every start pays each read-only grant a
+    // slot in a sandbox table no implementation recycles (issue 86, measured on Windows and on
+    // Linux), so the fewer there are the more starts a session holds. A set that still does not
+    // fit is retained: the start is refused by the system, never given the runner's unrestricted
+    // defaults.
+    while (grants.size() > 1) {
         const std::string best { deepest_shared(grants) };
         if (best.empty()) break;
         std::erase_if(grants, [&](const Grant& g) { return !g.writable && base::is_within(g.path, best); });
@@ -243,25 +247,12 @@ std::vector<std::string> uncovered(std::span<const Grant> grants, std::span<cons
 }
 
 std::vector<std::string> system_roots() {
-    std::vector<std::string> roots;
-    switch (os::host()) {
-    case os::platform::windows:
-        // Issue 86: none. The plan names the toolchains (each flag's directory, the compiler's
-        // installation, the MSVC and SDK roots mcppls injects), and mcppls.grants adds the rest;
-        // a blanket Program Files grant cost a sandbox root every engine start.
-        break;
-    case os::platform::macos:
-        for (const char* root : { "/usr", "/opt", "/Library/Developer", "/Applications", "/System/Library/Frameworks",
-                                  "/private/var/select", "/nix" })
-            roots.emplace_back(root);
-        break;
-    default:
-        for (const char* root : { "/usr", "/opt", "/lib", "/lib64", "/lib32", "/bin", "/etc", "/nix", "/gnu" })
-            roots.emplace_back(root);
-        break;
-    }
-    std::erase_if(roots, [](const std::string& root) { return !is_directory(root); });
-    return roots;
+    // Issue 86: none, on any system. Every grant implementation attenuates a read-only grant
+    // from a fixed table it never returns a slot of (measured on Windows and on Linux), and
+    // blanket roots are most of a start's bill (eight on a Linux box). The plan names each
+    // toolchain -- every flag's directory, the compiler's installation (a bare name resolved
+    // through PATH), the MSVC and SDK roots mcppls injects -- and `mcppls.grants` adds the rest.
+    return {};
 }
 
 std::vector<std::string> runner_caches() {

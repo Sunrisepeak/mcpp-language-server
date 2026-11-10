@@ -19,14 +19,16 @@ patch is `## [<component> X.Y.Z]` (`server`, `vscode`, `clion`, `zed`, `claude-c
   replace mode (VS Code's `Replace (Tab)`) wrote the quote twice. Both ranges now end together, and
   an include line is never answered from the word cache, whose key cannot say when a header list
   changed -- the engine's own answer serves it, fresh or at most five seconds late.
-- **A Windows session ran out of engine starts** ([#86](https://github.com/Sunrisepeak/mcpp-language-server/issues/86)).
-  The sandbox that holds the engine to its directories keeps a fixed table of them and never
-  returns a slot (openkal 0.20.0), one slot per read-only grant per start; after about seven
-  starts a session's next start failed whole, `granting C:/Program Files: out of memory`. Windows
-  no longer grants the Program Files roots -- the plan names each toolchain it uses (a compiler
-  named by a bare name resolves through PATH), and `mcppls.grants` adds anything else -- and
-  neighboring read-only grants merge, never into a volume root; a session holds several times
-  more starts. A start that still fails names the cause and the recovery in its status issue.
+- **A session ran out of engine starts** ([#86](https://github.com/Sunrisepeak/mcpp-language-server/issues/86),
+  Windows and Linux alike). The sandbox that holds an engine to its directories keeps a fixed table of
+  them and never returns a slot (openkal 0.20.0, measured on both systems), one slot per read-only
+  grant per start; the reporter's Windows machine spent nine a start and a session's eighth start
+  failed whole, `granting C:/Program Files: out of memory`. No system is granted blanket roots now
+  (`C:/Program Files` and its kin on Windows, `/usr` and seven more on a Linux box) -- the plan names
+  each toolchain it uses (a compiler named by a bare name resolves through PATH), and `mcppls.grants`
+  adds anything else -- and neighboring read-only grants merge, never into a volume root or the
+  person's home: a start spends two or three slots and a session holds an order of magnitude more
+  starts. A start that still fails names the cause and the recovery in its status issue.
 
 ## [0.21.0] — 2026-11-08
 

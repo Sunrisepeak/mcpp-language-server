@@ -157,13 +157,15 @@ UTest grants_tests{"grants", [] {
         const auto* c = find(grants, cache);
         expect(fatal(c != nullptr));
         expect(c->writable);
-        const auto* p = find(grants, payload);
-        const auto* l = find(grants, loader);
-        expect(fatal(l != nullptr)) << "a separate loader directory remains available to module workers";
-        expect(!l->writable && l->unchanging) << "the loader is an immutable read-only payload input";
-        expect(fatal(p != nullptr));
-        expect(!p->writable && p->unchanging) << "the engine's own files, which nothing changes";
-        expect(find(grants, store) != nullptr && !find(grants, store)->writable);
+        expect(find(grants, payload) == nullptr && find(grants, loader) == nullptr)
+            << "the payload's directories do not stay separate grants (issue 86): every start pays each read-only grant a sandbox slot";
+        expect(cld::covered(grants, payload) && cld::covered(grants, loader)) << "the engine's own files and the loader's stay reachable";
+        const cld::Grant* holder { nullptr };
+        for (const auto& g : grants)
+            if (!g.writable && base::is_within(payload, g.path)) holder = &g;
+        expect(fatal(holder != nullptr)) << "a read-only grant still holds the payload";
+        expect(holder != nullptr && !holder->unchanging) << "a merged grant holds files outside the immutable payloads";
+        expect(cld::covered(grants, store) && find(grants, store) == nullptr) << "the store merges under the same root, read-only";
         expect(find(grants, base::join_path(root, "project/include")) == nullptr) << "beneath the project, writable";
         expect(find(grants, base::join_path(root, "store/lib")) == nullptr) << "beneath the store, read-only";
         expect(find(grants, base::join_path(root, "absent")) == nullptr) << "a directory that is not there is not given";
@@ -304,11 +306,8 @@ UTest grants_tests{"grants", [] {
         expect(!cld::covered(grants, base::join_path(root, "projectile"))) << "a sibling whose name begins the same is not beneath";
     };
 
-    "the system's roots and the runner's caches are directories that are there"_test = [] {
-        for (const auto& root : cld::system_roots()) expect(std::filesystem::is_directory(root)) << root;
+    "no system roots: the plan names each toolchain, and none is a slot every start pays (issue 86)"_test = [] {
+        expect(cld::system_roots().empty());
         for (const auto& cache : cld::runner_caches()) expect(std::filesystem::is_directory(cache)) << cache;
-        if (os::host() != os::platform::windows) expect(!cld::system_roots().empty()) << "/usr at least";
-        else expect(cld::system_roots().empty()) << "the plan names Windows' toolchains (issue 86)";
     };
-
 }};

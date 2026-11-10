@@ -1,0 +1,25 @@
+{
+  "name": "engine-restarts",
+  "description": "Issue 86: a session survives many engine starts. The sandbox attenuates each read-only grant from a fixed table it never returns a slot of (openkal 0.20.0, Windows and Linux alike), and 0.21.0 spent nine grants a start on Windows and eleven on Linux; this fixture restarts the engine eight times over and after each expects an answer again. With 0.21.1's narrower, merged grant set a start spends two or three slots and the loop passes everywhere.",
+  "server-arguments": ["--no-discover"],
+  "checks": [
+    { "id": "S1", "kind": "status", "state": "ready", "engine-name": "clangd" },
+    { "id": "W0-answered", "kind": "hover-contains", "file": "src/main.cpp", "at": [0, 5], "expect": "value", "timeout": 90 },
+    { "id": "R1-restart", "kind": "execute-command", "command": "mcppls.restartEngine" },
+    { "id": "R1-answered", "kind": "hover-contains", "file": "src/main.cpp", "at": [0, 5], "expect": "value", "timeout": 90 },
+    { "id": "R2-restart", "kind": "execute-command", "command": "mcppls.restartEngine" },
+    { "id": "R2-answered", "kind": "hover-contains", "file": "src/main.cpp", "at": [0, 5], "expect": "value", "timeout": 90 },
+    { "id": "R3-restart", "kind": "execute-command", "command": "mcppls.restartEngine" },
+    { "id": "R3-answered", "kind": "hover-contains", "file": "src/main.cpp", "at": [0, 5], "expect": "value", "timeout": 90 },
+    { "id": "R4-restart", "kind": "execute-command", "command": "mcppls.restartEngine" },
+    { "id": "R4-answered", "kind": "hover-contains", "file": "src/main.cpp", "at": [0, 5], "expect": "value", "timeout": 90 },
+    { "id": "R5-restart", "kind": "execute-command", "command": "mcppls.restartEngine" },
+    { "id": "R5-answered", "kind": "hover-contains", "file": "src/main.cpp", "at": [0, 5], "expect": "value", "timeout": 90 },
+    { "id": "R6-restart", "kind": "execute-command", "command": "mcppls.restartEngine" },
+    { "id": "R6-answered", "kind": "hover-contains", "file": "src/main.cpp", "at": [0, 5], "expect": "value", "timeout": 90 },
+    { "id": "R7-restart", "kind": "execute-command", "command": "mcppls.restartEngine" },
+    { "id": "R7-answered", "kind": "hover-contains", "file": "src/main.cpp", "at": [0, 5], "expect": "value", "timeout": 90 },
+    { "id": "R8-restart", "kind": "execute-command", "command": "mcppls.restartEngine" },
+    { "id": "R8-answered", "kind": "hover-contains", "file": "src/main.cpp", "at": [0, 5], "expect": "value", "timeout": 90 }
+  ]
+}
