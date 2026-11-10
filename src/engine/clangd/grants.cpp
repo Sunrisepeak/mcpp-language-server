@@ -247,12 +247,19 @@ std::vector<std::string> uncovered(std::span<const Grant> grants, std::span<cons
 }
 
 std::vector<std::string> system_roots() {
-    // Issue 86: none, on any system. Every grant implementation attenuates a read-only grant
-    // from a fixed table it never returns a slot of (measured on Windows and on Linux), and
-    // blanket roots are most of a start's bill (eight on a Linux box). The plan names each
-    // toolchain -- every flag's directory, the compiler's installation (a bare name resolved
-    // through PATH), the MSVC and SDK roots mcppls injects -- and `mcppls.grants` adds the rest.
-    return {};
+    // Issue 86: no blanket roots on Windows and Linux, where the plan names every toolchain these
+    // systems' projects use (verified: their conformance suites pass without them). macOS keeps
+    // its own: the SDK and the system frameworks are found by the driver's own convention, no
+    // command names them, and a kit project degrades without them -- the table they cost each
+    // start is openkal's to fix there (the plan's §3.4).
+    std::vector<std::string> roots;
+    if (os::host() == os::platform::macos) {
+        for (const char* root : { "/usr", "/opt", "/Library/Developer", "/Applications", "/System/Library/Frameworks",
+                                  "/private/var/select", "/nix" })
+            roots.emplace_back(root);
+    }
+    std::erase_if(roots, [](const std::string& root) { return !is_directory(root); });
+    return roots;
 }
 
 std::vector<std::string> runner_caches() {

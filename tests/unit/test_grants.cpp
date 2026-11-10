@@ -306,8 +306,9 @@ UTest grants_tests{"grants", [] {
         expect(!cld::covered(grants, base::join_path(root, "projectile"))) << "a sibling whose name begins the same is not beneath";
     };
 
-    "no system roots: the plan names each toolchain, and none is a slot every start pays (issue 86)"_test = [] {
-        expect(cld::system_roots().empty());
+    "system roots: macOS keeps its SDK and frameworks, Windows and Linux name none (issue 86)"_test = [] {
+        if (os::host() == os::platform::macos) expect(!cld::system_roots().empty()) << "/usr and the SDK at least";
+        else expect(cld::system_roots().empty()) << "the plan names each toolchain";
         for (const auto& cache : cld::runner_caches()) expect(std::filesystem::is_directory(cache)) << cache;
     };
 }};
