@@ -937,7 +937,7 @@ public:
         if (modulesSwitch) modulesSupport_ = usesModules;
         // An ok-image engine reaches only the directories it was given (grants.cppm): one the database now names that
         // they do not cover is given by starting the engine again with it.
-        namedDirectories_ = plan_directories(*plan);
+        namedDirectories_ = plan_directories(*plan, [](std::string_view program) { return toolrun::find_program(program); });
         const std::vector<std::string> ungranted { granted_.empty() ? std::vector<std::string> {} : uncovered(granted_, namedDirectories_) };
         // The first plan too: an engine started before the database was pushed was given what it could be then.
         const bool grantsShort { !ungranted.empty() };
@@ -1942,7 +1942,7 @@ private:
         // caches, the temporary directory and the runner's caches, its own files, the package stores and the system's
         // roots, and every directory the engine database names; `mcppls.grants` adds to them, or gives the runner's own.
         if (!options_.runner.empty() && !options_.grants.all) {
-            if (pendingDatabasePlan_) namedDirectories_ = plan_directories(*pendingDatabasePlan_);
+            if (pendingDatabasePlan_) namedDirectories_ = plan_directories(*pendingDatabasePlan_, [](std::string_view program) { return toolrun::find_program(program); });
             GrantInputs inputs;
             inputs.root = host_->root_directory();
             inputs.writable = { host_->cache_directory(), databaseDirectory_, base::spelled(std::filesystem::temp_directory_path(ignored)) };
@@ -2099,11 +2099,23 @@ private:
             // start failed with "not supported" and the status said clangd had crashed.
             const std::string& why { started.error().message };
             const bool unsupported { why.ends_with(": not supported") };
-            add_issue_(Issue { "engine-start-failed",
-                unsupported ? std::format("clangd could not be started: {}. This system refused to start a program the way mcppls starts one "
-                                          "(as PRoot does without support for execveat); only module-level features are available", why)
-                            : std::format("clangd could not be started: {}", why),
-                "mcppls.showLogs", "environment" });
+            // Issue 86: the Windows sandbox's "out of memory" on a grant is its fixed table of
+            // attenuated directories running out of slots (openkal 0.20.0 recycles none), not memory.
+            std::string message;
+            if (unsupported) {
+                message = std::format("clangd could not be started: {}. This system refused to start a program the way mcppls starts one "
+                                      "(as PRoot does without support for execveat); only module-level features are available", why);
+            } else {
+                message = std::format("clangd could not be started: {}", why);
+                if (why.starts_with("granting ") && why.find("out of memory") != std::string::npos) {
+                    const auto readOnly { std::ranges::count_if(granted_, [](const Grant& grant) { return !grant.writable; }) };
+                    message += std::format(". This is not memory: the sandbox keeps a small table of granted directories that is never "
+                                           "recycled (openkal 0.20.0), and this session's {} engine starts spent it ({} read-only grants "
+                                           "each). Restarting the editor restores it, and `mcppls.grants: [\"all\"]` does without the sandbox",
+                                           generation, readOnly);
+                }
+            }
+            add_issue_(Issue { "engine-start-failed", std::move(message), "mcppls.showLogs", "environment" });
             flush_deferred_without_engine_();
             host_->engine_settled(ENGINE_ID, Json::object());
             host_->status_changed();

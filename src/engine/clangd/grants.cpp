@@ -87,14 +87,17 @@ std::string common_ancestor(std::string_view a, std::string_view b) {
 }
 
 // Of the read-only grants after the first, the directory two of them are beneath that is deepest;
-// empty when no two share one.
+// empty when no two share one. A volume root ("/", "C:/") is never it: two grants beneath it are
+// not a reason to hand the engine every file on the drive.
+bool volume_root(std::string_view path) { return path == "/" || (path.size() == 3 && path[1] == ':'); }
+
 std::string deepest_shared(std::span<const Grant> grants) {
     std::string best;
     for (std::size_t i { 1 }; i < grants.size(); ++i) {
         for (std::size_t j { i + 1 }; j < grants.size(); ++j) {
             if (grants[i].writable || grants[j].writable) continue;
             std::string ancestor { common_ancestor(grants[i].path, grants[j].path) };
-            if (ancestor.empty() || ancestor.size() <= best.size()) continue;
+            if (ancestor.empty() || volume_root(ancestor) || ancestor.size() <= best.size()) continue;
             best = std::move(ancestor);
         }
     }
@@ -154,15 +157,23 @@ GrantSetting parse_grant_setting(std::span<const std::string> members) {
     return setting;
 }
 
-std::vector<std::string> plan_directories(const normalize::EnginePlan& plan) {
+std::vector<std::string> plan_directories(const normalize::EnginePlan& plan, const ProgramResolver& resolve_program) {
     std::vector<std::string> out;
+    const auto installation = [&](const std::string& program) -> std::string {
+        std::string absolute;
+        if (base::is_absolute_path(program)) absolute = program;
+        else if (resolve_program) {
+            if (auto found = resolve_program(program)) absolute = std::move(*found);
+        }
+        return absolute.empty() ? std::string {} : base::parent_path(base::parent_path(absolute));
+    };
     for (const auto& entry : plan.entries) {
         add_unique(out, entry.directory);
         if (!entry.file.empty()) add_unique(out, base::parent_path(entry_path(entry, entry.file)));
         // The compiler's installation: the directory above the one its program is in (<prefix>/bin/clang++),
-        // where its headers and libraries are found. A bare name is found on PATH and adds nothing here.
-        if (!entry.arguments.empty() && base::is_absolute_path(entry.arguments.front()))
-            add_unique(out, base::parent_path(base::parent_path(entry.arguments.front())));
+        // where its headers and libraries are found. A bare name is resolved when the caller says how
+        // (issue 86: Windows no longer grants the Program Files roots such a compiler lives beneath).
+        if (!entry.arguments.empty()) add_unique(out, installation(entry.arguments.front()));
         add_argument_directories(out, entry);
     }
     return out;
@@ -199,16 +210,18 @@ std::vector<Grant> engine_grants(const GrantInputs& inputs) {
         });
         if (!held) grants.push_back(std::move(candidate));
     }
-    // AT MOST SIXTEEN, the number every implementation gives one start (openkal-linux, -macos and -windows 0.23
-    // refuse more, and the C library holds no more). Two read-only grants become the directory both are beneath,
-    // the pair whose directory is deepest first. A set that still does not fit is retained: the start must be
-    // refused by the system, never replaced with the runner's unrestricted defaults.
-    while (grants.size() > MAX_GRANTS) {
+    // AT MOST SIXTEEN, the number every implementation gives one start (openkal-linux, -macos and
+    // -windows 0.23 refuse more). Read-only grants beneath one directory become it, deepest pair
+    // first, never a volume root. Windows, whose sandbox attenuates each read-only grant from a
+    // fixed table it never returns a slot of (issue 86), collapses always -- every start pays one
+    // table entry per read-only grant. A set that still does not fit is retained: the start is
+    // refused by the system, never given the runner's unrestricted defaults.
+    const bool attenuating { os::host() == os::platform::windows };
+    while (grants.size() > MAX_GRANTS || (attenuating && grants.size() > 1)) {
         const std::string best { deepest_shared(grants) };
-        if (best.empty()) return grants;
+        if (best.empty()) break;
         std::erase_if(grants, [&](const Grant& g) { return !g.writable && base::is_within(g.path, best); });
-        // The wider directory also contains files outside the original grants;
-        // immutable children cannot promise that their parent never changes.
+        // The wider directory also holds files outside the merged grants: never unchanging.
         grants.push_back(Grant { best, false, false });
     }
     return grants;
@@ -232,12 +245,11 @@ std::vector<std::string> uncovered(std::span<const Grant> grants, std::span<cons
 std::vector<std::string> system_roots() {
     std::vector<std::string> roots;
     switch (os::host()) {
-    case os::platform::windows: {
-        for (const char* variable : { "ProgramFiles", "ProgramFiles(x86)", "ProgramData" }) {
-            if (const auto value = os::env::get(variable); value && !value->empty()) roots.push_back(base::normalize_path(*value));
-        }
+    case os::platform::windows:
+        // Issue 86: none. The plan names the toolchains (each flag's directory, the compiler's
+        // installation, the MSVC and SDK roots mcppls injects), and mcppls.grants adds the rest;
+        // a blanket Program Files grant cost a sandbox root every engine start.
         break;
-    }
     case os::platform::macos:
         for (const char* root : { "/usr", "/opt", "/Library/Developer", "/Applications", "/System/Library/Frameworks",
                                   "/private/var/select", "/nix" })

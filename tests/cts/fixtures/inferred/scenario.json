@@ -20,6 +20,12 @@
     { "id": "C6", "kind": "completion-contains", "file": "src/main.cpp", "insert": [5, "    hello::"], "at": [5, 11], "expect": "greet" },
     { "id": "C7", "kind": "completion-contains", "file": "src/main.cpp", "at": [5, 11], "expect": "greet2",
       "edit": { "file": "src/greet/greet.cppm", "replace": "export namespace hello {", "with": "export namespace hello {\n  int greet2() { return 2; }" } },
+    { "id": "C8-include-replace-takes-the-editors-quote", "kind": "completion-item", "file": "src/scratch.cpp",
+      "text": "#include \"common/numb\"", "at": [0, 21], "label": "number-literals.hpp\"",
+      "expect": [
+        { "path": "/textEdit/insert/end/character", "equals": 22 },
+        { "path": "/textEdit/replace/end/character", "equals": 22 }
+      ] },
     { "id": "C9", "kind": "references-span", "file": "src/main.cpp", "at": [4, 31], "expect": ["src/main.cpp", "src/greet/greet.cppm"] },
     { "id": "K1-semantic-tokens", "kind": "semantic-tokens", "file": "src/greet/greet.cppm", "expect": [
       { "line": 0, "text": "export", "type": "keyword" },

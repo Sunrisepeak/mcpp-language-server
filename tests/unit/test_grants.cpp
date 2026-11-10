@@ -115,6 +115,27 @@ UTest grants_tests{"grants", [] {
         expect(has("winsysroot") && has("vctools") && has("winsdk")) << "clang-cl's spellings";
     };
 
+    "a compiler named by a bare name reaches through its installation when the caller resolves it (issue 86)"_test = [] {
+        const std::string root { scratch("bare") };
+        mcppls::normalize::EnginePlan plan;
+        mcppls::normalize::EngineEntry entry;
+        entry.directory = root;
+        entry.file = base::join_path(root, "src/a.cpp");
+        entry.arguments = { "clang++", "-c", entry.file };
+        plan.entries.push_back(entry);
+        expect(cld::plan_directories(plan).size() == 2u) << "the command's and the source's directories; a bare name adds nothing alone";
+        const std::string toolchain { base::join_path(root, "toolchain/bin/clang++") };
+        const auto resolved = cld::plan_directories(plan, [&](std::string_view program) -> std::optional<std::string> {
+            expect(program == "clang++");
+            return std::optional<std::string> { toolchain };
+        });
+        const auto has = [&](std::string_view child) {
+            const std::string want { base::join_path(root, child) };
+            return std::ranges::any_of(resolved, [&](const std::string& d) { return base::same_path(d, want); });
+        };
+        expect(has("toolchain")) << "the resolved program's installation";
+    };
+
     "the set: the project first and writable, one beneath another with as many rights left out, an absent one left out"_test = [] {
         const std::string root { scratch("set") };
         const std::string project { made(root, "project") };
@@ -149,6 +170,42 @@ UTest grants_tests{"grants", [] {
         const auto* w = find(grants, storeWritable);
         expect(fatal(w != nullptr));
         expect(w->writable) << "a writable directory beneath a read-only one is given on its own";
+    };
+
+    "read-only grants beneath one directory become it, and what they covered stays covered (issue 86)"_test = [] {
+        const std::string root { scratch("collapse") };
+        cld::GrantInputs inputs;
+        inputs.root = made(root, "project");
+        inputs.writable = { made(root, "cache") };
+        for (int i { 0 }; i < 10; ++i) inputs.payload.push_back(made(root, std::format("payload/part{}", i)));
+        for (int i { 0 }; i < 10; ++i) inputs.readable.push_back(made(root, std::format("store/lib{}", i)));
+        const auto grants = cld::engine_grants(inputs);
+        expect(fatal(grants.size() < inputs.payload.size() + inputs.readable.size())) << "twenty grants beneath two directories do not stay twenty";
+        expect(cld::covered(grants, base::join_path(root, "payload/part9")) && cld::covered(grants, base::join_path(root, "store/lib9")));
+        const auto* cache = find(grants, base::join_path(root, "cache"));
+        expect(cache != nullptr && cache->writable) << "a writable grant is never merged away";
+    };
+
+    "two grants that share only a volume root keep it between them (issue 86)"_test = [] {
+        const std::string root { scratch("volume") };
+        std::vector<std::string> disjoint;
+        if (os::host() == os::platform::windows) disjoint = { "C:/Program Files", "C:/Program Files (x86)" };
+        else disjoint = { base::spelled(os::dirs::temp()), "/usr" };
+        for (const auto& one : disjoint)
+            if (!std::filesystem::is_directory(one)) return;   // this host has no such pair to ask about
+        cld::GrantInputs inputs;
+        inputs.root = made(root, "project");
+        for (int i { 0 }; i < 18; ++i) inputs.readable.push_back(made(root, std::format("deps/lib{}", i)));
+        for (const auto& one : disjoint) inputs.readable.push_back(one);
+        const auto grants = cld::engine_grants(inputs);
+        const auto volume = [](const std::string& path) { return path == "/" || (path.size() == 3 && path[1] == ':'); };
+        expect(std::ranges::none_of(grants, [&](const cld::Grant& g) { return volume(g.path); }))
+            << "never every file on the drive";
+        for (const auto& one : disjoint) {
+            const auto* grant = find(grants, one);
+            expect(grant != nullptr && !grant->writable) << one << " stays a grant of its own";
+        }
+        expect(cld::covered(grants, base::join_path(root, "deps/lib17")));
     };
 
     "no more than sixteen: read-only grants become the directory they are beneath, the deepest first"_test = [] {
@@ -251,6 +308,7 @@ UTest grants_tests{"grants", [] {
         for (const auto& root : cld::system_roots()) expect(std::filesystem::is_directory(root)) << root;
         for (const auto& cache : cld::runner_caches()) expect(std::filesystem::is_directory(cache)) << cache;
         if (os::host() != os::platform::windows) expect(!cld::system_roots().empty()) << "/usr at least";
+        else expect(cld::system_roots().empty()) << "the plan names Windows' toolchains (issue 86)";
     };
 
 }};

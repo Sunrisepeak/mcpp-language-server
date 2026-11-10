@@ -202,12 +202,12 @@ const std::vector<Setting>& shipped_registry() {
             .key = "grants", .kind = Kind::list, .defaultValue = "", .commandLine = "--grant", .commandLineRepeatable = true,
             .surface = Surface::server, .applies = Applies::restart, .category = "engines", .since = "0.0.20",
             .summary = "Directories an ok-image engine (clangd.okb) is given besides those mcppls gives it: the project, its caches, the "
-                       "temporary directory, the engine's own files, the package stores, the system's roots and every directory the "
-                       "compile commands name. A path is read-only, `rw:<path>` writable; `all` gives the engine the whole file system, "
-                       "as its runner does by itself. A program engine is not affected.",
+                       "temporary directory, the engine's own files, the package stores, the system's roots (none on Windows since 0.21.1) "
+                       "and every directory the compile commands name. A path is read-only, `rw:<path>` writable; `all` gives the engine "
+                       "the whole file system, as its runner does by itself. A program engine is not affected.",
             .summaryZh = "ok 映像引擎（clangd.okb）在 mcppls 给出的目录之外还得到的目录。mcppls 给出：项目、它的缓存、临时目录、引擎自己的"
-                         "文件、包仓库、系统根目录，以及编译命令提到的每个目录。写路径为只读，`rw:<路径>` 为可写；`all` 给引擎整个文件系统，"
-                         "与运行器自己的默认相同。程序形态的引擎不受影响。",
+                         "文件、包仓库、系统根目录（Windows 自 0.21.1 起为空），以及编译命令提到的每个目录。写路径为只读，`rw:<路径>` 为可写；"
+                         "`all` 给引擎整个文件系统，与运行器自己的默认相同。程序形态的引擎不受影响。",
             .clientConfigurable = true,
         },
         Setting {

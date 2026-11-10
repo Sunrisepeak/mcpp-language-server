@@ -8,6 +8,26 @@ Versions are three-part semantic versions, `X.Y.Z`: `X.Y` is the series of the s
 `Z` each component's own patch (docs/92-release.md "Versions"). A series release is `## [X.Y.0]`; a component's
 patch is `## [<component> X.Y.Z]` (`server`, `vscode`, `clion`, `zed`, `claude-code`).
 
+
+## [server 0.21.1] — 2026-11-11
+
+### Fixed
+
+- **An include completion's second quote** ([#80](https://github.com/Sunrisepeak/mcpp-language-server/issues/80),
+  the half 0.21.0 left). clangd's include item replaces the closing quote an editor auto-paired in
+  its *insert* range only; its *replace* range ended at the cursor, so an editor accepting in
+  replace mode (VS Code's `Replace (Tab)`) wrote the quote twice. Both ranges now end together, and
+  an include line is never answered from the word cache, whose key cannot say when a header list
+  changed -- the engine's own answer serves it, fresh or at most five seconds late.
+- **A Windows session ran out of engine starts** ([#86](https://github.com/Sunrisepeak/mcpp-language-server/issues/86)).
+  The sandbox that holds the engine to its directories keeps a fixed table of them and never
+  returns a slot (openkal 0.20.0), one slot per read-only grant per start; after about seven
+  starts a session's next start failed whole, `granting C:/Program Files: out of memory`. Windows
+  no longer grants the Program Files roots -- the plan names each toolchain it uses (a compiler
+  named by a bare name resolves through PATH), and `mcppls.grants` adds anything else -- and
+  neighboring read-only grants merge, never into a volume root; a session holds several times
+  more starts. A start that still fails names the cause and the recovery in its status issue.
+
 ## [0.21.0] — 2026-11-08
 
 - **Versions are a series and a patch.** `X.Y` is shared by the server and every editor plugin, `Z` is each
