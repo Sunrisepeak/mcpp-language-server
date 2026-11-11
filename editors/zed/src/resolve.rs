@@ -25,7 +25,7 @@ pub struct Launch {
 
 /// This extension's version, as extension.toml states it (`mcppls-devtools version --check` holds the
 /// two together). The server serves a plugin of its own series only (docs/92-release.md "Versions").
-pub const PLUGIN_VERSION: &str = "0.21.0";
+pub const PLUGIN_VERSION: &str = "0.22.0";
 
 /// The initialization options the server receives: the user's (`lsp.mcppls.initialization_options`),
 /// with `plugin` naming this extension and its version, so a server of another series refuses with

@@ -379,7 +379,7 @@ the sandbox that holds the engine to its directories keeps a small table of them
 a slot (openkal 0.20.0), and every engine start -- a crash loop, toolchain changes, manual restarts
 -- spends one slot per read-only grant. After enough starts in one session the next start is
 refused whole. Restarting the editor restores the table; `mcppls.grants: ["all"]` does without the
-sandbox entirely. Server 0.21.1 grants a start only what its system's driver adds to every compile
+sandbox entirely. Server 0.22.0 grants a start only what its system's driver adds to every compile
 (nothing on Windows, `/usr` alone on Linux) and merges neighboring grants, so a start spends two
 or three slots and a session holds far more starts.
 

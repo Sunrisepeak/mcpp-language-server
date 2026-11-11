@@ -1,6 +1,6 @@
 {
   "name": "engine-restarts",
-  "description": "Issue 86: a session survives many engine starts. The sandbox attenuates each read-only grant from a fixed table it never returns a slot of (openkal 0.20.0, Windows and Linux alike), and 0.21.0 spent nine grants a start on Windows and eleven on Linux; this fixture restarts the engine eight times over and after each expects an answer again. With 0.21.1's narrower, merged grant set a start spends two or three slots and the loop passes. macOS keeps its conventional roots for now (the plan's §3.4 owns its table), so the fixture does not run there.",
+  "description": "Issue 86: a session survives many engine starts. The sandbox attenuates each read-only grant from a fixed table it never returns a slot of (openkal 0.20.0, Windows and Linux alike), and 0.21.0 spent nine grants a start on Windows and eleven on Linux; this fixture restarts the engine eight times over and after each expects an answer again. With 0.22.0's narrower, merged grant set a start spends two or three slots and the loop passes. macOS keeps its conventional roots for now (the plan's §3.4 owns its table), so the fixture does not run there.",
   "server-arguments": ["--no-discover"],
   "checks": [
     { "id": "S1", "kind": "status", "state": "ready", "engine-name": "clangd" },

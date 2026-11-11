@@ -9,7 +9,7 @@ Versions are three-part semantic versions, `X.Y.Z`: `X.Y` is the series of the s
 patch is `## [<component> X.Y.Z]` (`server`, `vscode`, `clion`, `zed`, `claude-code`).
 
 
-## [server 0.21.1] — 2026-11-11
+## [0.22.0] — 2026-11-11
 
 ### Fixed
 

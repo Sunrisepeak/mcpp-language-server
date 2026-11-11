@@ -64,7 +64,7 @@ mcpplibs.mtest            = "0.5.2"
 
 [package]
 name        = "mcpp-language-server"
-version     = "0.21.1"
+version     = "0.22.0"
 description = "Compiler-agnostic C++ modules language server"
 license     = "Apache-2.0"
 authors     = ["Sunrisepeak"]
