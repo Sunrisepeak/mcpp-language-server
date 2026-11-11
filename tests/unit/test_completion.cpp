@@ -323,6 +323,57 @@ UTest completion_tests{"completion", [] {
             << "text after the cursor that is not there any more is not replaced";
     };
 
+    "an item whose insert range takes the editor's quote has its replace range take it too (issue 80)"_test = [] {
+        // clangd's include item at the cursor 12 of `#include "foo"`: insert [10, 13) takes the
+        // closing quote, replace [10, 12) does not -- replace-mode acceptance wrote the quote twice.
+        const auto item = [](int insertEnd, int replaceEnd) {
+            return Json { { "label", " foo_header.h\"" }, { "textEdit", Json {
+                { "newText", "foo_header.h\"" },
+                { "insert", Json { { "start", Json { { "line", 0 }, { "character", 10 } } }, { "end", Json { { "line", 0 }, { "character", insertEnd } } } } },
+                { "replace", Json { { "start", Json { { "line", 0 }, { "character", 10 } } }, { "end", Json { { "line", 0 }, { "character", replaceEnd } } } } } } } };
+        };
+        const auto list = [](const Json& one) { return Json { { "isIncomplete", false }, { "items", Json::array({ one }) } }; };
+        Json balanced = list(item(13, 12));
+        completion::balance_for_replace(balanced, Position { 0, 12 });
+        expect(balanced["items"][0]["textEdit"]["replace"]["end"]["character"] == 13) << "replace takes the quote, as insert does";
+        expect(balanced["items"][0]["textEdit"]["insert"]["end"]["character"] == 13);
+        // An identifier's replace range reaches past the cursor on its own: untouched.
+        Json identifier = list(item(13, 15));
+        completion::balance_for_replace(identifier, Position { 0, 12 });
+        expect(identifier["items"][0]["textEdit"]["replace"]["end"]["character"] == 15);
+        // Nothing past the cursor (no auto-paired quote): untouched.
+        Json closed = list(item(12, 12));
+        completion::balance_for_replace(closed, Position { 0, 12 });
+        expect(closed["items"][0]["textEdit"]["insert"]["end"]["character"] == 12);
+        // A plain TextEdit has no asymmetry.
+        Json range;
+        range["start"] = Json { { "line", 0 }, { "character", 10 } };
+        range["end"] = Json { { "line", 0 }, { "character", 13 } };
+        Json plain = list(Json { { "label", "x" }, { "textEdit", Json { { "newText", "foo_header.h\"" }, { "range", range } } } });
+        completion::balance_for_replace(plain, Position { 0, 12 });
+        expect(plain["items"][0]["textEdit"]["range"]["end"]["character"] == 13);
+        // A bare array is a list too; a null result is left alone.
+        Json array = Json::array({ item(13, 12) });
+        completion::balance_for_replace(array, Position { 0, 12 });
+        expect(array[0]["textEdit"]["replace"]["end"]["character"] == 13);
+        Json none = nullptr;
+        completion::balance_for_replace(none, Position { 0, 12 });
+        expect(none.is_null());
+    };
+
+    "a word on an include line carries that fact, and the line is known by its spelling (issue 80)"_test = [] {
+        expect(completion::on_include_line("#include \"foo.h\"\n", 12));
+        expect(completion::on_include_line("#  include_next <sys/ty", 24));
+        expect(completion::on_include_line("#import <Foundation/Fo", 22));
+        expect(completion::on_include_line("#include \"foo.h\"\r\n", 12)) << "a CRLF line";
+        expect(!completion::on_include_line("int x = 1; // #include \"y\"\n", 12)) << "the # is not the directive's";
+        expect(!completion::on_include_line("  int foo;\n", 6));
+        const auto header = completion::word_key("#include \"common/numb\"\n", Position { 0, 21 });
+        expect(header && header->includeDirective) << "the last path segment of an include";
+        const auto code = completion::word_key("int numb\n", Position { 0, 7 });
+        expect(code && !code->includeDirective);
+    };
+
     "a complete answer holds for its word while the document outside the word is the same (0.0.14 A1)"_test = [] {
         const std::string text { "int main() {\n    auto v = obj.s\n}\n" };
         const std::string typedOn { "int main() {\n    auto v = obj.si\n}\n" };

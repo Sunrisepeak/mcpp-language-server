@@ -2113,6 +2113,7 @@ struct Workspace::Impl final : engine::Host {
             wordAnswers.erase(uri);
             return;
         }
+        if (key->includeDirective) return;   // a header name is not a word to key an answer by (issue 80): the engine's own answer, fresh or late, serves it
         wordAnswers[uri] = WordAnswer { std::move(*key), *outside, result, Clock::now() };
     }
 
@@ -2139,7 +2140,8 @@ struct Workspace::Impl final : engine::Host {
 
     // C-2: a completion in a word the core engine answered late is given that answer, at once; one in a word the core
     // engine is still working on waits for it, within its own budget. A completion in another word ends the core
-    // engine's work on the one before: nobody is typing it any more. An import directive's module names are mcppls's own.
+    // engine's work on the one before: nobody is typing it any more. An import directive's module names are mcppls's own;
+    // an include line is served here on purpose (issue 80): the engine's own answer, at most LATE_ANSWER_KEPT old.
     bool answered_late(std::uint64_t jobId, const std::string& uri, base::Position position) {
         if (coreEngine == nullptr) return false;
         Job& job = jobs.at(jobId);
@@ -2357,17 +2359,28 @@ struct Workspace::Impl final : engine::Host {
         if (it == jobs.end()) return;
         // M-2 (plan 0.0.8): a completion the core engine did not answer -- not asked, because the file is set
         // aside, doomed or the engine is backing off, or unable to -- has at least what R-7's budget answer has:
-        // the file's words, as an incomplete list. Never on an import line, where only module names belong.
+        // the file's words, as an incomplete list. Never on an import or include line (issue 80).
         if (it->second.method == lsp::method::TEXT_DOCUMENT_COMPLETION && coreEngine != nullptr && !it->second.coreAnswered
             && completion::is_empty(result)) {
             if (const auto position = position_of(it->second.params)) {
+                const auto offset = base::offset_at(it->second.text, *position);
                 const auto prefix = completion::line_prefix(it->second.text, *position);
-                Json words = prefix && !completion::in_import_directive(*prefix) ? completion::document_words(it->second.text, *position) : Json::array();
+                Json words = prefix && offset && !completion::in_import_directive(*prefix)
+                                             && !completion::on_include_line(it->second.text, *offset)
+                                 ? completion::document_words(it->second.text, *position) : Json::array();
                 if (!words.empty()) {
                     result = completion::without_engine(std::move(words));
                     if (it->second.answeredBy.empty()) it->second.answeredBy = "mcppls";
                     ++wordsWithoutCore;
                 }
+            }
+        }
+        // Issue 80's replace-mode half: include items are balanced so either accept mode takes the
+        // editor's auto-paired quote exactly once -- fresh answers and retargeted ones alike.
+        if (it->second.method == lsp::method::TEXT_DOCUMENT_COMPLETION) {
+            if (const auto position = position_of(it->second.params)) {
+                const auto offset = base::offset_at(it->second.text, *position);
+                if (offset && completion::on_include_line(it->second.text, *offset)) completion::balance_for_replace(result, *position);
             }
         }
         // F15, S3-6.4: the module-syntax keywords and the code templates, with the engine's items, or alone

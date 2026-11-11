@@ -374,6 +374,15 @@ system ([the install guide](00-install.md)), so this means a damaged payload. An
 (`proot`, say). An engine that cannot be started there is the status issue `engine-start-failed`, with
 what went wrong; see [Android, under Termux](00-install.md#android-under-termux).
 
+**"clangd could not be started: granting …: out of memory"** (Windows and Linux). Not memory:
+the sandbox that holds the engine to its directories keeps a small table of them and never returns
+a slot (openkal 0.20.0), and every engine start -- a crash loop, toolchain changes, manual restarts
+-- spends one slot per read-only grant. After enough starts in one session the next start is
+refused whole. Restarting the editor restores the table; `mcppls.grants: ["all"]` does without the
+sandbox entirely. Server 0.22.0 grants a start only what its system's driver adds to every compile
+(nothing on Windows, `/usr` alone on Linux) and merges neighboring grants, so a start spends two
+or three slots and a session holds far more starts.
+
 ## Windows: a cache on a Dev Drive
 
 On Windows every check that a module or a preamble is still good is a file operation that opens the

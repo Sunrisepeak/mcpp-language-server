@@ -45,6 +45,18 @@ std::optional<std::string_view> line_prefix(std::string_view text, base::Positio
     return text.substr(start, *offset - start);
 }
 
+bool on_include_line(std::string_view text, std::size_t offset) {
+    const auto blank = [](char c) { return is_blank(c) || c == '\r'; };   // a CRLF line's carriage returns are blanks
+    const std::size_t lineStart { offset == 0 ? 0 : text.rfind('\n', offset - 1) + 1 };   // npos + 1 is 0
+    std::size_t i { lineStart };
+    while (i < offset && blank(text[i])) ++i;
+    if (i >= text.size() || text[i] != '#') return false;
+    ++i;
+    while (i < text.size() && blank(text[i]) && text[i] != '\n') ++i;
+    const std::string_view rest { text.substr(i) };
+    return rest.starts_with("include") || rest.starts_with("import");
+}
+
 bool is_space_trigger(const Json& params) {
     const Json* context { lsp::find(params, "context") };
     if (context == nullptr || !context->is_object()) return false;
@@ -189,8 +201,10 @@ std::optional<WordKey> word_key(std::string_view text, base::Position position) 
     while (start > 0 && base::is_identifier_char(text[start - 1])) --start;
     const std::size_t lineStart { start == 0 ? 0 : text.rfind('\n', start - 1) + 1 };   // npos + 1 is 0
     const std::size_t lineEnd { std::min(text.find('\n', *offset), text.size()) };
-    return WordKey { position.line, std::string { text.substr(lineStart, start - lineStart) }, std::string { text.substr(start, *offset - start) },
-                     position.character, std::string { text.substr(*offset, lineEnd - *offset) } };
+    WordKey key { position.line, std::string { text.substr(lineStart, start - lineStart) }, std::string { text.substr(start, *offset - start) },
+                  position.character, std::string { text.substr(*offset, lineEnd - *offset) } };
+    key.includeDirective = on_include_line(text, start);
+    return key;
 }
 
 std::optional<std::uint64_t> outside_word(std::string_view text, base::Position position) {
@@ -246,6 +260,25 @@ Json retarget(const Json& result, const WordKey& from, const WordKey& to) {
         out["items"].push_back(std::move(item));
     }
     return out;
+}
+
+void balance_for_replace(Json& result, base::Position at) {
+    const auto items = [&](void) -> Json* {
+        if (result.is_array()) return &result;
+        if (result.is_object() && result.contains("items") && result["items"].is_array()) return &result["items"];
+        return nullptr;
+    }();
+    if (items == nullptr) return;
+    for (Json& item : *items) {
+        if (!item.is_object() || !item.contains("textEdit") || !item["textEdit"].is_object()) continue;
+        Json& edit { item["textEdit"] };
+        if (!edit.contains("insert") || !edit.contains("replace")) continue;
+        Json& insert { edit["insert"] };
+        Json& replace { edit["replace"] };
+        const int insertEnd { insert["end"].value("line", -1) == at.line ? insert["end"].value("character", -1) : -1 };
+        const int replaceEnd { replace["end"].value("line", -1) == at.line ? replace["end"].value("character", -1) : -1 };
+        if (insertEnd > at.character && replaceEnd == at.character) replace["end"] = insert["end"];
+    }
 }
 
 void EnginePace::answered(std::chrono::steady_clock::time_point at, std::chrono::milliseconds latency,

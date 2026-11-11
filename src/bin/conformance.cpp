@@ -5328,7 +5328,7 @@ public:
             });
             const auto item = item_of(result);
             if (!item) return { false, std::format("no item {}: {}", label, lsp::dump(completion_labels(result))) };
-            if (!ok) return { false, expectations_hold(*item, expectations).second };
+            if (!ok) return { false, std::format("{}: {}", expectations_hold(*item, expectations).second, clipped(lsp::dump(*item), 400)) };
             return { true, clipped(lsp::dump(*item), 160) };
         }
         if (kind == "capabilities") {
@@ -5790,7 +5790,7 @@ int run(Options options) {
     Json capabilities {
         { "textDocument", Json { { "hover", Json { { "contentFormat", Json::array({ "markdown", "plaintext" }) } } },
                                  { "documentSymbol", Json { { "hierarchicalDocumentSymbolSupport", true } } },
-                                 { "completion", Json { { "completionItem", Json { { "snippetSupport", false } } } } },
+                                 { "completion", Json { { "completionItem", Json { { "snippetSupport", false }, { "insertReplaceSupport", true } } } } },
                                  { "publishDiagnostics", Json { { "relatedInformation", true } } } } },
         // usable plan W9.3: --no-dynamic-watch exercises the polling fallback the same way a
         // client with no didChangeWatchedFiles support would.

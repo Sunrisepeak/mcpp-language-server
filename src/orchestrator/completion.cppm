@@ -23,6 +23,8 @@ bool is_import_line_prefix(std::string_view linePrefix);
 
 // The text of the line `position` is on, before it; nullopt when the position is not in `text`.
 std::optional<std::string_view> line_prefix(std::string_view text, base::Position position);
+// A line of `#include`, `#include_next` or `#import` (issue 80).
+bool on_include_line(std::string_view text, std::size_t offset);
 
 // A completion request the client sent because a space was typed (CompletionTriggerKind.TriggerCharacter).
 bool is_space_trigger(const Json& params);
@@ -78,6 +80,7 @@ struct WordKey {
     std::string typed;
     int character { 0 };
     std::string after;
+    bool includeDirective { false };   // on an include line (issue 80): not a word to key an answer by
     bool operator==(const WordKey&) const = default;
 };
 // nullopt when `position` is not in `text`.
@@ -101,6 +104,11 @@ bool is_complete(const Json& result);
 // are kept as they are; an edit on another line or starting after the cursor drops its item. The result is a
 // CompletionList, with the engine's `isIncomplete`.
 Json retarget(const Json& result, const WordKey& from, const WordKey& to);
+
+// Issue 80's residual: an include item's insert range takes the editor's auto-paired closing
+// quote, its replace range ends at the cursor -- replace-mode acceptance writes the quote twice.
+// Where insert reaches past `at` and replace ends at it, replace takes insert's end.
+void balance_for_replace(Json& result, base::Position at);
 
 // UP-25 (issue #24): what the core engine has been answering for one file, and the budget those answers earn. clangd
 // 23.1 answers a module importer's completions in about a second -- just past the flat budget -- so the flat budget

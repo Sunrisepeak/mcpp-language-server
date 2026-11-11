@@ -14,6 +14,7 @@ Fixture clangd_crash_closure{"clangd-crash-closure", on{"linux-x64", "linux-arm6
 Fixture clangd_crash_context{"clangd-crash-context", on{"linux-x64", "linux-arm64", "darwin-arm64"}, resource{"machine"}};
 Fixture clangd_exit_strike{"clangd-exit-strike", on{"linux-x64", "linux-arm64", "darwin-arm64"}, resource{"machine"}};
 Fixture diagnostic_bundle{"diagnostic-bundle", on{"linux-x64", "linux-arm64", "darwin-arm64", "win32-x64"}};
+Fixture engine_restarts{"engine-restarts", on{"linux-x64", "linux-arm64", "win32-x64"}, resource{"machine"}};
 Fixture engine_none{"engine-none", on{"linux-x64", "linux-arm64", "darwin-arm64", "win32-x64"}, resource{"machine"}};
 Fixture failure_at_base{"failure-at-base", on{"linux-x64", "linux-arm64", "darwin-arm64", "win32-x64"}, resource{"machine"}};
 Fixture failure_at_base_neovim{"failure-at-base@neovim", on{"linux-x64"}, resource{"machine"}};

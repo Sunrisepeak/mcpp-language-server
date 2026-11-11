@@ -31,10 +31,11 @@ struct GrantSetting {
 GrantSetting parse_grant_setting(std::span<const std::string> members);
 
 // The directories a plan's commands name: each command's directory and its source's, the compiler's
-// installation (the directory above the one its program is in), and each directory a flag searches or
-// reads beneath (-I, -isystem, -iquote, -idirafter, -imsvc, /I, -isysroot, --sysroot, -resource-dir,
-// -B, -include, -fmodule-file=, -fprebuilt-module-path=), made absolute against the command's directory.
-std::vector<std::string> plan_directories(const normalize::EnginePlan& plan);
+// installation (the directory above the one its program is in -- a bare name resolved by
+// `resolve_program` when given), and each directory a flag searches or reads beneath (-I, -isystem,
+// -fmodule-file=, -fprebuilt-module-path=), made absolute against the command's directory.
+using ProgramResolver = std::function<std::optional<std::string>(std::string_view)>;
+std::vector<std::string> plan_directories(const normalize::EnginePlan& plan, const ProgramResolver& resolve_program = {});
 
 struct GrantInputs {
     std::string root;                      // the project: the directory the engine runs in, writable
@@ -55,9 +56,10 @@ bool covered(std::span<const Grant> grants, std::string_view directory);
 // What `named` holds that is there and that `grants` do not cover: why an engine is started again.
 std::vector<std::string> uncovered(std::span<const Grant> grants, std::span<const std::string> named);
 
-// The roots of this system's toolchains and headers that are there: /usr, /opt and the like (Linux,
-// macOS), the developer directories (macOS), the Windows Kits and Visual Studio's installations
-// (Windows).
+// The roots of this system's toolchains and headers: as few as each system's driver truly needs
+// (issue 86) -- none on Windows, /usr alone on Linux (the GCC driver adds /usr/include to every
+// compile), macOS' conventional list (the SDK and system frameworks, found by convention). Each
+// root is a sandbox table slot every engine start pays; `mcppls.grants` adds what else is needed.
 std::vector<std::string> system_roots();
 
 // Where the ok-image runner keeps what it prepares (openkal-image 0.4): OKRUN_CACHE, else
