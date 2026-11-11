@@ -56,10 +56,10 @@ bool covered(std::span<const Grant> grants, std::string_view directory);
 // What `named` holds that is there and that `grants` do not cover: why an engine is started again.
 std::vector<std::string> uncovered(std::span<const Grant> grants, std::span<const std::string> named);
 
-// The roots of this system's toolchains and headers: macOS' (the SDK and system frameworks are
-// found by the driver's convention; nothing names them). Windows and Linux name none (issue 86) --
-// the plan names what a toolchain needs, each root was a sandbox slot every start paid, and
-// `mcppls.grants` adds what a probe failed to name.
+// The roots of this system's toolchains and headers: as few as each system's driver truly needs
+// (issue 86) -- none on Windows, /usr alone on Linux (the GCC driver adds /usr/include to every
+// compile), macOS' conventional list (the SDK and system frameworks, found by convention). Each
+// root is a sandbox table slot every engine start pays; `mcppls.grants` adds what else is needed.
 std::vector<std::string> system_roots();
 
 // Where the ok-image runner keeps what it prepares (openkal-image 0.4): OKRUN_CACHE, else

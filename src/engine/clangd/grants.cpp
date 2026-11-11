@@ -247,16 +247,25 @@ std::vector<std::string> uncovered(std::span<const Grant> grants, std::span<cons
 }
 
 std::vector<std::string> system_roots() {
-    // Issue 86: no blanket roots on Windows and Linux, where the plan names every toolchain these
-    // systems' projects use (verified: their conformance suites pass without them). macOS keeps
-    // its own: the SDK and the system frameworks are found by the driver's own convention, no
-    // command names them, and a kit project degrades without them -- the table they cost each
-    // start is openkal's to fix there (the plan's §3.4).
+    // Issue 86: as few blanket roots as each system's driver truly needs. Windows: none -- the
+    // plan names every toolchain (the MSVC and SDK roots are flags mcppls injects). Linux: /usr
+    // alone -- the GCC driver adds /usr/include to every compile whatever the flags say, and a
+    // toolchain's std.cc cannot be scanned without it (measured: features.h, xmake-basic). macOS:
+    // its conventional list -- the SDK and the system frameworks are found by the driver's own
+    // convention, nothing names them. Each root costs a sandbox table slot every engine start;
+    // `mcppls.grants` adds what a probe failed to name.
     std::vector<std::string> roots;
-    if (os::host() == os::platform::macos) {
+    switch (os::host()) {
+    case os::platform::windows:
+        break;
+    case os::platform::macos:
         for (const char* root : { "/usr", "/opt", "/Library/Developer", "/Applications", "/System/Library/Frameworks",
                                   "/private/var/select", "/nix" })
             roots.emplace_back(root);
+        break;
+    default:
+        roots.emplace_back("/usr");
+        break;
     }
     std::erase_if(roots, [](const std::string& root) { return !is_directory(root); });
     return roots;

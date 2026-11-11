@@ -306,9 +306,11 @@ UTest grants_tests{"grants", [] {
         expect(!cld::covered(grants, base::join_path(root, "projectile"))) << "a sibling whose name begins the same is not beneath";
     };
 
-    "system roots: macOS keeps its SDK and frameworks, Windows and Linux name none (issue 86)"_test = [] {
-        if (os::host() == os::platform::macos) expect(!cld::system_roots().empty()) << "/usr and the SDK at least";
-        else expect(cld::system_roots().empty()) << "the plan names each toolchain";
+    "system roots: what each system's driver adds to every compile, and no more (issue 86)"_test = [] {
+        const auto roots = cld::system_roots();
+        if (os::host() == os::platform::windows) expect(roots.empty()) << "the plan names every toolchain";
+        else if (os::host() == os::platform::macos) expect(!roots.empty()) << "/usr and the SDK at least";
+        else expect(roots.size() == 1u && roots.front() == "/usr") << "the GCC driver's implicit include root";
         for (const auto& cache : cld::runner_caches()) expect(std::filesystem::is_directory(cache)) << cache;
     };
 }};

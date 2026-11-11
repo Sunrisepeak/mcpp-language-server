@@ -22,13 +22,15 @@ patch is `## [<component> X.Y.Z]` (`server`, `vscode`, `clion`, `zed`, `claude-c
 - **A session ran out of engine starts** ([#86](https://github.com/Sunrisepeak/mcpp-language-server/issues/86),
   Windows and Linux alike). The sandbox that holds an engine to its directories keeps a fixed table of
   them and never returns a slot (openkal 0.20.0, measured on both systems), one slot per read-only
-  grant per start; the reporter's Windows machine spent nine a start and a session's eighth start
-  failed whole, `granting C:/Program Files: out of memory`. No system is granted blanket roots now
-  (`C:/Program Files` and its kin on Windows, `/usr` and seven more on a Linux box) -- the plan names
-  each toolchain it uses (a compiler named by a bare name resolves through PATH), and `mcppls.grants`
-  adds anything else -- and neighboring read-only grants merge, never into a volume root or the
+  grant per start; the reporter's Windows machine spent nine a start and the session's eighth start
+  failed whole, `granting C:/Program Files: out of memory`. A start now grants what its system's
+  driver truly adds to every compile and nothing more -- none on Windows (the plan names each
+  toolchain; the MSVC and SDK roots are flags mcppls injects), `/usr` alone on Linux (the GCC
+  driver's implicit include root), macOS' conventional list (its SDK and system frameworks, found
+  by convention) -- and neighboring read-only grants merge, never into a volume root or the
   person's home: a start spends two or three slots and a session holds an order of magnitude more
-  starts. A start that still fails names the cause and the recovery in its status issue.
+  starts. A compiler named by a bare name resolves through PATH to its installation, and a start
+  that still fails names the cause and the recovery in its status issue.
 
 ## [0.21.0] — 2026-11-08
 

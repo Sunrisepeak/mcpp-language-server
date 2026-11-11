@@ -203,11 +203,11 @@ const std::vector<Setting>& shipped_registry() {
             .surface = Surface::server, .applies = Applies::restart, .category = "engines", .since = "0.0.20",
             .summary = "Directories an ok-image engine (clangd.okb) is given besides those mcppls gives it: the project, its caches, the "
                        "temporary directory, the engine's own files, the package stores and every directory the compile commands name "
-                       "(no system roots on Windows and Linux since 0.21.1 -- each was a sandbox slot every engine start paid). A path is read-only, "
+                       "(only the root each system's driver adds to every compile since 0.21.1 -- each was a sandbox slot every engine start paid). A path is read-only, "
                        "`rw:<path>` writable; `all` gives the engine the whole file system, as its runner does by itself. "
                        "A program engine is not affected.",
             .summaryZh = "ok 映像引擎（clangd.okb）在 mcppls 给出的目录之外还得到的目录。mcppls 给出：项目、它的缓存、临时目录、引擎自己的"
-                         "文件、包仓库，以及编译命令提到的每个目录（Windows 与 Linux 自 0.21.1 起不再授予系统根目录——每个都是每次引擎启动要付的沙箱槽位）。"
+                         "文件、包仓库，以及编译命令提到的每个目录（自 0.21.1 起只授予各系统驱动每次编译隐式加入的根——每个都是每次引擎启动要付的沙箱槽位）。"
                          "写路径为只读，`rw:<路径>` 为可写；`all` 给引擎整个文件系统，与运行器自己的默认相同。程序形态的引擎不受影响。",
             .clientConfigurable = true,
         },
