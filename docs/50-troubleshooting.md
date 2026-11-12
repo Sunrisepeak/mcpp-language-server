@@ -331,8 +331,12 @@ itself -- not for a crash, not for a plan that names a new directory: mcppls's o
 and the three are yours (**Restart clangd**). When none is left the start is refused
 (`engine-start-failed`: "…this session's 17 engine starts spent it…"), and **Restart Server** brings
 the whole table back in a second, without restarting the editor; `mcppls.grants: ["all"]` does
-without the sandbox. With the crash ledger above a file that ends clangd costs one or two starts, so
-this is the backstop for a long session of many restarts, not something a crash loop reaches.
+without the sandbox. How many starts the table holds depends on the system: a start is given three
+or four read-only directories on Windows and Linux (sixteen to twenty-one starts), and more on
+macOS, whose system directories are granted by convention, so the reserve is reached there after
+fewer; `startBudget.readOnlyGrantsEach` and `startsLeft` say it for the session. With the crash
+ledger above a file that ends clangd costs one or two starts, so this is the backstop for a long
+session of many restarts, not something a crash loop reaches.
 
 **clangd ends on a module unit with a library header (Windows 11 24H2, mcppls 0.22.0 and earlier).**
 On Windows builds 26100 and later the bundled clangd through `23.1.0-mcppls.10` ended by
