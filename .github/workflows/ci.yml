@@ -897,7 +897,12 @@ jobs:
           - { platform: win32-x64, os: windows-2022 }
           # Windows 11 24H2's build (26100). Issue 86: clangd ended on every module unit with a library header there
           # and on no earlier build, and every Windows row of this workflow ran on build 20348 (design 2026-11-12, 6).
-          - { platform: win32-x64, os: windows-2025, part: build-26100 }
+          # Its image is another toolchain too (CMake 4.4.5, MSVC 14.51): cmake-msvc-std's own project, written for
+          # CMake 3.31.6's experimental `import std`, does not build there -- the gate is another UUID, and with that
+          # UUID (f35a9ac6-...) CMake 4.4.5 builds `@cmake_cxx_std.lib` and leaves it off app's link line (LNK2001,
+          # `std::_General_precision_tables_2<double>::_Max_P`). That is the fixture's `prepare`, before any server
+          # runs; the row leaves the case out by its tag until the project is written for both.
+          - { platform: win32-x64, os: windows-2025, part: build-26100, exclude-tag: cmake-3.31-import-std }
     defaults:
       run:
         shell: bash
@@ -944,6 +949,7 @@ jobs:
           exe=''; [ "$RUNNER_OS" != Windows ] || exe='.exe'
           select=(--tag "on:${{ matrix.platform }}")
           [ -z "${{ matrix.shard }}" ] || select+=(--shard "${{ matrix.shard }}")
+          [ -z "${{ matrix.exclude-tag }}" ] || select+=(--exclude-tag "${{ matrix.exclude-tag }}")
           echo "CTS_SELECT=${select[*]}" >> "$GITHUB_ENV"
           echo "CTS=stage/mcppls-cts$exe" >> "$GITHUB_ENV"
           "$MTEST" plan --json "${select[@]}" "stage/mcppls-cts$exe" > "$RUNNER_TEMP/cts-plan.json"
@@ -1049,8 +1055,7 @@ jobs:
       # correctly from 4.4 on, usable plan W4, E16; clang-cl module scanning, W1.8); these hosts' own CMake is the
       # 3.31.6 the runner images ship. Each states it (`requires-cmake`, CONFORMANCE_CMAKE), and the runner puts
       # this CMake first on the PATH of that fixture's prepare steps only: CMake rotates its experimental-feature
-      # UUIDs, and cmake-msvc-std pins 3.31.6's CMAKE_EXPERIMENTAL_CXX_IMPORT_STD UUID (E1/E7-E11); where the
-      # image's own CMake is another (windows-2025), "Run the fixtures" gives the fixture that CMake's.
+      # UUIDs, and cmake-msvc-std pins 3.31.6's CMAKE_EXPERIMENTAL_CXX_IMPORT_STD UUID (E1/E7-E11).
       - name: Cache CMake 4.4.2 (cmake-clang-bdb, cmake-msvc-bdb, cmake-clang-cl)
         if: matrix.platform == 'linux-x64' || matrix.platform == 'win32-x64'
         id: cmake-bdb-cache
@@ -1118,15 +1123,6 @@ jobs:
           export MCPPLS_CTS_EVIDENCE="$RUNNER_TEMP/evidence"
           if [ "$RUNNER_OS" = Windows ]; then
             export MCPPLS_CTS_MSVC_ENV="$RUNNER_TEMP/msvc.env" CONFORMANCE_CMAKE="$RUNNER_TEMP/cmake-4.4.2/bin/cmake.exe"
-            # cmake-msvc-std runs with the image's own CMake and opens its `import std`, whose gate CMake rotates:
-            # windows-2022 ships 3.31.6, windows-2025 a 4.4. The CMake is asked which of the known gates is its own;
-            # one that answers to neither leaves the fixture its default, and the fixture says what CMake said.
-            printf '%s\n' 'cmake_language(GET_EXPERIMENTAL_FEATURE_ENABLED "CxxImportStd" open)' 'message("import-std=${open}")' > "$RUNNER_TEMP/import-std.cmake"
-            for gate in 0e5b6991-d74f-4b3d-a41c-cf096e0b2508 f35a9ac6-8463-4d38-8eec-5d6008153e7d; do
-              answer=$(cmake "-DCMAKE_EXPERIMENTAL_CXX_IMPORT_STD=$gate" -P "$RUNNER_TEMP/import-std.cmake" 2>&1 || true)
-              case "$answer" in *import-std=TRUE*) export CMAKE_IMPORT_STD_UUID="$gate" ;; esac
-            done
-            echo "$(cmake --version | sed -n 1p): import std gate ${CMAKE_IMPORT_STD_UUID:-not one of the known}"
           elif [ "${{ matrix.platform }}" = linux-x64 ]; then
             export CONFORMANCE_CMAKE="$RUNNER_TEMP/cmake-4.4.2/bin/cmake"
           fi

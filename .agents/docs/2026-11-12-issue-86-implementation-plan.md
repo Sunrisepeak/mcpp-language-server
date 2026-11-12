@@ -76,11 +76,13 @@ and what moved against the design while implementing.
     one root -- every report so far -- the count is the table's. Where it is not, a refused start
     still says what it is (`engine-start-failed`, with Restart Server). One count for the process
     is follow-up, and unnecessary once the platform returns its slots.
-14. **`windows-2025` ships another CMake.** The image's own CMake is a 4.4 where `windows-2022`
-    has 3.31.6, and CMake rotates the gate of its experimental `import std`: `cmake-msvc-std`
-    failed in `prepare` on the new row and nowhere else. The row asks the image's CMake which of
-    the known gates is its own (`cmake_language(GET_EXPERIMENTAL_FEATURE_ENABLED …)`) and gives
-    the fixture that one.
+14. **`windows-2025` is another toolchain too.** The image has CMake 4.4.5 and MSVC 14.51 where
+    `windows-2022` has 3.31.6 and Visual Studio 2022's MSVC. `cmake-msvc-std`'s own project is written for 3.31.6's
+    experimental `import std`: on the new row its `prepare` failed twice over -- the gate is another
+    UUID, and with the right one CMake 4.4.5 builds the standard module's library and leaves it
+    off the program's link line (LNK2001). No server runs before that. The row leaves that one
+    case out by a tag (74 of 75 cases run there); writing the project for both CMakes is
+    follow-up.
 
 ## 3. Tasks
 
