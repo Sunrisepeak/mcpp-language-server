@@ -1,0 +1,23 @@
+{
+  "name": "code-actions",
+  "description": "Issue 89: clangd's refactorings reach the editor, and one chosen is carried out. The engine's image was linked without them through 23.1.0-mcppls.11 and every such request was answered with an empty list. The client declares code action literals, as VS Code, Neovim, Zed and CLion do: an action is then a literal that holds a command, the server routes the command to clangd, and clangd's workspace/applyEdit comes back through the server to the client.",
+  "server-arguments": ["--no-discover"],
+  "client-capabilities": {
+    "textDocument": { "codeAction": { "codeActionLiteralSupport": { "codeActionKind": { "valueSet": ["", "quickfix", "refactor", "refactor.extract", "refactor.inline", "refactor.rewrite", "source"] } } } },
+    "workspace": { "applyEdit": true }
+  },
+  "checks": [
+    { "id": "S1", "kind": "status", "source": "inferred", "state": "ready", "engine-name": "clangd" },
+    { "id": "C1", "kind": "diagnostics-empty", "file": "src/pass.cpp" },
+    { "id": "A1-class-constructor", "kind": "code-action", "file": "src/pass.cpp", "at": [2, 8], "title": "Define constructor",
+      "edit-contains": "FinalPass(int width, int height)" },
+    { "id": "A2-class-special-members", "kind": "code-action", "file": "src/pass.cpp", "at": [2, 8], "title": "Declare implicit copy/move members",
+      "edit-contains": "FinalPass(const FinalPass &) = default;" },
+    { "id": "A3-expression", "kind": "code-action", "file": "src/pass.cpp", "at": [15, 19], "to": [15, 24], "title": "Extract subexpression to variable",
+      "edit-contains": "auto placeholder = w * 2;" },
+    { "id": "A4-deduced-type", "kind": "code-action", "file": "src/pass.cpp", "at": [15, 5], "title": "Replace with deduced type",
+      "edit-contains": "int" },
+    { "id": "A5-module-unit", "kind": "code-action", "file": "src/pass.cppm", "at": [4, 8], "title": "Define constructor",
+      "edit-contains": "ModulePass(int width, int height)" }
+  ]
+}

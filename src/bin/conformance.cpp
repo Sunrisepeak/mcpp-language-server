@@ -565,6 +565,8 @@ public:
     // Every `workspace/semanticTokens/refresh` the server asked for, when it arrived: an editor asks for the tokens of the
     // files it shows again on one (the tokens-latency check does).
     std::vector<Clock::time_point> tokensRefreshes;
+    // Issue 89: the edits the server asked this client to apply (workspace/applyEdit), each answered as applied.
+    std::vector<Json> appliedEdits;
     // The server's OS pid where the platform can say; read by the clangd watcher's thread, so atomic.
     std::atomic<std::int64_t> serverPid { -1 };
 
@@ -762,6 +764,9 @@ public:
                 }
             } else if (method == "workspace/semanticTokens/refresh") {
                 tokensRefreshes.push_back(Clock::now());
+            } else if (method == "workspace/applyEdit") {
+                appliedEdits.push_back(message.value("params", Json::object()));
+                result = Json { { "applied", true } };
             } else if (method == "client/unregisterCapability") {
                 // The protocol spells the field "unregisterations".
                 for (const auto& registration : message["params"].value("unregisterations", Json::array())) {
@@ -5143,6 +5148,84 @@ public:
             // "subset": no line outside `lines` (a clangd that reports fewer is not wrong; one that reports more is).
             const bool held { check.value("subset", false) ? std::ranges::includes(expected, lines) : lines == expected };
             return { published && held, published ? std::format("{} on lines {}", code.dump(), lines) : std::string { "no diagnostics were published" } };
+        }
+        if (kind == "code-action") {
+            // Issue 89: the actions offered at `at` (through `to`, when a range is selected) hold one titled `title`; with
+            // `edit-contains`, that action carried out as an editor carries it out -- its own edit, or its command and the
+            // workspace/applyEdit the server then asks for -- puts that text into this file. `absent` names titles that are
+            // not offered.
+            open(file);
+            const std::string documentUri { uri(file) };
+            const std::string title { check.value("title", std::string {}) };
+            const Json at = position(check.at("at"));
+            const Json to = check.contains("to") ? position(check.at("to")) : at;
+            Json chosen = nullptr;
+            Json actions = nullptr;
+            // Asked again while the file is being built, for a minute at most: an engine that has no such action answers
+            // at once, each time, and the check's whole time would be spent learning nothing more.
+            const auto deadline = Clock::now() + std::min<std::chrono::seconds>(timeout_, std::chrono::seconds { 60 });
+            bool offered { false };
+            while (!offered) {
+                const auto outcome = client_.request_full("textDocument/codeAction",
+                    Json { { "textDocument", Json { { "uri", documentUri } } }, { "range", Json { { "start", at }, { "end", to } } },
+                           { "context", Json { { "diagnostics", Json::array() } } } }, timeout_);
+                if (outcome.timedOut) return { false, "no answer" };
+                if (outcome.isError) return { false, lsp::dump(outcome.error) };
+                actions = outcome.result;
+                if (actions.is_array()) {
+                    for (const auto& action : actions) {
+                        if (action.is_object() && action.value("title", std::string {}) == title) {
+                            chosen = action;
+                            offered = true;
+                            break;
+                        }
+                    }
+                    offered = offered || title.empty();
+                }
+                if (offered || Clock::now() >= deadline) break;
+                client_.drain(std::chrono::milliseconds { 500 });
+            }
+            if (!offered) return { false, lsp::dump(actions) };
+            for (const auto& unwanted : check.value("absent", Json::array())) {
+                for (const auto& action : actions) {
+                    if (action.is_object() && Json(action.value("title", std::string {})) == unwanted) return { false, lsp::dump(actions) };
+                }
+            }
+            const std::string wanted { check.value("edit-contains", std::string {}) };
+            if (wanted.empty()) return { true, lsp::dump(actions) };
+            Json edit = nullptr;
+            if (const auto own = chosen.find("edit"); own != chosen.end() && own->is_object()) {
+                edit = *own;
+            } else {
+                // A Command, or a CodeAction that holds one.
+                const auto held = chosen.find("command");
+                const Json& command { held != chosen.end() && held->is_object() ? *held : chosen };
+                const std::size_t before { client_.appliedEdits.size() };
+                const auto outcome = client_.request_full("workspace/executeCommand",
+                    Json { { "command", command.value("command", std::string {}) }, { "arguments", command.value("arguments", Json::array()) } }, timeout_);
+                if (outcome.timedOut) return { false, "the action's command was not answered" };
+                if (outcome.isError) return { false, lsp::dump(outcome.error) };
+                if (client_.appliedEdits.size() == before) return { false, std::format("the action's command asked for no edit: {}", lsp::dump(outcome.result)) };
+                edit = client_.appliedEdits.back().value("edit", Json::object());
+            }
+            // The text the edit gives this file, whichever of the protocol's two shapes it has.
+            std::string inserted;
+            const auto take = [&](const Json& edits) {
+                if (!edits.is_array()) return;
+                for (const auto& item : edits) {
+                    if (item.is_object()) inserted += item.value("newText", std::string {}) + "\n";
+                }
+            };
+            if (const Json* changes { lsp::find(edit, "changes") }; changes != nullptr && changes->is_object()) {
+                if (const auto own = changes->find(documentUri); own != changes->end()) take(*own);
+            }
+            if (const Json* changes { lsp::find(edit, "documentChanges") }; changes != nullptr && changes->is_array()) {
+                for (const auto& change : *changes) {
+                    const Json* changed { lsp::find_path(change, { "textDocument", "uri" }) };
+                    if (changed != nullptr && *changed == Json(documentUri)) take(change.value("edits", Json::array()));
+                }
+            }
+            return { inserted.find(wanted) != std::string::npos, lsp::dump(edit) };
         }
         if (kind == "request") {
             // mcpp-community/mcpp#797: one request about `file` -- `method`, at `at` when given, with `params` added -- and

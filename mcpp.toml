@@ -59,8 +59,8 @@ mcpplibs.os               = "0.4.1"
 nlohmann.json             = "3.12.0"
 # The test library every package's tests are written with, and the conformance cases (tests/cts):
 # mcpp-community/mtest, which speaks the mtest protocol to mcpp, mtest and the editors.
-mcpplibs.mtest            = "0.5.2"
-"mcpplibs.mtest.manifest" = "0.5.2"
+mcpplibs.mtest            = "0.6.3"
+"mcpplibs.mtest.manifest" = "0.6.3"
 
 [package]
 name        = "mcpp-language-server"

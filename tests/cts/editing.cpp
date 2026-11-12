@@ -1,5 +1,5 @@
-// What a person does in an editor: typing an import or a body, saving, completion, formatting and
-// tidying, verifying an edit, the watch of files, and the experience of a real project.
+// What a person does in an editor: typing an import or a body, saving, completion, code actions,
+// formatting and tidying, verifying an edit, the watch of files, and the experience of a real project.
 import mcppls.cts;
 
 using namespace mcpplibs::mtest;
@@ -7,6 +7,7 @@ using namespace mcppls::cts;
 
 namespace {
 
+Fixture code_actions{"code-actions", on{"linux-x64", "linux-arm64", "darwin-arm64", "win32-x64"}};
 Fixture completion_keywords{"completion-keywords", on{"linux-x64", "linux-arm64", "darwin-arm64", "win32-x64"}, resource{"machine"}};
 Fixture completion_templates{"completion-templates", on{"linux-x64", "linux-arm64", "darwin-arm64", "win32-x64"}};
 Fixture format_explicit{"format-explicit", on{"linux-x64", "darwin-arm64", "win32-x64"}};

@@ -20,12 +20,21 @@ patch is `## [<component> X.Y.Z]` (`server`, `vscode`, `clion`, `zed`, `claude-c
   26100 and 26200, and on no earlier one. Its include analysis identified a used include by the file
   entry of the include's resolved path; under the runner an open file and its name had two
   identities on those builds, the lookup came back empty, and the dereference trapped in the image's
-  hardened standard library, without a word. The engine is `23.1.0-mcppls.11` (mcppls-clangd 0.0.22),
-  which marks an include by the ID it was entered with; unused-include hints keep working. The two
+  hardened standard library, without a word. Since `23.1.0-mcppls.11` (mcppls-clangd 0.0.22) the engine
+  marks an include by the ID it was entered with; unused-include hints keep working. The two
   identities themselves are corrected in openkal-windows 0.22.0 (a 32-bit and a 64-bit volume serial
   number), which a later platform pin brings to the runner. For 0.22.0 and earlier, a `.clangd`
   with `Diagnostics: { UnusedIncludes: None, MissingIncludes: None }` avoids it
   (docs/50-troubleshooting.md).
+- **No refactoring was offered: "No code actions available" on a class's name, an expression, `auto`**
+  ([#89](https://github.com/Sunrisepeak/mcpp-language-server/issues/89)). clangd's refactorings
+  ("Define constructor", "Declare implicit copy/move members", "Extract to function", "Expand macro"
+  and the rest) are units that register themselves when clangd starts; the bundled engine's image was
+  linked from clangd's libraries alone and carried none of them, on every system, since the engine is
+  an ok image. A request for code actions was answered with the fixes of its diagnostics and
+  otherwise with an empty list; the server passed on what it was given. The engine is
+  `23.1.0-mcppls.12` (mcppls-clangd 0.0.23), whose image links them, and which is not packaged unless
+  it answers such a request.
 - **A file that ends clangd costs the session that file, not the engine.** The reports of #86 showed
   the server's own part in the loop: every exit was recorded as `-1`; the files set aside were the
   ones last asked about (in an editor at rest, every visible file -- `main.cpp`, which could not
@@ -69,6 +78,11 @@ patch is `## [<component> X.Y.Z]` (`server`, `vscode`, `clion`, `zed`, `claude-c
   word on whether an open file is the node its name refers to), and under `lastExit` `reproduce`:
   the `clangd --check=<file>` command that builds the suspect alone as the session does.
 - Status issues `file-ended-engine`, `engine-paused`, `engine-restart-withheld` (S3, additive).
+- Conformance `code-actions` (every system), as a client that declares code action literals: the
+  refactorings on a class's name, a selected expression and `auto`, in a source file and a module's
+  interface unit, each one carried out -- the action's command goes to clangd and the edit clangd asks
+  the client to apply holds the text. The runner's new check `code-action` does what an editor does
+  with an action, and the runner answers `workspace/applyEdit`.
 - Conformance `engine-trap` (Linux, macOS): a clangd ended by a signal whenever it builds one file
   -- the file is set aside at the first exit and named with the condition, the others keep clangd,
   an edit does not send it back, a second session does not hand it to clangd, three starts in all.
@@ -81,6 +95,8 @@ patch is `## [<component> X.Y.Z]` (`server`, `vscode`, `clion`, `zed`, `claude-c
 
 - A file set aside after clangd crashed on it no longer goes back the moment the modules it imports
   are built again (0.0.17 W5, #59 U7a); that makes it eligible, and it goes back when its term ends.
+- The tests are mtest 0.6.3's: the library (`mcpplibs.mtest`, `mcpplibs.mtest.manifest`) and the engine
+  CI runs the cases with (`.github/versions.env`).
 - CI: a pull request that names an engine candidate (`packaging/engine-candidate.json`) is tested
   with it, or its run is red. Since the engine's run has one artifact (mcppls-clangd 0.0.21) the
   payload job looked for the part where it no longer was and assembled the payload from the lock's
