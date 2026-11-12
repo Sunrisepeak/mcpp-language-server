@@ -89,6 +89,12 @@ std::optional<PayloadInputs> payload_inputs(const std::string& root, const cmdli
         }
         inputs.clangd[item.substr(0, equals)] = item.substr(equals + 1);
     }
+    // `--candidate` says the engines given are an unreleased engine's. With none given the payload would be the
+    // lock's engine under a candidate's name: CI assembled it so from 0.0.21 on, its candidate never tested.
+    if (inputs.candidate && inputs.clangd.empty()) {
+        std::println(std::cerr, "mcppls-devtools: --candidate goes with the engine it is (--clangd <platform>=<directory>, or openkal=<directory>); none was given");
+        return std::nullopt;
+    }
     const auto lockData = load_lock(root);
     if (!lockData) return std::nullopt;
     const auto known = pack::lock::platform_names(*lockData);

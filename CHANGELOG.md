@@ -74,12 +74,17 @@ patch is `## [<component> X.Y.Z]` (`server`, `vscode`, `clion`, `zed`, `claude-c
   an edit does not send it back, a second session does not hand it to clangd, three starts in all.
   `clangd-crash-closure` follows the ledger's rule. The conformance cases also run on
   `windows-2025` (Windows build 26100): every Windows row ran on build 20348, where #86's fault
-  cannot occur.
+  cannot occur. One case stays on the old image alone, `cmake-msvc-std`, whose own project does not
+  build with the new image's CMake 4.4.5.
 
 ### Changed
 
 - A file set aside after clangd crashed on it no longer goes back the moment the modules it imports
   are built again (0.0.17 W5, #59 U7a); that makes it eligible, and it goes back when its term ends.
+- CI: a pull request that names an engine candidate (`packaging/engine-candidate.json`) is tested
+  with it, or its run is red. Since the engine's run has one artifact (mcppls-clangd 0.0.21) the
+  payload job looked for the part where it no longer was and assembled the payload from the lock's
+  engine without a word; `mcppls-devtools payload --candidate` now refuses to run without an engine.
 
 ## [0.22.0] — 2026-11-11
 

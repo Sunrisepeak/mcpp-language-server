@@ -791,23 +791,38 @@ jobs:
           set -euo pipefail
           version=$(sed -n 's/^version *= *"\(.*\)"$/\1/p' mcpp.toml | head -1)
           engine=()
+          images=()
           if [ -d candidate ]; then
-            # The ok image's part (clangd-openkal) is its release archive; its engine.json names openkal.
-            for archive in candidate/clangd-openkal/*.tar.gz; do
-              [ -f "$archive" ] && tar -xzf "$archive" -C candidate/clangd-openkal
-            done
+            # The ok image's part (clangd-openkal) is its release archive; its engine.json names openkal. The one
+            # artifact the engine's run has since 0.0.21 is put straight into `candidate` (download-artifact gives
+            # several a directory each, one none): the archive is looked for wherever it is. From 0.0.21 to
+            # 0.23.0's pull request it was looked for in `candidate/clangd-openkal` alone, was not there, and the
+            # payload was assembled from the lock's engine without a word -- a candidate named and never tested.
+            while IFS= read -r archive; do
+              tar -xzf "$archive" -C "$(dirname "$archive")"
+            done < <(find candidate -type f -name 'clangd-*.tar.gz')
             for part in $(find candidate -path '*clangd/engine.json' -exec dirname {} \;); do
               platform=$(jq -r .platform "$part/engine.json")
               chmod +x "$part"/bin/*
               jq '{platform, version: .["engine-version"], fork: .["fork-commit"], sha256}' "$part/engine.json"
               engine+=(--clangd "$platform=$part")
+              images+=("$(jq -r .sha256 "$part/engine.json")")
             done
+            [ ${#images[@]} -gt 0 ] || { echo "::error::packaging/engine-candidate.json names a run, and its artifacts hold no engine part (clangd/engine.json)"; find candidate -maxdepth 3; exit 1; }
             engine+=(--candidate)
           fi
           stage/mcppls-devtools payload --server-image "server/mcppls-$version.okb" --server-tree "server/mcppls-$version-openkal.zip" \
               --kit kit-openkal ${engine[@]+"${engine[@]}"} --out payload --cache "$PAYLOAD_CACHE"
           stage/mcppls-devtools payload --verify payload --json > "$RUNNER_TEMP/verify.json"
           cat "$RUNNER_TEMP/verify.json"
+          # The engine every later job tests: its version and image, as the payload states them. With a candidate
+          # they are the candidate's, or the run stops here.
+          jq -c '.platforms | to_entries[] | {platform: .key, engine: .value.engines.clangd.identity["engine-version"], sha256: .value.engines.clangd.identity.sha256}' payload/payload.json
+          if [ ${#images[@]} -gt 0 ]; then
+            carried=$(jq -r '[.platforms[].engines.clangd.identity.sha256] | unique | join(" ")' payload/payload.json)
+            wanted=$(printf '%s\n' "${images[@]}" | sort -u | paste -sd' ')
+            [ "$carried" = "$wanted" ] || { echo "::error::the payload carries the engine $carried, the candidate is $wanted"; exit 1; }
+          fi
           # The payload carries the one okb byte for byte, and an entry for every platform.
           want=$(sha256sum "server/mcppls-$version.okb" | cut -d' ' -f1)
           got=$(jq -r '.server.sha256' "$RUNNER_TEMP/verify.json")
