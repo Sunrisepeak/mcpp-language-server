@@ -231,6 +231,9 @@ public:
     struct Traps {
         std::atomic<int> starts { 0 };
         std::atomic<int> trapped { 0 };
+        // How the system reports the end: an illegal instruction, as this host's platform tells it (a signal's number,
+        // or an NTSTATUS with its top bit cleared).
+        ExitStatus status { 4, true };
     };
     TrappingProcess(std::shared_ptr<Shared> shared, std::shared_ptr<Traps> traps) : BuildingProcess(shared), shared_ { std::move(shared) }, traps_ { std::move(traps) } {}
 
@@ -251,7 +254,7 @@ public:
                 }
                 shared_->log(std::format("I[00:00:00.000] ASTWorker building file {} version 1 with command clang++ -c",
                                          mcppls::base::uri_to_path(uri).value_or(std::string {})));
-                ended_ = ExitStatus { 4, true };   // SIGILL
+                ended_ = traps_->status;
                 ++traps_->trapped;
                 onClosed_();
                 return {};
@@ -2722,6 +2725,10 @@ UTest server_tests{"server", [] {
         const eng::DocumentView mainView { mcppls::base::path_to_uri(main), main, "cpp", 1, mainText };
         const eng::DocumentView trapView { mcppls::base::path_to_uri(trap), trap, "cpp", 1, trapText };
         auto traps = std::make_shared<TrappingProcess::Traps>();
+        // The same fault as each system reports it, and as the engine then names it.
+        const bool windows { os::host() == os::platform::windows };
+        if (windows) traps->status = { 0x4000001D, true };
+        const std::string condition { windows ? "an illegal instruction (0xC000001D)" : "SIGILL (signal 4)" };
         const auto session = [&](EditorHost& host, std::shared_ptr<BuildingProcess::Shared> shared) {
             cld::Options options;
             options.executable = executable;
@@ -2765,8 +2772,8 @@ UTest server_tests{"server", [] {
             expect(traps->trapped == 1);
             const Json report = engine->report();
             const Json& exit = report["lastExit"];
-            expect(exit["exitCode"] == 4 && exit["endedByEnvironment"] == true && exit["endedFromOutside"] == false) << exit.dump();
-            expect(exit["exitCondition"] == "SIGILL (signal 4)") << exit["exitCondition"].dump();
+            expect(exit["exitCode"] == (windows ? 0xC000001Du : 4u) && exit["endedByEnvironment"] == true && exit["endedFromOutside"] == false) << exit.dump();
+            expect(exit["exitCondition"] == condition) << exit["exitCondition"].dump();
             expect(exit["suspectRule"] == "in-flight" && exit["suspects"] == Json::array({ trap })) << exit.dump();
             expect(exit["buildsInFlight"] == Json::array({ trap }));
             expect(exit["reproduce"]["file"] == trap && exit["reproduce"]["command"].dump().contains("--check=")) << exit["reproduce"].dump();
@@ -2775,7 +2782,7 @@ UTest server_tests{"server", [] {
             const auto status = engine->status();
             const auto issue = std::ranges::find_if(status.issues, [](const auto& item) { return item.code == "file-ended-engine"; });
             expect(fatal(issue != status.issues.end())) << "the status names the file and how clangd ended";
-            expect(issue->message.contains("trap_view.cppm") && issue->message.contains("SIGILL") && issue->command == "mcppls.restartClangd") << issue->message;
+            expect(issue->message.contains("trap_view.cppm") && issue->message.contains(condition) && issue->command == "mcppls.restartClangd") << issue->message;
             expect(std::ranges::none_of(status.issues, [](const auto& item) { return item.code == "file-quarantined"; }));
             // The other file is clangd's again, and the one that ended it is not given to the new clangd.
             expect(run(*engine, host, 3s, [&] { return count(*shared, "textDocument/didOpen", main) >= 2; })) << "main.cpp is opened in the new clangd";
@@ -2814,7 +2821,7 @@ UTest server_tests{"server", [] {
             const Json written = Json::parse(*text, nullptr, false);
             expect(fatal(written.is_object() && written["files"].size() == 1u)) << *text;
             const Json& record = *written["files"].begin();
-            expect(record["exits"] == 2 && record["term"] == 4 && record["condition"] == "SIGILL (signal 4)") << record.dump();
+            expect(record["exits"] == 2 && record["term"] == 4 && record["condition"] == condition) << record.dump();
             engine->shut_down();
         }
         std::filesystem::remove_all(root, ignored);

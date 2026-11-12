@@ -2980,6 +2980,11 @@ private:
         }
         if (method == lsp::method::TEXT_DOCUMENT_PUBLISH_DIAGNOSTICS) {
             const Json& params { message["params"] };
+            // Issue 86 S2: whoever the diagnostics are for -- a prime unit, a unit opened for the index, the editor's
+            // file -- the build they end is no longer in flight.
+            if (const std::string built { host_->path_of_uri(host_->client_uri(params.value("uri", std::string {}))) }; !built.empty()) {
+                building_.ended(base::path_key(built));
+            }
             if (const Json* published { lsp::find(params, "diagnostics") }; finish_prime_(params.value("uri", std::string {}), published)) return;
             const std::string uri { host_->client_uri(params.value("uri", std::string {})) };
             const std::string diagnosedPath { host_->path_of_uri(uri) };

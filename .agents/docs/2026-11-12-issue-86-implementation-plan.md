@@ -71,6 +71,17 @@ and what moved against the design while implementing.
     `dirty` ignores `mcpp.lock` (what the build tool rewrites for its host) and names what does
     differ. The kit line says when its target is the host's default.
 
+13. **The budget counts a workspace's own starts.** The table belongs to the server process, and a
+    server with several workspace roots has an engine for each; each counts what it started. With
+    one root -- every report so far -- the count is the table's. Where it is not, a refused start
+    still says what it is (`engine-start-failed`, with Restart Server). One count for the process
+    is follow-up, and unnecessary once the platform returns its slots.
+14. **`windows-2025` ships another CMake.** The image's own CMake is a 4.4 where `windows-2022`
+    has 3.31.6, and CMake rotates the gate of its experimental `import std`: `cmake-msvc-std`
+    failed in `prepare` on the new row and nowhere else. The row asks the image's CMake which of
+    the known gates is its own (`cmake_language(GET_EXPERIMENTAL_FEATURE_ENABLED …)`) and gives
+    the fixture that one.
+
 ## 3. Tasks
 
 ### A — mcppls-clangd (engine)
@@ -132,4 +143,6 @@ run on A's candidate (the integration rule of both repositories).
   `openkal/clangd/mcpp.toml`: W4 and P1 reach users; `engine-restarts` goes to 40; the
   `windows-2025` control in the engine's CI turns to "one identity".
 - E2: the runner's trap block, and the server's reading of it.
+- The same correction of `forget()` in openkal-linux and openkal-macos; one start count for the
+  server process (§2.13).
 - Housekeeping: draft PR #87, branch `tmp/issue86-systop-repro`, pre-release `issue86-evidence`.
