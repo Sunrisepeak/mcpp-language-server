@@ -82,7 +82,7 @@ class Session:
         env["MCPPLS_CACHE_DIR"] = os.path.abspath(args.cache)
         if args.engine_arguments:
             env["MCPPLS_ENGINE_ARGUMENTS"] = args.engine_arguments
-        command = [args.okrun, args.server, "serve", "--payload", os.path.abspath(args.payload), "--log-level", "debug"]
+        command = [args.okrun, args.server, "serve", "--payload", os.path.abspath(args.payload), "--log-level", args.log_level]
         print("server:", " ".join(command), flush=True)
         self.process = subprocess.Popen(command, cwd=args.root, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=open(os.path.join(self.out, "server-stderr.log"), "wb"))
@@ -156,8 +156,9 @@ class Session:
 
     def log_counts(self):
         """What the server's own log says so far: clangd's starts and exits, a refused start."""
-        counts = {"starts": 0, "exits": 0, "refused": 0, "setAside": 0, "exitCodes": [], "refusal": ""}
-        for path in glob.glob(os.path.join(os.path.abspath(self.args.cache), "logs", "*.log")):
+        counts = {"starts": 0, "exits": 0, "refused": 0, "setAside": 0, "exitCodes": [], "refusal": "", "model": "", "producer": ""}
+        # Rotated files too (server-*.log.1, .2): a count that forgets them goes backwards.
+        for path in glob.glob(os.path.join(os.path.abspath(self.args.cache), "logs", "*.log*")):
             try:
                 with open(path, "r", encoding="utf-8", errors="replace") as handle:
                     for line in handle:
@@ -172,6 +173,10 @@ class Session:
                             counts["refusal"] = line.strip()[:700]
                         if "aside from clangd" in line:
                             counts["setAside"] += 1
+                        if "project model (" in line and "source" in line:
+                            counts["model"] = line.split("): ", 1)[-1].strip()[:200]
+                        if "emit build-database" in line:
+                            counts["producer"] = line.split("] ", 1)[-1].strip()[:400]
             except OSError:
                 pass
         return counts
@@ -243,7 +248,7 @@ class Session:
                 last_snapshot = time.time()
             counts = self.log_counts()
             if time.time() - last_report > 15:
-                print(f"[{int(time.time() - self.started):4d} s] clangd starts {counts['starts']}, exits {counts['exits']} {counts['exitCodes'][-5:]}, set aside {counts['setAside']}, refused {counts['refused']}", flush=True)
+                print(f"[{int(time.time() - self.started):4d} s] clangd starts {counts['starts']}, exits {counts['exits']} {counts['exitCodes'][-5:]}, set aside {counts['setAside']}, refused {counts['refused']}; model: {counts['model']}", flush=True)
                 last_report = time.time()
             if counts["refused"] or (args.stop_after_exits and counts["exits"] >= args.stop_after_exits):
                 break
@@ -281,7 +286,8 @@ class Session:
             json.dump(summary, handle, indent=1, ensure_ascii=False)
         lines = ["## The reporter's session, replayed (issue 86)", "",
                  f"- {summary['seconds']} s; clangd starts **{counts['starts']}**, exits **{counts['exits']}** (codes the server recorded: {sorted(set(counts['exitCodes']))}), files set aside {counts['setAside']}, engine restarts asked {restarts}",
-                 f"- a start refused: **{'yes' if counts['refused'] else 'no'}** {('`' + counts['refusal'] + '`') if counts['refusal'] else ''}", ""]
+                 f"- a start refused: **{'yes' if counts['refused'] else 'no'}** {('`' + counts['refusal'] + '`') if counts['refusal'] else ''}",
+                 f"- the project model the session ended with: `{counts['model']}` {('; the producer: `' + counts['producer'] + '`') if counts['producer'] else ''}", ""]
         for uri, found in self.diagnostics.items():
             lines.append(f"- `{uri.rsplit('/', 1)[-1]}`: {len(found)} diagnostics" + (": " + "; ".join(f"L{d['line'] + 1} {d['code']} {d['message'][:80]}" for d in found[:4]) if found else ""))
         lines.append("")
@@ -309,6 +315,8 @@ def main():
     parser.add_argument("--restarts", type=int, default=0)
     parser.add_argument("--restart-wait", type=int, default=25)
     parser.add_argument("--engine-arguments", default="")
+    parser.add_argument("--log-level", default="info", help="the reporter's is info; debug also makes clangd's log verbose")
+    parser.add_argument("--settle", type=int, default=0, help="seconds to wait, after the files are opened, for the build tool's model")
     return Session(parser.parse_args()).run()
 
 

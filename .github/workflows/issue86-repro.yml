@@ -133,7 +133,15 @@ jobs:
           mcpp toolchain default "llvm@$env:LLVM_VERSION"
           mcpp build 2>&1 | Tee-Object -FilePath (Join-Path $env:EVIDENCE 'mcpp-build.log')
           Write-Host "mcpp build ended $LASTEXITCODE"
-          "mcpp build ended $LASTEXITCODE" | Out-File -FilePath (Join-Path $env:EVIDENCE 'mcpp-build.exit') -Encoding utf8
+          # The reporter ran the tests too, which is what fetches the dev-dependency (mcpplibs.mtest): without it the
+          # server's offline `mcpp emit build-database` stops for a download (exit 5) and the model is only inferred.
+          mcpp test --timeout 120 2>&1 | Tee-Object -FilePath (Join-Path $env:EVIDENCE 'mcpp-test.log')
+          Write-Host "mcpp test ended $LASTEXITCODE"
+          # What the server will ask, asked here: offline, as the reporter's setting has it.
+          $env:MCPP_OFFLINE = '1'
+          mcpp emit build-database --format json 2> (Join-Path $env:EVIDENCE 'mcpp-emit.stderr.log') | Out-File -FilePath (Join-Path $env:EVIDENCE 'mcpp-build-database.json') -Encoding utf8
+          Write-Host "mcpp emit build-database (offline) ended $LASTEXITCODE; $((Get-Item (Join-Path $env:EVIDENCE 'mcpp-build-database.json')).Length) bytes"
+          Get-Content (Join-Path $env:EVIDENCE 'mcpp-emit.stderr.log') -Tail 20
           exit 0
 
       - name: The released payload
@@ -164,7 +172,7 @@ jobs:
             --okrun $env:OKRUN --server (Join-Path $env:PAYLOAD 'bin\mcppls.okb') --payload $env:PAYLOAD `
             --root (Join-Path $env:GITHUB_WORKSPACE 'systop') --cache $env:MCPPLS_CACHE --out (Join-Path $env:EVIDENCE 'session') `
             --open src/ui/monitor_view.cppm src/main.cpp src/core/refresh_clock.cppm src/core/sampler.cppm src/systop.cppm `
-            --duration $seconds --stop-after-exits 7 --restarts 22 --restart-wait 25
+            --duration $seconds --stop-after-exits 7 --restarts 24 --restart-wait 25 --log-level info
           if (Test-Path (Join-Path $env:EVIDENCE 'session\lsp-summary.md')) { Get-Content (Join-Path $env:EVIDENCE 'session\lsp-summary.md') | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append }
 
       - name: 2 - clangd --check, the matrix
@@ -182,6 +190,15 @@ jobs:
             --cdb "$env:CDB" --procdump "$env:PROCDUMP" --wer (Join-Path $env:RUNNER_TEMP 'wer') --dumps (Join-Path $env:RUNNER_TEMP 'dumps') `
             --out (Join-Path $env:EVIDENCE 'matrix') --timeout 300
           if (Test-Path (Join-Path $env:EVIDENCE 'matrix\matrix.md')) { Get-Content (Join-Path $env:EVIDENCE 'matrix\matrix.md') | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append }
+          # The other files the incidents name, each as it is (the switches only if it traps).
+          foreach ($file in 'src/main.cpp', 'tests/test_monitor_view.cpp', 'src/systop.cppm') {
+            $name = 'matrix-' + ($file -replace '[\\/.]', '-')
+            python .github/issue86/check_matrix.py --only-original --file $file `
+              --okrun $env:OKRUN --image (Join-Path $env:PAYLOAD 'clangd\openkal\bin\clangd.okb') --elf $env:CLANGD_ELF `
+              --project (Join-Path $env:GITHUB_WORKSPACE 'systop') --database $database.DirectoryName `
+              --cdb "$env:CDB" --dumps (Join-Path $env:RUNNER_TEMP 'dumps') --out (Join-Path $env:EVIDENCE $name) --timeout 300
+            if (Test-Path (Join-Path $env:EVIDENCE "$name\matrix.md")) { Get-Content (Join-Path $env:EVIDENCE "$name\matrix.md") | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append }
+          }
 
       - name: What the server left
         if: always()
@@ -232,3 +249,42 @@ jobs:
           retention-days: 7
           compression-level: 0
           if-no-files-found: ignore
+
+  # The evidence as assets of one temporary pre-release (`issue86-evidence`): a release asset downloads far
+  # faster than an Actions artifact. Not a release of the product; deleted with the branch.
+  publish:
+    name: evidence as release assets
+    needs: repro
+    if: always()
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+      - name: Upload to the temporary pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: issue86-evidence
+          TARGET: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          cd artifacts
+          ls -la
+          for directory in issue86-evidence-*; do
+            [ -d "$directory" ] || continue
+            (cd "$directory" && zip -qr "../$directory.zip" .)
+          done
+          for directory in issue86-dumps-*; do
+            [ -f "$directory/issue86-dumps.7z" ] && cp "$directory/issue86-dumps.7z" "$directory.7z"
+          done
+          sha256sum issue86-*.zip issue86-*.7z | tee SHA256SUMS.txt
+          notes="TEMPORARY -- not a release of mcpp-language-server. Evidence for issue #86 gathered by the issue86-repro workflow (run ${GITHUB_RUN_ID}, attempt ${GITHUB_RUN_ATTEMPT}, commit ${TARGET}): https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}. Deleted when the analysis is done."
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --notes "$notes" --prerelease --latest=false
+          else
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --target "$TARGET" --prerelease --latest=false --title "TEMP: issue 86 evidence (not a release)" --notes "$notes"
+          fi
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber issue86-*.zip issue86-*.7z SHA256SUMS.txt
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets -q '.assets[] | "\(.name) \(.size) \(.url)"'

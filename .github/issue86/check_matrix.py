@@ -308,7 +308,7 @@ class Matrix:
             baseline = self.run("original", "original", repeat=3)
             if any(run["exception"] for run in baseline["runs"]):
                 crashed.append("original")
-            for variant in VARIANTS:
+            for variant in ([] if self.args.only_original else VARIANTS):
                 if variant == "original":
                     continue
                 result = self.run(variant, variant, repeat=2)
@@ -317,7 +317,7 @@ class Matrix:
             # The switches are thrown on the smallest variant that traps, else on the project's own file.
             preferred = [name for name in ("guarded-used", "ftxui-used", "original") if name in crashed]
             subject = preferred[0] if preferred else (crashed[0] if crashed else "original")
-            for name, (variant, extra, removed, environment, config, why) in SWITCHES.items():
+            for name, (variant, extra, removed, environment, config, why) in ({} if self.args.only_original and not crashed else SWITCHES).items():
                 self.run(name, subject if variant == "{crash}" else variant, extra=extra, removed=removed, environment=environment, config=config, why=why, repeat=2)
             given = self.server_arguments()
             if given is not None:
@@ -331,7 +331,8 @@ class Matrix:
             # Under the debugger: the project's own file (with a dump), and the smallest variant that traps.
             for index, name in enumerate(dict.fromkeys(["original"] + preferred[:1] + crashed[:2])):
                 if name in crashed or name == "original":
-                    found = self.debug(name, name, dump=(index == 0))
+                    # A full dump only of a run that traps: one at a normal exit says nothing.
+                    found = self.debug(name, name, dump=(name in crashed and index == 0))
                     if found:
                         debugged.append(found)
             if not self.args.cdb and crashed:
@@ -343,7 +344,7 @@ class Matrix:
                    "experiments": self.results, "debugged": debugged}
         with open(os.path.join(self.out, "matrix.json"), "w", encoding="utf-8") as handle:
             json.dump(summary, handle, indent=1)
-        lines = ["## clangd --check matrix (issue 86)", "", f"File `{self.args.file}`; database `{self.args.database}`.", "",
+        lines = [f"## clangd --check on `{self.args.file}` (issue 86)", "", f"Database `{self.args.database}`.", "",
                  "| experiment | variant | what it changes | exits | last stage | preamble | first error |", "|---|---|---|---|---|---|---|"]
         for result in self.results:
             exits = ", ".join(run["exit"] for run in result["runs"])
@@ -376,6 +377,7 @@ def main():
     parser.add_argument("--dumps", default="dumps")
     parser.add_argument("--out", required=True)
     parser.add_argument("--timeout", type=int, default=300)
+    parser.add_argument("--only-original", action="store_true", help="the file as it is, no variants; the switches only when it traps")
     args = parser.parse_args()
     args.project = os.path.abspath(args.project)
     args.database = os.path.abspath(args.database)
