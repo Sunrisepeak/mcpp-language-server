@@ -1,6 +1,6 @@
 {
   "name": "engine-trap",
-  "description": "Issue 86 (design 2026-11-12 S1-S4), Linux and macOS: a file that makes clangd end by a fault of its own, every time it is built -- the reporter's module unit, on which the ok image trapped in a hardened library check and printed nothing. The stand-in clangd (`prepare clangd-trap`) is the payload's clangd with a watch on its log: when clangd begins building src/trap.cppm (`ASTWorker building file`), the watch ends it with SIGTRAP. Up to 0.22.0 every such exit was recorded as -1, the files set aside were the ones last asked about (main.cpp, which cannot reach the fault), and the file went back to clangd on an edit, on a rebuilt module and in every new session -- one engine start each time, until the sandbox had none left. Now the exit keeps its condition, the one file whose build was in flight is set aside after the first exit, main.cpp keeps clangd, an edit inside the term does not send the file back, a second session does not hand it to clangd at all, and the whole scenario costs three starts in the first session and one in the second.",
+  "description": "Issue 86 (design 2026-11-12 S1-S4), Linux and macOS: a file that makes clangd end by a fault of its own, every time it is built -- the reporter's module unit, on which the ok image trapped in a hardened library check and printed nothing. The stand-in clangd (`prepare clangd-trap`) is the payload's clangd with a watch on its log: when clangd begins building src/trap.cppm (`ASTWorker building file`), the watch ends it with SIGTRAP. Up to 0.22.0 every such exit was recorded as -1, the files set aside were the ones last asked about (main.cpp, which cannot reach the fault), and the file went back to clangd on an edit, on a rebuilt module and in every new session -- one engine start each time, until the sandbox had none left. Now the exit keeps its condition, the one file whose build was in flight is set aside after the first exit, main.cpp keeps clangd, an edit inside the term does not send the file back, a second session does not hand it to clangd at all and says so in its status, and the whole scenario costs three starts in the first session and one in the second.",
   "prepare": [
     [
       "{conformance}",
@@ -150,16 +150,17 @@
       "kind": "restart-server"
     },
     {
-      "id": "S2",
-      "kind": "status",
-      "state": "ready",
-      "engine-name": "clangd",
-      "timeout": 90
-    },
-    {
       "id": "O2-the-editor-opens-it-again",
       "kind": "open",
       "file": "src/trap.cppm"
+    },
+    {
+      "id": "S2-the-new-session-says-so",
+      "kind": "status",
+      "engine-name": "clangd",
+      "issue-code": "file-ended-engine",
+      "issue-message": "trap.cppm",
+      "timeout": 90
     },
     {
       "id": "T2-main-is-answered-by-clangd",

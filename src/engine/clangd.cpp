@@ -3237,7 +3237,13 @@ private:
                              : ended && verdict.rule == ExitSuspects::Rule::in_flight ? std::format("clangd ended by {} while building it", condition->text())
                              : std::string { "clangd exited while working on it" },
                        Reclaim::no, false, std::nullopt, onDisk);
-            if (!onDisk) record_crash_(key, path, ended ? condition->text() : known ? std::string { "crash" } : std::string { "exit" });
+            // The ledger is for a file clangd named or was building, twice over if it was not alone. A file set aside on
+            // the guess (it was asked about or edited lately, and clangd ended twice) keeps the short term and the way
+            // back on an edit it always had: holding an innocent file for a day, across sessions, would be the guess
+            // made worse.
+            if (!onDisk && verdict.rule != ExitSuspects::Rule::guessed) {
+                record_crash_(key, path, ended ? condition->text() : known ? std::string { "crash" } : std::string { "exit" });
+            }
         }
         host_->status_changed();
     }
