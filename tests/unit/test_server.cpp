@@ -223,6 +223,52 @@ private:
     bool running_ { false };
 };
 
+// Issue 86: a clangd that ends by a fault of its own -- an ok image trapping in a hardened library check prints
+// nothing -- the moment it begins building a file whose name contains `trap_view`. Every start does, so a file that
+// is handed back ends the next one too. Other files build as BuildingProcess builds them.
+class TrappingProcess : public BuildingProcess {
+public:
+    struct Traps {
+        std::atomic<int> starts { 0 };
+        std::atomic<int> trapped { 0 };
+    };
+    TrappingProcess(std::shared_ptr<Shared> shared, std::shared_ptr<Traps> traps) : BuildingProcess(shared), shared_ { std::move(shared) }, traps_ { std::move(traps) } {}
+
+    mcppls::base::Result<void> start(const cld::ProcessConfig& config, MessageHandler onMessage, ClosedHandler onClosed, LogHandler onLog) override {
+        ++traps_->starts;
+        ended_.reset();
+        onClosed_ = std::move(onClosed);
+        return BuildingProcess::start(config, std::move(onMessage), onClosed_, std::move(onLog));
+    }
+    mcppls::base::Result<void> send(const Json& message) override {
+        if (ended_) return {};
+        if (message.value("method", std::string {}) == "textDocument/didOpen") {
+            const std::string uri { message["params"]["textDocument"]["uri"].get<std::string>() };
+            if (uri.contains("trap_view")) {
+                {
+                    const std::lock_guard lock { shared_->mutex };
+                    shared_->sent.push_back(message);
+                }
+                shared_->log(std::format("I[00:00:00.000] ASTWorker building file {} version 1 with command clang++ -c",
+                                         mcppls::base::uri_to_path(uri).value_or(std::string {})));
+                ended_ = ExitStatus { 4, true };   // SIGILL
+                ++traps_->trapped;
+                onClosed_();
+                return {};
+            }
+        }
+        return BuildingProcess::send(message);
+    }
+    bool running() const override { return !ended_ && BuildingProcess::running(); }
+    std::optional<ExitStatus> exit_status() override { return ended_; }
+
+private:
+    std::shared_ptr<Shared> shared_;
+    std::shared_ptr<Traps> traps_;
+    ClosedHandler onClosed_;
+    std::optional<ExitStatus> ended_;
+};
+
 // A native process double whose retiring workers keep reading the same CDB until released.
 class DatabaseReadingProcess : public BuildingProcess {
 public:
@@ -2654,6 +2700,238 @@ UTest server_tests{"server", [] {
             engine->shut_down();
             std::filesystem::remove_all(root, ignored);
         }
+    };
+
+    "issue 86: the file being built when clangd ends is set aside at the first exit, and stays aside across an edit and a new session"_test = [] {
+        std::error_code ignored;
+        using namespace std::chrono_literals;
+        const std::string root { mcppls::base::join_path(base::spelled(os::dirs::temp()),
+            std::format("mcppls-test-ends-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
+        (void)std::filesystem::create_directories(mcppls::base::join_path(root, "src"), ignored);
+        const std::string executable { mcppls::base::join_path(root, "clangd") };
+        (void)os::fs::write(executable, "pretend-clangd");
+        const std::string main { mcppls::base::join_path(root, "src/main.cpp") };
+        const std::string trap { mcppls::base::join_path(root, "src/trap_view.cppm") };
+        const std::string mainText { "int main() { return 0; }\n" };
+        const std::string trapText { "module;\n#include \"widget.h\"\nexport module view;\nexport int measure(const Widget&);\n" };
+        (void)os::fs::write(main, mainText);
+        (void)os::fs::write(trap, trapText);
+        mcppls::normalize::EnginePlan plan;
+        plan.entries.push_back(mcppls::normalize::EngineEntry { root, main, { "clang++", "-std=c++23", "-c", main }, "", "", {}, {} });
+        plan.entries.push_back(mcppls::normalize::EngineEntry { root, trap, { "clang++", "-std=c++23", "-c", trap }, "view", "view", {}, {} });
+        const eng::DocumentView mainView { mcppls::base::path_to_uri(main), main, "cpp", 1, mainText };
+        const eng::DocumentView trapView { mcppls::base::path_to_uri(trap), trap, "cpp", 1, trapText };
+        auto traps = std::make_shared<TrappingProcess::Traps>();
+        const auto session = [&](EditorHost& host, std::shared_ptr<BuildingProcess::Shared> shared) {
+            cld::Options options;
+            options.executable = executable;
+            options.version = "23.1.0";
+            options.primeImplementationUnits = false;
+            options.processFactory = [shared, traps] { return std::make_unique<TrappingProcess>(shared, traps); };
+            auto engine = cld::make_engine(std::move(options));
+            engine->start(host);
+            engine->apply(&plan);
+            for (int turn { 0 }; turn < 4; ++turn) {
+                engine->handle_timers();
+                host.pump(*engine);
+            }
+            return engine;
+        };
+        const auto run = [&](eng::Engine& engine, EditorHost& host, std::chrono::milliseconds time, const std::function<bool()>& until) {
+            const auto end = eng::Clock::now() + time;
+            while (eng::Clock::now() < end && !until()) {
+                std::this_thread::sleep_for(20ms);
+                engine.handle_timers();
+                host.pump(engine);
+            }
+            return until();
+        };
+        const auto count = [](BuildingProcess::Shared& shared, std::string_view method, const std::string& path) {
+            return std::ranges::count(BuildingProcess::files(shared, method), path);
+        };
+        const std::string ledger { mcppls::base::join_path(mcppls::base::join_path(root, "cache"), "crash-ledger.json") };
+        {
+            EditorHost host { root };
+            auto shared = std::make_shared<BuildingProcess::Shared>();
+            auto engine = session(host, shared);
+            expect(fatal(traps->starts == 1));
+            host.open.push_back(mainView);
+            engine->document(eng::DocumentEvent { eng::DocumentChange::opened, mainView });
+            host.pump(*engine);
+            host.open.push_back(trapView);
+            engine->document(eng::DocumentEvent { eng::DocumentChange::opened, trapView });
+            // The exit is settled half a second later, and clangd comes back a second after it ended.
+            expect(run(*engine, host, 6s, [&] { return traps->starts >= 2 && engine->status().accepting; })) << "clangd is started again";
+            expect(traps->trapped == 1);
+            const Json report = engine->report();
+            const Json& exit = report["lastExit"];
+            expect(exit["exitCode"] == 4 && exit["endedByEnvironment"] == true && exit["endedFromOutside"] == false) << exit.dump();
+            expect(exit["exitCondition"] == "SIGILL (signal 4)") << exit["exitCondition"].dump();
+            expect(exit["suspectRule"] == "in-flight" && exit["suspects"] == Json::array({ trap })) << exit.dump();
+            expect(exit["buildsInFlight"] == Json::array({ trap }));
+            expect(exit["reproduce"]["file"] == trap && exit["reproduce"]["command"].dump().contains("--check=")) << exit["reproduce"].dump();
+            expect(report["filesSetAside"].size() == 1u) << "after the first exit, and only the file that was being built: " << report["filesSetAside"].dump();
+            expect(report["crashLedger"].size() == 1u && report["startBudget"]["starts"] == 2);
+            const auto status = engine->status();
+            const auto issue = std::ranges::find_if(status.issues, [](const auto& item) { return item.code == "file-ended-engine"; });
+            expect(fatal(issue != status.issues.end())) << "the status names the file and how clangd ended";
+            expect(issue->message.contains("trap_view.cppm") && issue->message.contains("SIGILL") && issue->command == "mcppls.restartClangd") << issue->message;
+            expect(std::ranges::none_of(status.issues, [](const auto& item) { return item.code == "file-quarantined"; }));
+            // The other file is clangd's again, and the one that ended it is not given to the new clangd.
+            expect(run(*engine, host, 3s, [&] { return count(*shared, "textDocument/didOpen", main) >= 2; })) << "main.cpp is opened in the new clangd";
+            expect(count(*shared, "textDocument/didOpen", trap) == 1);
+            // An edit inside the term -- a new line, a new import -- does not send it back: one start a term, not one a keystroke.
+            const std::string edited { "module;\n#include \"widget.h\"\nexport module view;\nimport other;\nexport int measure(const Widget&);\n" };
+            const eng::DocumentView editedView { trapView.uri, trap, "cpp", 2, edited };
+            host.open.back() = editedView;
+            engine->document(eng::DocumentEvent { eng::DocumentChange::changed, editedView });
+            run(*engine, host, 300ms, [] { return false; });
+            expect(traps->trapped == 1 && traps->starts == 2 && count(*shared, "textDocument/didOpen", trap) == 1) << "it stays aside";
+            expect(std::filesystem::exists(ledger, ignored)) << "the ledger is in the workspace's cache";
+            engine->shut_down();
+        }
+        // A new session, the same engine and the same file: the editor opens it, and clangd is not given it.
+        {
+            EditorHost host { root };
+            auto shared = std::make_shared<BuildingProcess::Shared>();
+            auto engine = session(host, shared);
+            const int startsBefore { traps->starts.load() };
+            host.open.push_back(trapView);
+            engine->document(eng::DocumentEvent { eng::DocumentChange::opened, trapView });
+            host.open.push_back(mainView);
+            engine->document(eng::DocumentEvent { eng::DocumentChange::opened, mainView });
+            run(*engine, host, 400ms, [] { return false; });
+            expect(traps->trapped == 1 && traps->starts == startsBefore) << "no exit, no restart";
+            expect(count(*shared, "textDocument/didOpen", trap) == 0 && count(*shared, "textDocument/didOpen", main) == 1);
+            expect(engine->report()["filesSetAside"].size() == 1u);
+            // The person's Restart clangd is "try again": it goes back, ends clangd again, and the term doubles.
+            expect(engine->restart_on_request());
+            expect(run(*engine, host, 8s, [&] { return traps->trapped == 2 && traps->starts >= startsBefore + 2 && engine->status().accepting; }));
+            const Json report = engine->report();
+            expect(report["filesSetAside"].size() == 1u);
+            const auto text = os::fs::read(ledger);
+            expect(fatal(text.has_value()));
+            const Json written = Json::parse(*text, nullptr, false);
+            expect(fatal(written.is_object() && written["files"].size() == 1u)) << *text;
+            const Json& record = *written["files"].begin();
+            expect(record["exits"] == 2 && record["term"] == 4 && record["condition"] == "SIGILL (signal 4)") << record.dump();
+            engine->shut_down();
+        }
+        std::filesystem::remove_all(root, ignored);
+    };
+
+    "issue 86: automatic restarts stop while the sandbox still has the reserve of starts, and the refused start says how many were made"_test = [] {
+        std::error_code ignored;
+        using namespace std::chrono_literals;
+        const std::string root { mcppls::base::join_path(base::spelled(os::dirs::temp()),
+            std::format("mcppls-test-budget-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
+        (void)std::filesystem::create_directories(mcppls::base::join_path(root, "src"), ignored);
+        const std::string executable { mcppls::base::join_path(root, "clangd") };
+        (void)os::fs::write(executable, "pretend-clangd");
+        const std::string main { mcppls::base::join_path(root, "src/main.cpp") };
+        (void)os::fs::write(main, "int main() { return 0; }\n");
+        const std::string unit { mcppls::base::join_path(root, "src/hello.cppm") };
+        (void)os::fs::write(unit, "export module hello;\n");
+        mcppls::normalize::EnginePlan plan;
+        plan.entries.push_back(mcppls::normalize::EngineEntry { root, main, { "clang++", "-std=c++23", "-c", main }, "", "", {}, {} });
+        plan.entries.push_back(mcppls::normalize::EngineEntry { root, unit, { "clang++", "-std=c++23", "-c", unit }, "hello", "hello", {}, {} });
+        // A clangd with a runner is granted its directories; the double counts its starts and can end on request.
+        struct Controls {
+            std::atomic<int> starts { 0 };
+            std::mutex mutex;
+            std::function<void()> end;
+            std::vector<cld::ProcessConfig> configs;
+        };
+        class EndableProcess : public BuildingProcess {
+        public:
+            EndableProcess(std::shared_ptr<Shared> shared, std::shared_ptr<Controls> controls) : BuildingProcess(std::move(shared)), controls_ { std::move(controls) } {}
+            mcppls::base::Result<void> start(const cld::ProcessConfig& config, MessageHandler message, ClosedHandler closed, LogHandler log) override {
+                ++controls_->starts;
+                ended_.reset();
+                {
+                    const std::lock_guard lock { controls_->mutex };
+                    controls_->configs.push_back(config);
+                    controls_->end = [this, closed] {
+                        ended_ = ExitStatus { 11, true };   // SIGSEGV, nothing in flight
+                        closed();
+                    };
+                }
+                return BuildingProcess::start(config, std::move(message), std::move(closed), std::move(log));
+            }
+            bool running() const override { return !ended_ && BuildingProcess::running(); }
+            std::optional<ExitStatus> exit_status() override { return ended_; }
+
+        private:
+            std::shared_ptr<Controls> controls_;
+            std::optional<ExitStatus> ended_;
+        };
+        auto shared = std::make_shared<BuildingProcess::Shared>();
+        auto controls = std::make_shared<Controls>();
+        cld::Options options;
+        options.executable = executable;
+        options.runner = executable;
+        options.version = "23.1.0";
+        options.primeImplementationUnits = false;
+        options.processFactory = [shared, controls] { return std::make_unique<EndableProcess>(shared, controls); };
+        EditorHost host { root };
+        auto engine = cld::make_engine(std::move(options));
+        engine->start(host);
+        engine->apply(&plan);
+        const auto run = [&](std::chrono::milliseconds time, const std::function<bool()>& until) {
+            const auto end = eng::Clock::now() + time;
+            while (eng::Clock::now() < end && !until()) {
+                std::this_thread::sleep_for(10ms);
+                engine->handle_timers();
+                host.pump(*engine);
+            }
+            return until();
+        };
+        expect(fatal(run(3s, [&] { return controls->starts == 1 && engine->status().accepting; })));
+        const Json first = engine->report()["startBudget"];
+        const std::size_t each { first["readOnlyGrantsEach"].get<std::size_t>() };
+        expect(fatal(each >= 1u)) << "a start grants at least one read-only directory: " << first.dump();
+        expect(first["starts"] == 1 && first["slotsSpent"] == each && first["capacity"] == 64 && first["paused"] == false) << first.dump();
+        const std::size_t fits { 64 / each };
+        // The person restarts until four starts are left: each is made.
+        while (static_cast<std::size_t>(controls->starts.load()) + 4 < fits) {
+            const int before { controls->starts.load() };
+            expect(engine->restart_on_request());
+            expect(fatal(run(3s, [&] { return controls->starts == before + 1 && engine->status().accepting; }))) << "start " << before + 1;
+        }
+        expect(engine->report()["startBudget"]["startsLeft"] == 4) << engine->report()["startBudget"].dump();
+        // clangd ends: four are left, one more than the reserve, so it is restarted by itself.
+        const auto end_clangd = [&] {
+            std::function<void()> end;
+            {
+                const std::lock_guard lock { controls->mutex };
+                end = controls->end;
+            }
+            end();
+        };
+        int before { controls->starts.load() };
+        end_clangd();
+        expect(fatal(run(6s, [&] { return controls->starts == before + 1 && engine->status().accepting; }))) << "an automatic restart above the reserve";
+        expect(engine->report()["startBudget"]["startsLeft"] == 3);
+        // It ends again: three are left, and they are the person's. clangd is paused, and the status says what is left.
+        before = controls->starts.load();
+        end_clangd();
+        expect(run(6s, [&] { return engine->report()["startBudget"]["paused"] == true; })) << engine->report()["startBudget"].dump();
+        run(1500ms, [] { return false; });
+        expect(controls->starts == before) << "no automatic restart inside the reserve";
+        auto status = engine->status();
+        auto paused = std::ranges::find_if(status.issues, [](const auto& item) { return item.code == "engine-paused"; });
+        expect(fatal(paused != status.issues.end()));
+        expect(paused->message.contains(std::format("started {} times", before)) && paused->message.contains("3 starts are left")
+               && paused->command == "mcppls.restartClangd") << paused->message;
+        expect(status.state == "unavailable" && !status.failed);
+        // The person's restart is made inside the reserve.
+        expect(engine->restart_on_request());
+        expect(fatal(run(3s, [&] { return controls->starts == before + 1 && engine->status().accepting; })));
+        status = engine->status();
+        expect(std::ranges::none_of(status.issues, [](const auto& item) { return item.code == "engine-paused"; }));
+        expect(engine->report()["startBudget"]["paused"] == false && engine->report()["startBudget"]["startsLeft"] == 2);
+        engine->shut_down();
+        std::filesystem::remove_all(root, ignored);
     };
 
     "a clangd that exits before its handshake twice still lets the server initialize"_test = [] {

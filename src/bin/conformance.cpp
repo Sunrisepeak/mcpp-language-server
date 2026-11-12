@@ -6586,6 +6586,62 @@ int prepare_crashing_clangd(std::string_view kind, const std::string& payload, s
     return 0;
 }
 
+// Issue 86 (design 2026-11-12): a clangd that a fault of its own ends whenever it builds one file -- every start, the
+// way an ok image trapped in a hardened library check on the reporter's module unit and printed nothing. The stand-in
+// IS the payload's clangd (the script replaces itself with it), with its standard error read by a watch that forwards
+// every line and, at "ASTWorker building file <...trapFile>", ends clangd with SIGTRAP: the system reports the signal,
+// and nothing names the file but what clangd was building. POSIX only.
+int prepare_trapping_clangd(std::string_view kind, const std::string& payload, std::string_view trapFile) {
+    std::error_code ignored;
+    if (os::host() == os::platform::windows) {
+        say("{}: POSIX only", kind);
+        return 2;
+    }
+    const std::string workspace { base::current_directory() };
+    const std::string real { payload_clangd(payload) };
+    const ClangdCommand realCommand { payload_clangd_command(payload) };
+    if (!std::filesystem::exists(real, ignored)) {
+        say("{}: no clangd at {}", kind, real);
+        return 1;
+    }
+    const std::string directory { base::join_path(workspace, "stand-in") };
+    (void)std::filesystem::create_directories(directory, ignored);
+    const std::string script { std::format(
+        "#!/bin/sh\n"
+        "real='{}'\n"
+        // The ok image's runner takes the image first (S4-4-12); a program engine has none.
+        "image='{}'\n"
+        "case \"$1\" in --version|--help) exec \"$real\" ${{image:+\"$image\"}} \"$@\" ;; esac\n"
+        "echo start >> '{}/starts'\n"
+        "fifo='{}/log.'$$\n"
+        "rm -f \"$fifo\"\n"
+        "mkfifo \"$fifo\" || exit 70\n"
+        "pid=$$\n"
+        // The watch: clangd's log, line by line, to the server as it was; the line that begins the file's build ends clangd.
+        "(\n"
+        "  while IFS= read -r line; do\n"
+        "    printf '%s\\n' \"$line\" >&2\n"
+        // SIGTRAP: a fault of the program's own that no runner takes for itself. okrun reports SIGILL, SIGSEGV, SIGBUS
+        // and SIGFPE (openkal's fault report) and returns to the faulting instruction, which a signal sent from outside
+        // has not got: the first one would be reported and survived, and clangd would finish the build meanwhile.
+        "    case \"$line\" in *'ASTWorker building file '*'{}'*) kill -TRAP \"$pid\" ;; esac\n"
+        "  done < \"$fifo\"\n"
+        "  rm -f \"$fifo\"\n"
+        ") < /dev/null > /dev/null &\n"
+        "exec \"$real\" ${{image:+\"$image\"}} \"$@\" 2> \"$fifo\"\n",
+        realCommand.program, realCommand.prefix.empty() ? std::string {} : realCommand.prefix.front(), directory, directory, base::file_name(trapFile)) };
+    const std::string clangd { base::join_path(directory, "clangd") };
+    if (auto written = os::fs::write(clangd, script); !written) {
+        say("{}: {}", kind, written.error().message());
+        return 1;
+    }
+    if (auto marked = base::make_executable(std::vector<std::string> { clangd }); !marked) {
+        say("{}: {}", kind, marked.error().message);
+        return 1;
+    }
+    return 0;
+}
+
 // 0.0.8 plan R-4: a producer that answers late. A shell script around the mock mcpp that waits `seconds` before
 // `emit build-database` and lets every other command through at once, so the server plans with what it scanned itself
 // meanwhile and then receives the build tool's model. POSIX only.
@@ -6736,12 +6792,13 @@ int prepare(const std::string& kind, const std::string& argument) {
     if (kind == "clangd-crash-context") return prepare_crashing_clangd(kind, argument, "src/crasher.cpp");
     if (kind == "clangd-crash-closure") return prepare_crashing_clangd(kind, argument, "src/main.cpp");
     if (kind == "clangd-exit-strike") return prepare_crashing_clangd(kind, argument, "");
+    if (kind == "clangd-trap") return prepare_trapping_clangd(kind, argument, "src/trap.cppm");
     if (kind == "compdb-rejected-command") return prepare_compdb_rejected_command(argument);
     if (kind == "compdb-mixed-standards") return prepare_compdb_mixed_standards(argument);
     if (kind == "xmake-stale-compdb") return prepare_marked_compdb(kind, argument.empty() ? std::string { "g++" } : argument, "-DSTALE_COMPDB", "-std=c++17");
     if (kind == "compdb-midwrite") return prepare_marked_compdb(kind, argument.empty() ? std::string { "clang++" } : argument, "-DVERSION_ONE", "-std=c++23");
     if (kind == "compdb-lto-msvc") return prepare_compdb_lto_msvc(argument);
-    say("prepare: unknown fixture kind {} (heavy-headers, large-module-file, s1-two-sets, payload-corrupt, producer-candidate, delayed-producer, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp, clangd-cannot-load, compdb-lto-msvc, clangd-crash-context, clangd-crash-closure, clangd-exit-strike, compdb-rejected-command, compdb-mixed-standards, xmake-stale-compdb, compdb-midwrite)", kind);
+    say("prepare: unknown fixture kind {} (heavy-headers, large-module-file, s1-two-sets, payload-corrupt, producer-candidate, delayed-producer, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp, clangd-cannot-load, compdb-lto-msvc, clangd-crash-context, clangd-crash-closure, clangd-exit-strike, clangd-trap, compdb-rejected-command, compdb-mixed-standards, xmake-stale-compdb, compdb-midwrite)", kind);
     return 2;
 }
 

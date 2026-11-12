@@ -1,0 +1,203 @@
+{
+  "name": "engine-trap",
+  "description": "Issue 86 (design 2026-11-12 S1-S4), Linux and macOS: a file that makes clangd end by a fault of its own, every time it is built -- the reporter's module unit, on which the ok image trapped in a hardened library check and printed nothing. The stand-in clangd (`prepare clangd-trap`) is the payload's clangd with a watch on its log: when clangd begins building src/trap.cppm (`ASTWorker building file`), the watch ends it with SIGTRAP. Up to 0.22.0 every such exit was recorded as -1, the files set aside were the ones last asked about (main.cpp, which cannot reach the fault), and the file went back to clangd on an edit, on a rebuilt module and in every new session -- one engine start each time, until the sandbox had none left. Now the exit keeps its condition, the one file whose build was in flight is set aside after the first exit, main.cpp keeps clangd, an edit inside the term does not send the file back, a second session does not hand it to clangd at all, and the whole scenario costs three starts in the first session and one in the second.",
+  "prepare": [
+    [
+      "{conformance}",
+      "prepare",
+      "clangd-trap",
+      "{payload}"
+    ]
+  ],
+  "server-arguments": [
+    "--clangd",
+    "{workspace}/stand-in/clangd",
+    "--no-discover"
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "state": "ready",
+      "engine-name": "clangd"
+    },
+    {
+      "id": "W1-warmed-up",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "greet",
+      "timeout": 90
+    },
+    {
+      "id": "O1-the-file-that-ends-it",
+      "kind": "open",
+      "file": "src/trap.cppm"
+    },
+    {
+      "id": "R1-named-and-set-aside-at-the-first-exit",
+      "kind": "report",
+      "timeout": 30,
+      "expect": [
+        {
+          "path": "/roots/0/engines/*/details/lastExit/exitCondition",
+          "contains": "SIGTRAP"
+        },
+        {
+          "path": "/roots/0/engines/*/details/lastExit/exitCode",
+          "equals": 5
+        },
+        {
+          "path": "/roots/0/engines/*/details/lastExit/endedByEnvironment",
+          "equals": true
+        },
+        {
+          "path": "/roots/0/engines/*/details/lastExit/suspectRule",
+          "equals": "in-flight"
+        },
+        {
+          "path": "/roots/0/engines/*/details/lastExit/suspects",
+          "max-items": 1
+        },
+        {
+          "path": "/roots/0/engines/*/details/lastExit/suspects/*",
+          "each-contains": "trap.cppm"
+        },
+        {
+          "path": "/roots/0/engines/*/details/lastExit/reproduce/command/*",
+          "contains": "--check="
+        },
+        {
+          "path": "/roots/0/engines/*/details/filesSetAside",
+          "min-items": 1
+        },
+        {
+          "path": "/roots/0/engines/*/details/filesSetAside",
+          "max-items": 1
+        },
+        {
+          "path": "/roots/0/engines/*/details/filesSetAside/*",
+          "each-contains": "trap.cppm"
+        },
+        {
+          "path": "/roots/0/events/*/kind",
+          "equals": "crash-ledger"
+        }
+      ]
+    },
+    {
+      "id": "R2-status-names-file-and-condition",
+      "kind": "status",
+      "issue-code": "file-ended-engine",
+      "issue-message": "trap.cppm"
+    },
+    {
+      "id": "T1-main-keeps-clangd",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "greet",
+      "timeout": 60
+    },
+    {
+      "id": "E1-an-edit-inside-the-term",
+      "kind": "type-text",
+      "file": "src/trap.cppm",
+      "line": 3,
+      "steps": [
+        "i",
+        "in",
+        "int",
+        "int y",
+        "int y;",
+        "int y = 2;",
+        ""
+      ],
+      "interval-ms": 400,
+      "answer-within": 15
+    },
+    {
+      "id": "R3-it-stays-aside-and-nothing-restarted",
+      "kind": "report",
+      "timeout": 20,
+      "expect": [
+        {
+          "path": "/roots/0/engines/*/details/filesSetAside",
+          "min-items": 1
+        },
+        {
+          "path": "/roots/0/engines/*/details/filesSetAside/*",
+          "each-contains": "trap.cppm"
+        },
+        {
+          "path": "/roots/0/engines/*/details/startBudget/starts",
+          "at-most": 2
+        },
+        {
+          "path": "/roots/0/engines/*/details/crashLedger/*/exits",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "id": "N1-a-new-session",
+      "kind": "restart-server"
+    },
+    {
+      "id": "S2",
+      "kind": "status",
+      "state": "ready",
+      "engine-name": "clangd",
+      "timeout": 90
+    },
+    {
+      "id": "O2-the-editor-opens-it-again",
+      "kind": "open",
+      "file": "src/trap.cppm"
+    },
+    {
+      "id": "T2-main-is-answered-by-clangd",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "greet",
+      "timeout": 90
+    },
+    {
+      "id": "R4-not-handed-to-clangd",
+      "kind": "report",
+      "timeout": 20,
+      "expect": [
+        {
+          "path": "/roots/0/engines/*/details/filesSetAside",
+          "min-items": 1
+        },
+        {
+          "path": "/roots/0/engines/*/details/filesSetAside/*",
+          "each-contains": "trap.cppm"
+        },
+        {
+          "path": "/roots/0/engines/*/details/startBudget/starts",
+          "at-most": 1
+        },
+        {
+          "path": "/roots/0/engines/*/details/lastExit",
+          "equals": null
+        },
+        {
+          "path": "/roots/0/events/*/kind",
+          "equals": "file-kept-aside"
+        }
+      ]
+    }
+  ]
+}

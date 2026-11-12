@@ -133,7 +133,24 @@ nlohmann::json provenance(const std::string& root) {
         // R-2 (plan 0.0.9): whether a tracked file differs from the commit. Files the build itself leaves in the checkout
         // (CI's `cross/` and `host-devtools`) are untracked and say nothing about the source: counting them marked every
         // released payload dirty (0.0.8's included).
-        record["dirty"] = !git_output(root, { "status", "--porcelain", "--untracked-files=no" }).empty();
+        // Issue 86 (design 2026-11-12, 5): nor does the lock the build tool rewrites for the host it runs on (`mcpp.lock`
+        // gains the building host's targets at every build): every released payload from 0.0.9 to 0.22.0 said `dirty`
+        // for it, and a reader took that for a build from changed sources. What does differ is named, so `dirty` can be
+        // read without the checkout.
+        const std::string changed { git_output(root, { "status", "--porcelain", "--untracked-files=no", "--", ".", ":(exclude,glob)**/mcpp.lock" }) };
+        record["dirty"] = !changed.empty();
+        if (!changed.empty()) {
+            nlohmann::json files = nlohmann::json::array();
+            std::size_t begin { 0 };
+            while (begin < changed.size() && files.size() < 8) {
+                const std::size_t end { std::min(changed.find('\n', begin), changed.size()) };
+                std::string line { changed.substr(begin, end - begin) };
+                while (!line.empty() && line.back() == '\r') line.pop_back();
+                if (line.size() > 3) files.push_back(line.substr(3));   // "XY <path>"
+                begin = end + 1;
+            }
+            record["dirtyFiles"] = std::move(files);
+        }
     }
     return record;
 }

@@ -895,6 +895,9 @@ jobs:
           # semantic kit; the SDK-free target fixtures probe distribution clang, installed below.
           - { platform: linux-arm64, os: ubuntu-24.04-arm, cross-tools: true }
           - { platform: win32-x64, os: windows-2022 }
+          # Windows 11 24H2's build (26100). Issue 86: clangd ended on every module unit with a library header there
+          # and on no earlier build, and every Windows row of this workflow ran on build 20348 (design 2026-11-12, 6).
+          - { platform: win32-x64, os: windows-2025, part: build-26100 }
     defaults:
       run:
         shell: bash
@@ -1175,7 +1178,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always() && contains(env.CTS_FIXTURES, ' mcpp-target-windows-real ')
         with:
-          name: real-mcpp-target-cdb-${{ matrix.platform }}
+          name: real-mcpp-target-cdb-${{ matrix.platform }}${{ matrix.part && format('-{0}', matrix.part) || '' }}
           path: |
             ${{ runner.temp }}/evidence/mcpp-target-windows-real*/workspace/mcpp-target-windows-real/recorded-*.json
             ${{ runner.temp }}/evidence/mcpp-target-windows-real*/workspace/mcpp-target-windows-real/compile_commands.json
@@ -1207,7 +1210,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always() && contains(env.CTS_FIXTURES, ' diagnostic-bundle ')
         with:
-          name: diagnostic-bundle-${{ matrix.platform }}
+          name: diagnostic-bundle-${{ matrix.platform }}${{ matrix.part && format('-{0}', matrix.part) || '' }}
           path: ${{ runner.temp }}/bundles/*.zip
           if-no-files-found: ignore
 

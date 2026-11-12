@@ -9,6 +9,78 @@ Versions are three-part semantic versions, `X.Y.Z`: `X.Y` is the series of the s
 patch is `## [<component> X.Y.Z]` (`server`, `vscode`, `clion`, `zed`, `claude-code`).
 
 
+## [0.23.0] — 2026-11-12
+
+### Fixed
+
+- **clangd ended on every module unit that includes a library header, on Windows 11 24H2**
+  ([#86](https://github.com/Sunrisepeak/mcpp-language-server/issues/86)). The bundled clangd ended by
+  `0xC000001D` (illegal instruction) on the first build of any module unit that includes a header in
+  its global module fragment, imports a module and uses a type of the header -- on Windows builds
+  26100 and 26200, and on no earlier one. Its include analysis identified a used include by the file
+  entry of the include's resolved path; under the runner an open file and its name had two
+  identities on those builds, the lookup came back empty, and the dereference trapped in the image's
+  hardened standard library, without a word. The engine is `23.1.0-mcppls.11` (mcppls-clangd 0.0.22),
+  which marks an include by the ID it was entered with; unused-include hints keep working. The two
+  identities themselves are corrected in openkal-windows 0.22.0 (a 32-bit and a 64-bit volume serial
+  number), which a later platform pin brings to the runner. For 0.22.0 and earlier, a `.clangd`
+  with `Diagnostics: { UnusedIncludes: None, MissingIncludes: None }` avoids it
+  (docs/50-troubleshooting.md).
+- **A file that ends clangd costs the session that file, not the engine.** The reports of #86 showed
+  the server's own part in the loop: every exit was recorded as `-1`; the files set aside were the
+  ones last asked about (in an editor at rest, every visible file -- `main.cpp`, which could not
+  reach the fault, while the file that did stayed); and a file set aside went back on an edit, on
+  "the modules it imports were built again" (built again by the restart), and in every new session,
+  each return one more engine start. Now:
+  - the exit keeps the number the system gave it and its name: `clangd ended by an illegal
+    instruction (0xC000001D) while building src/ui/monitor_view.cppm`, `SIGSEGV (signal 11)`
+    elsewhere; `lastExit` and the `engine-exit` event carry `exitCode`, `exitCondition`,
+    `endedByEnvironment`, and where the runner reports a fault (Linux, macOS) its condition and
+    frames as image offsets;
+  - the suspect is the file whose build was in flight when clangd ended. One such file is set aside
+    at that first exit; several, or none, cost each a strike as before; a clangd ended from outside
+    (killed, terminated) is nobody's;
+  - a file that ended clangd is kept in a crash ledger in the workspace's cache and goes back once
+    a term (2, 4, 8, 16 minutes, an hour, a day), whatever happens meanwhile: an edit, a rebuilt
+    module, a changed command and a new session make it eligible and nothing more. After a second
+    exit an unchanged file is not tried again until it or its modules' sources change. **Restart
+    clangd** tries it again at once; a build that does not end clangd clears the record; another
+    engine starts clean. The status names the file, the count and the condition
+    (`file-ended-engine`).
+- **A session keeps a reserve of engine starts.** The sandbox's table of granted directories (64 a
+  server process, a slot per read-only grant per start, none returned up to openkal-windows 0.21.0
+  and its Linux and macOS counterparts) is counted: while three starts are left the server makes no
+  restart by itself -- clangd is paused (`engine-paused`), mcppls's own engine answers, and the
+  three are the person's. The refused start says how many starts were made (it said "33" for 17: a
+  generation counter), is written to the log each time (it reached only the status and a bundle),
+  and offers **Restart Server**, which restores the table in a second. openkal-windows 0.22.0
+  returns the slots; the count stays as the backstop until the platform pin has it.
+- **A kept answer sent while clangd was between an exit and its restart** was answered `cancelled`
+  to the editor, and the server could write to memory it had freed (found by the new `engine-trap`
+  fixture): the job is finished before its engine requests are detached.
+- A released payload's `build.dirty` was `true` for the lock file the build tool rewrites; it now
+  means a tracked source differs, and names the files. The semantic-kit log line no longer reads as
+  the project's target when it is the host's default.
+
+### Added
+
+- `engines[].details`: `buildsInFlight`, `crashLedger`, `startBudget` (starts made, slots spent,
+  starts left, the reserve, `paused`), `fileIdentity` (`consistent` or `split`, the engine's own
+  word on whether an open file is the node its name refers to), and under `lastExit` `reproduce`:
+  the `clangd --check=<file>` command that builds the suspect alone as the session does.
+- Status issues `file-ended-engine`, `engine-paused`, `engine-restart-withheld` (S3, additive).
+- Conformance `engine-trap` (Linux, macOS): a clangd ended by a signal whenever it builds one file
+  -- the file is set aside at the first exit and named with the condition, the others keep clangd,
+  an edit does not send it back, a second session does not hand it to clangd, three starts in all.
+  `clangd-crash-closure` follows the ledger's rule. The conformance cases also run on
+  `windows-2025` (Windows build 26100): every Windows row ran on build 20348, where #86's fault
+  cannot occur.
+
+### Changed
+
+- A file set aside after clangd crashed on it no longer goes back the moment the modules it imports
+  are built again (0.0.17 W5, #59 U7a); that makes it eligible, and it goes back when its term ends.
+
 ## [0.22.0] — 2026-11-11
 
 ### Fixed

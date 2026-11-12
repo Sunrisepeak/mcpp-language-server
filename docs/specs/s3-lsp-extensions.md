@@ -157,6 +157,9 @@ interface CxxModulesIssue {
       | "implementation-unreadable" // an implementation unit does not build, so the definitions in it are not reached
       | "engine-crash-loop"         // the engine keeps exiting; it is started again after a growing delay, module-level features meanwhile
       | "engine-start-failed"       // the engine cannot be started in this environment (a sandbox refused it); module-level features remain
+      | "engine-paused"             // the engine ended and is not restarted by itself: the session's remaining starts are left to the person
+      | "engine-restart-withheld"   // a restart the server wanted was not made, for the same reason; the running engine is kept
+      | "file-ended-engine"         // some files made the engine end; they are answered from the module index until their term is over or the person tries them again
       | "preparation-stalled"       // preparing modules made no progress for a while
       | "payload-corrupt"           // the files the server was installed with do not match their manifest, or carry nothing for this platform; only syntax-level features are trusted
       | "kit-missing"               // the semantic kit of the project's target is not installed; another kit reads the files (S3-4-37)

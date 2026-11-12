@@ -44,7 +44,7 @@ Every path in `payload.json` **MUST** be a payload path. <a id="S6-3-1"></a><sup
 | `server` | object | MUST | `path`, the payload path of the server, an ok image (`.okb`) or a program, and `version`, the mcppls version; both are required. <a id="S6-3.1-2"></a><sup>S6-3.1-2</sup> |
 | `kit` | object | MUST | `name` (string) and `path` (payload path) of the payload's semantic kit, an S4 kit. <a id="S6-3.1-3"></a><sup>S6-3.1-3</sup> |
 | `files` | object | MUST | Integrity of files every platform uses: payload path to `{ "size": integer, "sha256": string }`. <a id="S6-3.1-4"></a><sup>S6-3.1-4</sup> |
-| `build` | object | MAY | Provenance: `builtAt`, `commit`, `dirty`, `source`. Not read to start the server. |
+| `build` | object | MAY | Provenance: `builtAt`, `commit`, `dirty` (with `dirtyFiles`, the tracked files that differ from the commit, when it is), `source`. Not read to start the server. |
 
 ### 3.2 Version 4: one platform
 

@@ -56,6 +56,13 @@ public:
     void stop(std::chrono::milliseconds grace);
     bool closed() const { return closed_.load(); }
     std::optional<int> exit_code();
+    // How the peer ended, as the system reported it: the status, and whether the environment ended it (a fault, a
+    // signal, a termination) -- the number is then the condition's, not a status the program chose. Never blocks.
+    struct ExitStatus {
+        int code { 0 };
+        bool byEnvironment { false };
+    };
+    std::optional<ExitStatus> exit_status();
     // The peer's process identifier (mcpplibs.os `process::id`), while it is started.
     std::optional<std::int64_t> native_pid() const {
         if (!process_.valid() || process_.id() == 0) return std::nullopt;

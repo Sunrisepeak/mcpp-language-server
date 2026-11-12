@@ -129,6 +129,18 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 
 **“clangd crashed while building NormalJsonTranslator.Core.cpp”。** clangd 会说明它在哪个文件上崩溃（崩溃上下文），隔离的就是这个文件：它改由 mcppls 自己的引擎应答，同时重启一个不带它的 clangd。它在以下情况交回 clangd：文件本身有改动；隔离期满（两分钟，再次让 clangd 崩溃则翻倍）；或者它导入的模块重新构建完成（只交回一次，因为它可能正是在某个重建到一半的模块上崩溃的）。clangd 退出时没有指明文件（被杀掉或内存不足），它当时在处理的文件只记一次警告，不会被隔离；同一个文件在十分钟内第二次碰到这种退出，才会被隔离。报告里的 `engines[].details.lastExit` 有退出码、文件、clangd 当时在做什么，Windows 上还有异常码。五分钟内退出五次之后，clangd 会在 1、2、4、8 分钟后重新启动，状态会说明（`engine-crash-loop`，带 **Restart clangd**）；它不会在本次会话里被放弃。clangd 稳定运行满一分钟后，崩溃和超时这两类 issue 会自行清除。最后的办法见[下文](#mcppls-无法自行恢复时)。
 
+**“monitor_view.cppm made clangd end 2 times (an illegal instruction (0xC000001D))”。** clangd 不留任何输出就结束时（内置 clangd 在加固的库检查失败处直接陷入，什么也不打印），按它当时正在构建的文件来判断：只有一个文件在构建中，就在第一次退出时隔离这个文件，日志和状态会写明 clangd 是怎么结束的（`clangd ended by an illegal instruction (0xC000001D) while building monitor_view.cppm`，其它系统上是 `SIGSEGV (signal 11)` 这样的信号名）。同时有几个文件在构建、或者一个也没有，每个文件只记一次“警告”，十分钟内第二次才隔离。被外部结束的 clangd（被杀、被终止、内存不足）不算任何文件的责任。让 clangd 结束过的文件记在工作区缓存的账本里（`crash-ledger.json`），在期限结束前一直由 mcppls 自己的引擎回答：2 分钟，之后 4、8、16 分钟，1 小时，1 天，每再结束一次翻倍。编辑、它导入的模块重新构建、命令变化、重新打开编辑器，都只是让它“有资格”回去，期限没到不会回去——所以一个 clangd 构建不了的文件每个期限只花一次引擎启动，而不是每敲一阵键盘花一次。第二次退出之后，文件内容和它导入的模块的来源都没变，就不再自动尝试。**Restart clangd** 就是“再试一次”：把这些文件立刻交还（除非本次会话的启动次数只剩保留的那几次，见下一条）。之后能正常构建的文件会从账本里删掉；换了引擎（新版 mcppls）从头开始；三十天没再遇到的记录会被丢弃。报告里 `engines[].details.lastExit` 有退出的数值、原因（`exitCondition`）、当时在构建的文件、嫌疑文件是按哪条规则定的（`suspectRule`），以及 `reproduce` 下面单独构建这个文件的 `clangd --check=<file>` 命令；在 Linux 和 macOS 上，`exception` 和 `stack` 是运行器自己报告的故障（`clangd.okb+0x…` 偏移，配合同一版本的映像可以对出函数名）。
+
+**“clangd is paused: it was started 13 times this session and 3 starts are left”。** 把 clangd 限制在它的目录里的沙箱，在服务端进程的生命周期内只有一张 64 项的授权目录表，而且 openkal-windows 0.21.0 及之前（Linux、macOS 的对应实现也一样）从不归还表项：每次启动为每个只读目录花一项。服务端会计数（`engines[].details.startBudget`），只剩三次启动时不再自己重启——崩溃不重启，计划里出现新目录也不重启：由 mcppls 自己的引擎回答，这三次留给你（**Restart clangd**）。一次都不剩时启动会被拒绝（`engine-start-failed`：“…this session's 17 engine starts spent it…”），**Restart Server** 一秒钟就能把整张表拿回来，不用重启编辑器；`mcppls.grants: ["all"]` 则不用沙箱。有了上面的账本，一个让 clangd 结束的文件只花一两次启动，所以这是长会话里多次重启的兜底，而不是崩溃循环会走到的地方。
+
+**clangd 在带库头文件的模块单元上结束（Windows 11 24H2，mcppls 0.22.0 及之前）。** 在 Windows 26100 及之后的版本上，`23.1.0-mcppls.10` 及之前的内置 clangd，会在第一次构建这样的模块单元时以 `0xC000001D` 结束：全局模块片段里包含头文件、导入了模块、并且用到了头文件里的类型（[#86](https://github.com/Sunrisepeak/mcpp-language-server/issues/86)）。0.23.0 带的引擎（`23.1.0-mcppls.11`）已经修复。更早的版本可以在项目旁边放一个 `.clangd`，关掉出问题的分析：
+
+```yaml
+Diagnostics:
+  UnusedIncludes: None
+  MissingIncludes: None
+```
+
 **“mcpp could not describe tools/updater/mcpp.toml”。** 构建工具描述了工作区的其余部分，并说明了它没能描述的那一部分（例如某个成员的构建程序失败）；那部分的文件按其余部分提供的信息来读，其余部分照常工作（`producer-partial`，S2 0.3.0）。修好消息里指出的问题，下次重新加载就会一并描述它。
 
 **“clangd rejected the compile command for module scanning”。** clangd 在构建模块之前，会用数据库里每个单元自己的编译命令扫描它的 import；编译器驱动拒绝的命令会让扫描失败，模块也就一个都不会构建——issue #23 的 `LTO requires -fuse-ld=lld` 就是这种情况。状态会用驱动的原话写出第一处拒绝（类别 `environment`），`engines[].details.scanFailures` 记录次数。命令找不到头文件时也这样说明（类别 `project`）。正在输入的文件扫描失败是常态，只计数。

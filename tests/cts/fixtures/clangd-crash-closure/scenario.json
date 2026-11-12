@@ -1,6 +1,6 @@
 {
   "name": "clangd-crash-closure",
-  "description": "0.0.17 W5 (#59 U7a), Linux and macOS: the stand-in clangd (`prepare clangd-crash-closure`) crashes 25 seconds in with a crash context naming src/main.cpp, which the editor is typing in: main.cpp is set aside, as a file clangd crashed on is. Then another importer of hello.greet is edited and the module's partition changes, so clangd builds the modules main.cpp imports again: main.cpp goes back to clangd once, well before its two-minute term is up. Up to 0.0.16 it waited the whole term.",
+  "description": "0.0.17 W5 (#59 U7a) under the crash ledger's rule (issue 86, design 2026-11-12 S3), Linux and macOS: the stand-in clangd (`prepare clangd-crash-closure`) crashes 25 seconds in with a crash context naming src/main.cpp, which the editor is typing in: main.cpp is set aside, as a file clangd crashed on is. Then another importer of hello.greet is edited and the module's partition changes, so clangd builds the modules main.cpp imports again. From 0.0.17 to 0.22.0 that sent main.cpp back at once -- and so did a restart, which builds the same modules again, each return an engine start (issue 86: five returns of one file in a session, an exit after each). Now a rebuilt closure makes the file eligible and it goes back when its term is over: it is still aside right after the rebuild (R2), and back with clangd once the two minutes from the crash have passed (R3), where it builds and nothing is held against it any more.",
   "prepare": [
     [
       "{conformance}",
@@ -148,13 +148,54 @@
       "answer-within": 60
     },
     {
-      "id": "R2-handed-back-once-rebuilt",
+      "id": "R2-eligible-not-yet-back",
       "kind": "report",
-      "timeout": 60,
+      "timeout": 10,
+      "expect": [
+        {
+          "path": "/roots/0/engines/*/details/filesSetAside",
+          "min-items": 1
+        },
+        {
+          "path": "/roots/0/engines/*/details/crashLedger/*/exits",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "id": "R3-handed-back-when-its-term-is-over",
+      "kind": "report",
+      "timeout": 170,
       "expect": [
         {
           "path": "/roots/0/events/*/kind",
           "equals": "file-handed-back"
+        },
+        {
+          "path": "/roots/0/engines/*/details/filesSetAside",
+          "max-items": 0
+        }
+      ]
+    },
+    {
+      "id": "T3-clangd-answers-for-it-again",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "greet",
+      "timeout": 60
+    },
+    {
+      "id": "R4-nothing-held-against-it",
+      "kind": "report",
+      "timeout": 30,
+      "expect": [
+        {
+          "path": "/roots/0/events/*/kind",
+          "equals": "crash-ledger-cleared"
         },
         {
           "path": "/roots/0/engines/*/details/filesSetAside",
