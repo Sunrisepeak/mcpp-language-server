@@ -70,6 +70,14 @@ patch is `## [<component> X.Y.Z]` (`server`, `vscode`, `clion`, `zed`, `claude-c
 - A released payload's `build.dirty` was `true` for the lock file the build tool rewrites; it now
   means a tracked source differs, and names the files. The semantic-kit log line no longer reads as
   the project's target when it is the host's default.
+- **`mcppls query symbol` could answer without the definition, and `query refs` with "no symbol
+  named ...", when its own start was slow** (a cold machine, or a first query beside a session that
+  had just begun). A query by name waits for clangd's index before it asks; it knew the index's
+  report by any progress report, and the server's own ("loading", "preparing modules", shown when a
+  start takes long enough to be worth showing) counted as one. The query then asked a clangd that had
+  not read its database yet, and answered with what the module index alone knows -- the declaration.
+  Only an engine's reports count now. CI met it as the first round of `stability` on a fresh runner;
+  a failed `cli` check of the conformance runner now says what the command printed.
 
 ### Added
 

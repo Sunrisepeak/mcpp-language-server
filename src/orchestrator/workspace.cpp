@@ -4100,7 +4100,7 @@ struct Workspace::Impl final : engine::Host {
         if (busy && !progressToken.empty() && message == lastProgressMessage) return;
 
         if (busy && progressToken.empty()) {
-            progressToken = std::format("mcppls/{}", key);
+            progressToken = status_progress_token(key);
             // A request, but its answer is not needed: the token's work begins with the first
             // $/progress either way, and a client that refuses simply ignores what follows.
             client.send(lsp::make_request(std::format("w:{}:p", key), "window/workDoneProgress/create",

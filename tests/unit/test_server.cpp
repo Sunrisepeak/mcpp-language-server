@@ -3225,6 +3225,16 @@ UTest server_tests{"server", [] {
         expect(second->rootKey == "C:/work/a:b" && second->engineId == "c:d" && second->generation == 1 && second->engineRequestId == stringId);
     };
 
+    "a root's own progress token is told from an engine's"_test = [] {
+        // The kernel waits for the engine's index by the engine's reports; the root's own report of a busy state
+        // (loading, preparing modules) is none of them, whatever the root's key holds.
+        expect(orch::is_status_progress_token(orch::status_progress_token("/work/root-a")));
+        expect(orch::is_status_progress_token(orch::status_progress_token("C:/work/a:b")));
+        expect(orch::is_status_progress_token(orch::status_progress_token("")));
+        expect(!orch::is_status_progress_token("backgroundIndexProgress"));
+        expect(!orch::is_status_progress_token(""));
+    };
+
     "build files, interactive methods and state names"_test = [] {
         expect(orch::is_build_file("mcpp.toml") && orch::is_build_file("CMakeLists.txt") && orch::is_build_file("x.cmake"));
         expect(!orch::is_build_file("main.cpp") && !orch::is_build_file("greet.cppm"));
