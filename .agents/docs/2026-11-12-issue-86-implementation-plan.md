@@ -84,6 +84,39 @@ and what moved against the design while implementing.
     case out by a tag (74 of 75 cases run there); writing the project for both CMakes is
     follow-up.
 
+15. **The candidate was named and not tested.** Since mcppls-clangd 0.0.21 the engine's run has one
+    artifact; `download-artifact` puts one match straight into its path, the payload job looked
+    for it a directory deeper, found no part and assembled the payload from the lock's engine
+    under `--candidate`, saying nothing. Three runs of this pull request were green on
+    `23.1.0-mcppls.10`. It showed in the status a failing case printed (`"features": 15`). The
+    job now finds the part wherever it is, prints the engine of every platform, and stops when a
+    named candidate is not what the payload carries; `mcppls-devtools payload --candidate` refuses
+    to run without an engine. A7 waits for a run that is green on the candidate in fact.
+16. **One case is not steady on the new row.** `mcpp-polling-watch-inputs@polling` failed once in
+    three runs on `windows-2025` (a deleted external input not seen within its 30 s) and passed
+    when run again at once. It is this repository's case and polling's timing, not this change;
+    a failed job is run again (attempt 2 runs the failed cases), as on every row.
+
+17. **macOS has the fewest starts.** There the engine is given the system's conventional roots
+    besides the project's own: 14 directories in CI's sessions, of which nine to eleven are
+    read-only (counted from the grant rules, not read from a session). The table then holds five
+    to seven starts and the reserve of three leaves two to four made automatically, after which
+    a restart is withheld (`engine-restart-withheld`) and the person has three. That is §3.4 as
+    written, and tight; `engine-restarts` does not run on macOS for the same table. Narrowing
+    macOS's grants as 0.22.0 narrowed Windows' and Linux's, or the platform returning its slots,
+    is what widens it.
+18. **A's comparison run (A6).** Linux ARM64 and Linux x64 pass the warm-prime gate (x64 on its
+    repetition), Windows records its ratios, and darwin-arm64 is invalid three times running, as
+    it was for 0.0.21. The engine's policy admits a release then on its comparison with the one
+    before: the two images alternated in eight pairs on one runner of each system (a temporary
+    workflow, run 43245970422) -- on macOS 0.0.22's cold readiness and processor time are below
+    0.0.21's beside it, on Linux x64 the two are within 2% in every gated quantity. The engine's
+    changelog states it.
+19. **The engine's owned cache, once.** One cold session of the image on darwin-arm64 (1 of 24 in
+    the comparison run) did not become ready: a module's lock anchor could not be opened while
+    three files' prerequisites were built at once. The code is 0.0.20's; recorded as known in the
+    engine's changelog, and follow-up there.
+
 ## 3. Tasks
 
 ### A — mcppls-clangd (engine)
@@ -147,4 +180,6 @@ run on A's candidate (the integration rule of both repositories).
 - E2: the runner's trap block, and the server's reading of it.
 - The same correction of `forget()` in openkal-linux and openkal-macos; one start count for the
   server process (§2.13).
+- macOS's grant set (§2.17); the engine's lock anchor at a cold start (§2.19); `cmake-msvc-std`
+  for CMake 4.4 and `mcpp-polling-watch-inputs@polling` on `windows-2025` (§2.14, §2.16).
 - Housekeeping: draft PR #87, branch `tmp/issue86-systop-repro`, pre-release `issue86-evidence`.
