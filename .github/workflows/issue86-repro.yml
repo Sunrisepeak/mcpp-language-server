@@ -191,7 +191,7 @@ jobs:
             --out (Join-Path $env:EVIDENCE 'matrix') --timeout 300
           if (Test-Path (Join-Path $env:EVIDENCE 'matrix\matrix.md')) { Get-Content (Join-Path $env:EVIDENCE 'matrix\matrix.md') | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append }
           # The other files the incidents name, each as it is (the switches only if it traps).
-          foreach ($file in 'src/main.cpp', 'tests/test_monitor_view.cpp', 'src/systop.cppm') {
+          foreach ($file in 'src/core/sampler.cppm', 'src/main.cpp', 'tests/test_monitor_view.cpp', 'src/core/refresh_clock.cppm') {
             $name = 'matrix-' + ($file -replace '[\\/.]', '-')
             python .github/issue86/check_matrix.py --only-original --file $file `
               --okrun $env:OKRUN --image (Join-Path $env:PAYLOAD 'clangd\openkal\bin\clangd.okb') --elf $env:CLANGD_ELF `

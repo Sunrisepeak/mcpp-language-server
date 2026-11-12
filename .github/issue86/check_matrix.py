@@ -59,6 +59,11 @@ NO_INCLUDE_ANALYSIS = "Diagnostics:\n  UnusedIncludes: None\n  MissingIncludes: 
 # name -> (variant, extra arguments, arguments removed, environment, .clangd text or None, why)
 SWITCHES = {
     "no-include-analysis": ("{crash}", [], [], {}, NO_INCLUDE_ANALYSIS, ".clangd turns unused/missing include analysis off"),
+    # The same fragment without touching the project: clangd's user configuration, whose directory the image cannot
+    # determine on Windows by itself ("Couldn't determine user config file"), named by the environment.
+    "user-config-xdg": ("{crash}", [], [], {"XDG_CONFIG_HOME": "{user-config}"}, None, "include analysis off by a user config under XDG_CONFIG_HOME"),
+    "user-config-home": ("{crash}", [], [], {"HOME": "{user-home}"}, None, "include analysis off by a user config under HOME/.config"),
+    "user-config-appdata": ("{crash}", [], [], {"LOCALAPPDATA": "{user-config}"}, None, "include analysis off by a user config under LOCALAPPDATA"),
     "no-config": ("{crash}", ["--enable-config=0"], [], {}, None, "no configuration files read"),
     "no-clang-tidy": ("{crash}", ["--clang-tidy=0"], [], {}, None, "clang-tidy off"),
     "no-modules-support": ("{crash}", [], ["--experimental-modules-support"], {}, None, "without --experimental-modules-support"),
@@ -176,7 +181,15 @@ class Matrix:
         if name == "fresh-module-cache":
             shutil.rmtree(os.path.join(self.args.database, ".cache"), ignore_errors=True)
         env = dict(os.environ)
-        env.update(environment or {})
+        for key, value in (environment or {}).items():
+            if value in ("{user-config}", "{user-home}"):
+                # <dir>/clangd/config.yaml, or <home>/.config/clangd/config.yaml
+                value = os.path.join(self.out, name + "-dir")
+                folder = os.path.join(value, "clangd") if environment[key] == "{user-config}" else os.path.join(value, ".config", "clangd")
+                os.makedirs(folder, exist_ok=True)
+                with open(os.path.join(folder, "config.yaml"), "w", encoding="utf-8", newline="") as handle:
+                    handle.write(NO_INCLUDE_ANALYSIS)
+            env[key] = value
         command = self.command(extra, removed)
         runs = []
         for attempt in range(repeat):
