@@ -167,12 +167,12 @@ jobs:
         timeout-minutes: 30
         continue-on-error: true
         run: |
-          $seconds = if ('${{ inputs.session_seconds }}') { '${{ inputs.session_seconds }}' } else { '420' }
+          $seconds = if ('${{ inputs.session_seconds }}') { '${{ inputs.session_seconds }}' } else { '150' }
           python .github/issue86/drive_lsp.py `
             --okrun $env:OKRUN --server (Join-Path $env:PAYLOAD 'bin\mcppls.okb') --payload $env:PAYLOAD `
             --root (Join-Path $env:GITHUB_WORKSPACE 'systop') --cache $env:MCPPLS_CACHE --out (Join-Path $env:EVIDENCE 'session') `
             --open src/ui/monitor_view.cppm src/main.cpp src/core/refresh_clock.cppm src/core/sampler.cppm src/systop.cppm `
-            --duration $seconds --stop-after-exits 7 --restarts 24 --restart-wait 25 --log-level info
+            --duration $seconds --stop-after-exits 3 --restarts 0 --restart-wait 25 --log-level info
           if (Test-Path (Join-Path $env:EVIDENCE 'session\lsp-summary.md')) { Get-Content (Join-Path $env:EVIDENCE 'session\lsp-summary.md') | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append }
 
       - name: 2 - clangd --check, the matrix

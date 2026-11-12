@@ -45,6 +45,12 @@ VARIANTS = {
     "guarded-used-partition-import": (unit(SYNTHETIC, PARTITION, "    auto f(Issue86Synthetic&) -> int;"), GUARDED, "imports a partition of the project, not std"),
     "guarded-used-no-import": (unit(SYNTHETIC, "", "    auto f(Issue86Synthetic&) -> int;"), GUARDED, "imports nothing: the textual-preamble path"),
     "guarded-used-in-variable": (unit(SYNTHETIC, STD, "    inline Issue86Synthetic value;"), GUARDED, "the type used by a variable, not a parameter"),
+    # The same header, reached by a path that is not its canonical one: clangd records a header by the identity of the
+    # file it opened and looks it up again by the identity of its canonical name.
+    "guarded-used-other-spelling": (unit('#include "../ui/' + HEADER_NAME + '"', STD, "    auto f(Issue86Synthetic&) -> int;"), GUARDED, "the guarded header through ../ui/, used"),
+    "unguarded-used-other-spelling": (unit('#include "../ui/' + HEADER_NAME + '"', STD, "    auto f(Issue86Synthetic&) -> int;"), UNGUARDED, "the unguarded header through ../ui/, used"),
+    "guarded-unused-other-spelling": (unit('#include "../ui/' + HEADER_NAME + '"', STD, "    auto f() -> int;"), GUARDED, "the guarded header through ../ui/, not used"),
+    "guarded-used-other-spelling-no-import": (unit('#include "../ui/' + HEADER_NAME + '"', "", "    auto f(Issue86Synthetic&) -> int;"), GUARDED, "through ../ui/, used, no import: the textual-preamble path"),
     "std-type-used": (unit(SYNTHETIC, STD, "    auto f(std::string&) -> int;"), GUARDED, "the guarded header included, a std type used"),
 }
 
