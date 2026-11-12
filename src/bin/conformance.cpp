@@ -4709,7 +4709,11 @@ public:
             const Json value = Json::parse(result->out, nullptr, false);
             if (value.is_discarded()) return { false, "the output is not JSON: " + clipped(result->out, 200) };
             auto [held, detail] = expectations_hold(value, check.value("expect", Json::array()));
-            return { held, held ? clipped(lsp::dump(value), 160) : detail };
+            if (held) return { true, clipped(lsp::dump(value), 160) };
+            // What the command said is the evidence of a failed expectation: where its answers came from (provenance),
+            // the session's state (snapshot), and whatever it warned of.
+            return { false, std::format("{}\n  output: {}{}", detail, clipped(lsp::dump(value), 2000),
+                                        result->err.empty() ? std::string {} : "\n  stderr: " + clipped(result->err, 1500)) };
         }
         if (kind == "type-text") {
             // import-hang plan §8: a person typing a line one key at a time. Line `line` of `file` takes each of
