@@ -95,8 +95,8 @@ ExitCondition exit_condition(int code, bool byEnvironment, ExitHost host) {
         return condition;
     }
     if (condition.windows) {
-        // The platform reports `status & 0x7FFFFFFF`: the top bit is put back, except for the two warnings a fault
-        // can end a program with, which have it and nothing else above bit 16 (0x80000002, 0x80000003).
+        // The platform reports `status & 0x7FFFFFFF`: the top bit is put back. Every status a fault ends a program with
+        // has it -- the errors (0xC...) and the two warnings (0x80000002, 0x80000003) alike; 0x7FFFFFFF is a termination.
         const std::uint32_t reported { static_cast<std::uint32_t>(code) };
         condition.number = reported == 0x7FFFFFFFu ? 0xFFFFFFFFu : (reported | 0x80000000u);
         condition.kind = ExitKind::fault;

@@ -8,7 +8,7 @@ and what moved against the design while implementing.
 
 | | Repository | Pull request | Carries | Released as |
 |---|---|---|---|---|
-| A | `Sunrisepeak/mcppls-clangd` | #22 `mcppls-clangd-0.0.22` | E1, the engine's part of T | `v0.0.22`, engine `23.1.0-mcppls.11` |
+| A | `Sunrisepeak/mcppls-clangd` | #22 `mcppls-clangd-0.0.22` (then #23, issue 89) | E1, the engine's part of T | `v0.0.22`, engine `23.1.0-mcppls.11`; C pins `v0.0.23` (`-mcppls.12`), which carries it |
 | B | `mcpplibs/openkal-windows` | #47 `fix/one-identity-and-returned-grants` | P1, W4 (the platform's code) | `0.22.0`; reaches mcppls with a later platform pin |
 | C | `Sunrisepeak/mcpp-language-server` | `fix/issue-86-engine-exits` | S1–S4, D, the server's part of T, the pin of A | `0.23.0` |
 
@@ -116,6 +116,11 @@ and what moved against the design while implementing.
     the comparison run) did not become ready: a module's lock anchor could not be opened while
     three files' prerequisites were built at once. The code is 0.0.20's; recorded as known in the
     engine's changelog, and follow-up there.
+
+20. **C pins 0.0.23, not 0.0.22.** Issue 89 (no refactorings in the image) was found while C was open;
+    its engine PR (#23) was released as `v0.0.23` on top of 0.0.22, and C's candidate followed it.
+    The lock takes `v0.0.23`'s archive (size and SHA-256 checked against two downloads and the
+    published `.sha256`), and the candidate file is gone in the same commit.
 
 ## 3. Tasks
 

@@ -1458,7 +1458,8 @@ public:
                                                          event.value("stack", std::vector<std::string> {}) };
             while (crashContexts_.size() > 4) crashContexts_.erase(crashContexts_.begin());
         } else if (kind == "runner-fault") {
-            // What clangd itself said (a crash context) stays; the runner's report fills what it left empty.
+            // A crash context of clangd's that names its file stays; otherwise the runner's report is the better word on
+            // what happened and where, and stands in for it.
             CrashContext& context { crashContexts_[generation_] };
             if (context.exception.empty() || context.file.empty()) context.exception = event.value("exception", std::string {});
             if (context.file.empty()) context.stack = event.value("stack", std::vector<std::string> {});
