@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-11-12 — S3: an engine that ends, and a session's engine starts
+
+Three issue codes are named. `file-ended-engine`: files that made the engine end (a fault, not an end from outside) are
+answered from the module index until their term is over or the person tries them again; the message names them and the
+condition, and the command restarts the engine. `engine-paused`: the engine ended and the server does not restart it by
+itself, because the environment allows this server process only a few more engine starts and leaves them to the
+person; module-level features meanwhile. `engine-restart-withheld`: the same, for a restart the server wanted of an
+engine that still runs, which is kept. `engine-start-failed` may carry the command that restarts the server where that
+is what restores the environment. All additive: a client that knows none of them shows the message and its command as
+it does for any issue, and protocol version stays 1.
+
+S6: a payload's `build` may name the tracked files that made it `dirty` (`dirtyFiles`). Informative, as `build` is.
+
 ## 2026-11-07 — S6: the payload manifest
 
 S6 states `payload.json` of payload versions 4 (mcppls 0.0.18, 0.0.19: one platform, the server's runner under

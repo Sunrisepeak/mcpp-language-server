@@ -15,6 +15,7 @@ import mcppls.project.scan;
 import mcppls.normalize.plan;
 import mcppls.engine;
 import mcppls.engine.clangd.definition;
+import mcppls.engine.clangd.exits;
 import mcppls.engine.clangd.guard;
 import mcppls.engine.clangd.primer;
 import mcppls.engine.clangd.process;
@@ -341,6 +342,7 @@ private:
         Clock::time_point at;
         std::set<std::string> suspects;   // what was asked about or changed just before: used when clangd did not say
         std::vector<std::string> unanswered;
+        std::vector<std::string> inFlight;   // issue 86 S2: the files whose builds were in flight
     };
     std::optional<PendingExit> pendingExit_;
     std::map<int, CrashContext> crashContexts_;   // by generation, the latest few
@@ -497,20 +499,26 @@ private:
         // Fix plan F16: set aside for what is on disk, not in the editor: it goes back when the disk is fixed.
         bool onDisk { false };
         std::string modelOrigin;    // the model's source then (fix plan F4: a provisional model's verdicts do not outlive it)
-        // 0.0.17 W5 (#59 U7a): set aside for an exit of clangd, the modules it imports as they were built then
-        // (closure_identity_). Once they are built again, and differently, it goes back to clangd once.
-        std::optional<std::string> crashClosure;
     };
     std::map<std::string, Aside, std::less<>> aside_;                  // path key
     // W5: an exit of clangd that names no file (a kill, the OOM killer) is not yet a file's fault: the files it was busy
     // with get a strike, and a file that gets a second within EXIT_STRIKE_WINDOW is set aside, as a crash naming it is.
     static constexpr std::chrono::minutes EXIT_STRIKE_WINDOW { 10 };
     std::map<std::string, Clock::time_point, std::less<>> exitStrikes_;     // path key -> its strike
-    // W5: how many times each module has been built (clangd's "Built module"), for the closure identity of a file set
-    // aside after an exit; and the identities each such file already went back to clangd with.
+    // How many times each module has been built (clangd's "Built module"): a report's count, and no longer anything's
+    // identity -- a restart builds the same modules again (issue 86).
     std::map<std::string, std::uint64_t, std::less<>> moduleBuilds_;
-    std::map<std::string, std::set<std::string>, std::less<>> crashRetried_;   // path key -> closure identities tried
     bool closureRetryCheck_ { false };
+    // Issue 86 (design 2026-11-12). S2: the files clangd is building now. S3: the files that ended clangd, kept in the
+    // workspace's cache across edits, restarts and sessions. S4: what this session's starts spent of the sandbox's
+    // table of granted directories, and whether automatic restarts have stopped to leave the rest to the person.
+    BuildsInFlight building_;
+    CrashLedger ledger_;
+    bool ledgerRead_ { false };
+    std::optional<Clock::time_point> ledgerCheckAt_;
+    StartBudget budget_;
+    bool paused_ { false };
+    std::string fileIdentity_;   // "consistent" | "split": whether an open file is the node its name refers to, in the engine's own words
     std::map<std::string, std::string, std::less<>> fileStatus_;       // client URI -> clangd's last textDocument/clangd.fileStatus state
     // robustness design C10: a definition that clangd finds only as a declaration in a module's interface is looked for in that
     // module's other units, which are opened in clangd without the editor (background units) and closed again when unused.
@@ -709,6 +717,12 @@ public:
             { "workarounds", workarounds_json_() },
             // Fix plan F3, F6, F14, F16, F17.
             { "lastExit", lastExit_ },
+            // Issue 86: the builds in flight, the files that ended clangd, the session's starts, and the engine's word
+            // on whether a file has one identity here.
+            { "buildsInFlight", building_.files() },
+            { "crashLedger", ledger_.to_json()["files"] },
+            { "startBudget", start_budget_json_() },
+            { "fileIdentity", fileIdentity_.empty() ? Json(nullptr) : Json(fileIdentity_) },
             { "scanFailures", Json { { "count", scanFailures_.count }, { "files", scanFailures_.files }, { "firstReason", scanFailures_.firstReason } } },
             { "restartBudget", restart_budget_json_() },
             { "filesUnsafeOnDisk", disk_hazards_json_() },
@@ -967,6 +981,9 @@ public:
         excluded_ = std::move(newExcluded);
         // A file set aside that the database now gives another command goes back to clangd with it.
         for (const auto& file : commandChanged) {
+            // Issue 86 S3: a file that ended clangd is made eligible by another command, as by any change, and goes back
+            // when its term is over. In a new session every command is another one: the first plan gave all of them back.
+            if (quarantine_.contains(file) && ledger_verdict_(file) == CrashLedger::Verdict::held) continue;
             if (!quarantine_.release(file)) continue;
             aside_.erase(file);
             log::info("handing {} back to clangd ({}): the engine database has another command for it", file, host_->root_directory());
@@ -1100,7 +1117,7 @@ public:
                     break;
                 }
             }
-            if (excluded_path_(document.path) || quarantined_(document.path)) {
+            if (excluded_path_(document.path) || quarantined_(document.path) || kept_by_ledger_(document)) {
                 closeWarm();
                 break;
             }
@@ -1134,7 +1151,11 @@ public:
                 // What clangd stopped on is still there: the file stays aside until its time is up or what it imports changes.
                 // A file clangd spun on goes back as soon as its text is any other than the one it spun on; one set aside
                 // for what is on disk goes back only once the disk is fixed (fix plan F16), whatever the editor has.
-                if (const auto aside = aside_.find(key); aside != aside_.end()) {
+                // Issue 86 S3: a file that ended clangd is the ledger's to give back. An edit makes it eligible, and it
+                // goes back when its term is over -- not at every burst of typing, each one an engine start.
+                const auto held = ledger_verdict_(key, document.text);
+                if (held == CrashLedger::Verdict::held) break;
+                if (const auto aside = aside_.find(key); aside != aside_.end() && held == CrashLedger::Verdict::clean) {
                     if (aside->second.onDisk) break;
                     if (aside->second.spunOn ? *aside->second.spunOn == text_hash_(document.text)
                                              : aside->second.structure == structure_of_text_(document.text)) break;
@@ -1436,6 +1457,13 @@ public:
             crashContexts_[generation_] = CrashContext { event.value("action", std::string {}), event.value("file", std::string {}), event.value("exception", std::string {}),
                                                          event.value("stack", std::vector<std::string> {}) };
             while (crashContexts_.size() > 4) crashContexts_.erase(crashContexts_.begin());
+        } else if (kind == "runner-fault") {
+            // A crash context of clangd's that names its file stays; otherwise the runner's report is the better word on
+            // what happened and where, and stands in for it.
+            CrashContext& context { crashContexts_[generation_] };
+            if (context.exception.empty() || context.file.empty()) context.exception = event.value("exception", std::string {});
+            if (context.file.empty()) context.stack = event.value("stack", std::vector<std::string> {});
+            while (crashContexts_.size() > 4) crashContexts_.erase(crashContexts_.begin());
         } else if (kind == "scan-failed") {
             note_scan_failure_(event.value("file", std::string {}), event.value("reason", std::string {}), event.value("driver", false));
         } else if (kind == "module-lock-wait") {
@@ -1467,8 +1495,14 @@ public:
             for (const auto& document : host_->documents()) {
                 if (!document.path.empty() && base::path_key(document.path) == key) {
                     spin_.began(document.uri, event.value("version", std::int64_t { 0 }), Clock::now());
+                    file = document.path;
                 }
             }
+            // Issue 86 S2: every file's, a unit opened for the index too -- whatever clangd is building when it ends.
+            if (!key.empty()) building_.began(key, file);
+        } else if (kind == "file-identity") {
+            // Split is the finding; a later line about another directory does not take it back.
+            if (fileIdentity_ != "split") fileIdentity_ = event.value("identity", std::string {});
         }
     }
 
@@ -1561,6 +1595,7 @@ public:
         }
         if (accepting_) consider(spinSampleAt_);
         if (pendingExit_) consider(pendingExit_->at + EXIT_CONTEXT_WAIT);
+        consider(ledgerCheckAt_);
         if (upSince_) consider(*upSince_ + RECOVERED_AFTER);
         for (const auto& [uri, closing] : closingAfterBuild_) consider(closing.second);
         consider(diskRecheckAt_);
@@ -1704,7 +1739,16 @@ public:
             request_restart_("clangd did not answer initialize");
         }
         if (closureRetryCheck_ && !primer_.busy()) retry_after_closure_rebuilt_();
+        if (ledgerCheckAt_ && *ledgerCheckAt_ <= now) {
+            ledgerCheckAt_.reset();   // asked now; hand_back_ledger_files_ sets the next one, if a term is still running
+            hand_back_ledger_files_();
+        }
         for (const auto& key : quarantine_.due(now)) {
+            // A file that ended clangd waits for the ledger's term, not this one (issue 86 S3).
+            if (ledger_verdict_(key) == CrashLedger::Verdict::held) {
+                quarantine_.put(key, now);
+                continue;
+            }
             // Nor is a file whose text on disk would stall clangd (fix plan F16): it waits for the disk, or the database.
             if (const auto aside = aside_.find(key); aside != aside_.end() && aside->second.onDisk) {
                 if (const auto hazard = diskHazards_.find(key); hazard != diskHazards_.end()) {
@@ -1991,6 +2035,12 @@ private:
         }
         if (!process_) process_ = make_process_();
         lastConfig_ = config;
+        building_.clear();
+        paused_ = false;
+        // Issue 86 S4: what this start spends of the sandbox's table -- one slot for each read-only grant, for the life
+        // of the server process (openkal through 0.25; a platform that returns them makes the count harmless).
+        budget_.set_capacity(granted_.empty() ? 0 : StartBudget::CAPACITY);
+        budget_.started(read_only_grants_());
         Json grantsJson = Json::array();
         for (const auto& grant : granted_)
             grantsJson.push_back(Json { { "path", grant.path }, { "writable", grant.writable }, { "unchanging", grant.unchanging } });
@@ -2013,6 +2063,14 @@ private:
         auto limited = options_.verboseLog ? std::make_shared<LimitedLog>(std::numeric_limits<std::size_t>::max(), std::numeric_limits<std::size_t>::max())
                                            : std::make_shared<LimitedLog>(40, 200);
         auto reader = std::make_shared<LogReader>();   // only ever used on the thread reading clangd's standard error
+        // Design 2 (E2): the runner's own report of a fault in the image, where it makes one (okrun on Linux and macOS:
+        // "openkal: fault: <what> (<signal>) at <address>", then a line for each frame, "openkal:   #n <address>
+        // <image>+<offset>"). The image itself prints nothing when a hardened check traps; this is all there is.
+        struct RunnerFault {
+            std::string what;
+            std::vector<std::string> frames;
+        };
+        auto fault = std::make_shared<RunnerFault>();   // read on that thread alone too
         auto ring = logRing_;
         auto buildTimes = buildTimes_;
         ring->add(std::format("--- clangd {} started (generation {}) ---", options_.version, generation));
@@ -2020,10 +2078,15 @@ private:
             config,
             [sink, generation](Json message) { sink(Json { { "kind", "message" }, { "generation", generation }, { "message", std::move(message) } }); },
             [sink, generation] { sink(Json { { "kind", "closed" }, { "generation", generation } }); },
-            [sink, generation, root, limited, reader, ring, buildTimes](std::string_view line) {
+            [sink, generation, root, limited, reader, ring, buildTimes, fault](std::string_view line) {
                 // Fix plan F17.1: every line is kept in memory for an incident, whatever reaches the log.
                 ring->add(line);
                 buildTimes->add(line);
+                if (const auto told = runner_fault_line(line)) {
+                    if (!told->what.empty()) *fault = RunnerFault { told->what, {} };
+                    else if (!fault->what.empty() && fault->frames.size() < 64) fault->frames.push_back(told->frame);
+                    sink(Json { { "kind", "runner-fault" }, { "generation", generation }, { "exception", fault->what }, { "stack", fault->frames } });
+                }
                 const auto read = reader->read(line);
                 const log::Level level { clangd_log_level(line) };
                 // Forwarded at clangd's own severity (robustness design C7, real-project plan RP3.3): a
@@ -2033,6 +2096,13 @@ private:
                 // build are never left out (fix plan F6).
                 if (read.astBuild) {
                     sink(Json { { "kind", "ast-build" }, { "generation", generation }, { "file", read.astBuild->file }, { "version", read.astBuild->version } });
+                }
+                // P1 (design 1.4): the engine measures its cache directory at start and says when an open file is not
+                // the node its name refers to -- the system on which one file has two identities.
+                if (line.find("an open file is not the node its name refers to") != std::string_view::npos) {
+                    sink(Json { { "kind", "file-identity" }, { "generation", generation }, { "identity", "split" } });
+                } else if (line.find("module cache") != std::string_view::npos && line.find("owned, ") != std::string_view::npos) {
+                    sink(Json { { "kind", "file-identity" }, { "generation", generation }, { "identity", "consistent" } });
                 }
                 // mcppls-clangd 0.0.13: "Rebuilding module M: <why>", once per module it builds.
                 if (const std::size_t at { line.find("Rebuilding module ") }; at != std::string_view::npos) {
@@ -2102,20 +2172,25 @@ private:
             // Issue 86: the Windows sandbox's "out of memory" on a grant is its fixed table of
             // attenuated directories running out of slots (openkal 0.20.0 recycles none), not memory.
             std::string message;
+            bool tableSpent { false };
             if (unsupported) {
                 message = std::format("clangd could not be started: {}. This system refused to start a program the way mcppls starts one "
                                       "(as PRoot does without support for execveat); only module-level features are available", why);
             } else {
                 message = std::format("clangd could not be started: {}", why);
                 if (why.starts_with("granting ") && why.find("out of memory") != std::string::npos) {
-                    const auto readOnly { std::ranges::count_if(granted_, [](const Grant& grant) { return !grant.writable; }) };
+                    tableSpent = true;
                     message += std::format(". This is not memory: the sandbox keeps a small table of granted directories that is never "
-                                           "recycled (openkal 0.20.0), and this session's {} engine starts spent it ({} read-only grants "
-                                           "each). Restarting the editor restores it, and `mcppls.grants: [\"all\"]` does without the sandbox",
-                                           generation, readOnly);
+                                           "recycled, and this session's {} engine start{} spent it ({} read-only grants each). Restart Server "
+                                           "restores it, and `mcppls.grants: [\"all\"]` does without the sandbox",
+                                           budget_.starts(), budget_.starts() == 1 ? "" : "s", read_only_grants_());
                 }
             }
-            add_issue_(Issue { "engine-start-failed", std::move(message), "mcppls.showLogs", "environment" });
+            // Design 5: a refused start is in the log, each time; it reached only the status and a bundle.
+            log::warning("{} ({})", message, host_->root_directory());
+            host_->record_event("engine-start-failed", Json { { "why", why }, { "starts", budget_.starts() }, { "tableSpent", tableSpent } });
+            std::erase_if(issues_, [](const Issue& issue) { return issue.code == "engine-start-failed"; });
+            add_issue_(Issue { "engine-start-failed", std::move(message), tableSpent ? "mcppls.restartServer" : "mcppls.showLogs", "environment" });
             flush_deferred_without_engine_();
             host_->engine_settled(ENGINE_ID, Json::object());
             host_->status_changed();
@@ -2138,9 +2213,66 @@ private:
         (void)send_(lsp::make_request(engineId, "initialize", std::move(params)));
     }
 
+    // ---- issue 86 S4: the start budget ---------------------------------------------------------
+
+    std::size_t read_only_grants_() const {
+        const auto& grants = granted_.empty() ? lastConfig_.grants : granted_;
+        return static_cast<std::size_t>(std::ranges::count_if(grants, [](const Grant& grant) { return !grant.writable; }));
+    }
+
+    Json start_budget_json_() const {
+        const std::size_t each { read_only_grants_() };
+        const auto left = budget_.left(each);
+        return Json { { "starts", budget_.starts() }, { "slotsSpent", budget_.spent() }, { "capacity", budget_.counted() ? Json(StartBudget::CAPACITY) : Json(nullptr) },
+                      { "readOnlyGrantsEach", each }, { "startsLeft", left ? Json(*left) : Json(nullptr) }, { "reserve", StartBudget::RESERVE }, { "paused", paused_ } };
+    }
+
+    // An automatic restart while the sandbox's table is down to its reserve is not made: what is left is the
+    // person's (Restart clangd), and after that only Restart Server brings the table back. A clangd that is gone
+    // stays gone and mcppls's own engine answers (`paused`); one that still runs is kept as it is.
+    bool withhold_restart_(std::string_view reason, RestartCause cause) {
+        const std::size_t each { read_only_grants_() };
+        if (budget_.automatic(each)) return false;
+        const std::size_t left { budget_.left(each).value_or(0) };
+        restartAt_.reset();
+        restartWhenQuiet_ = false;
+        restartDueAt_.reset();
+        const bool gone { closedGeneration_ == generation_ || !process_ || !process_->running() };
+        if (gone) {
+            if (!paused_) {
+                paused_ = true;
+                unavailable_ = true;
+                flush_deferred_without_engine_();
+                host_->engine_settled(ENGINE_ID, Json::object());
+                log::warning("clangd ({}) is paused: it was started {} times this session and {} start{} left before the server must be restarted; "
+                             "not restarting it for: {}", host_->root_directory(), budget_.starts(), left, left == 1 ? " is" : "s are", reason);
+                host_->record_event("engine-paused", Json { { "starts", budget_.starts() }, { "startsLeft", left }, { "reason", std::string { reason } },
+                                                            { "cause", std::string { to_string(cause) } } });
+            }
+            std::erase_if(issues_, [](const Issue& issue) { return issue.code == "engine-paused" || issue.code == "engine-crash-loop"; });
+            issues_.push_back(Issue { "engine-paused",
+                std::format("clangd is paused: it was started {} times this session and {} start{} left before the server must be restarted. mcppls's own "
+                            "engine answers meanwhile. Restart clangd to use one, or Restart Server to have them all back",
+                            budget_.starts(), left, left == 1 ? " is" : "s are"),
+                "mcppls.restartClangd", "engine" });
+        } else {
+            log::warning("clangd ({}) is not restarted ({}): {} start{} left this session, kept for the person", host_->root_directory(), reason, left,
+                         left == 1 ? " is" : "s are");
+            host_->record_event("engine-restart-withheld", Json { { "startsLeft", left }, { "reason", std::string { reason } }, { "cause", std::string { to_string(cause) } } });
+            std::erase_if(issues_, [](const Issue& issue) { return issue.code == "engine-restart-withheld"; });
+            issues_.push_back(Issue { "engine-restart-withheld",
+                std::format("clangd was not restarted ({}): {} start{} left this session before the server must be restarted. Restart clangd to use one, "
+                            "or Restart Server to have them all back", reason, left, left == 1 ? " is" : "s are"),
+                "mcppls.restartClangd", "engine" });
+        }
+        host_->status_changed();
+        return true;
+    }
+
     void restart_(std::string_view reason, RestartCause cause = RestartCause::recovery) {
         if (incompatible_) return;   // it cannot run on this machine; another start changes nothing
         settle_exit_();   // the verdict on the last exit comes first, whatever brings the restart forward
+        if (cause != RestartCause::user && withhold_restart_(reason, cause)) return;
         // 0.0.13 W6: `user` is "never counted against clangd" -- a person's command, or a change of theirs (a toolchain, a model
         // replacing the provisional one); the log says that rather than "(user)", which read as if someone had asked.
         log::info("restarting clangd ({}): {} ({})", host_->root_directory(), reason,
@@ -2829,6 +2961,7 @@ private:
                     const bool working { engine_working(params->value("state", std::string {})) };
                     buildingNow_[name] = working;
                     if (working) workingAt_[name] = Clock::now();
+                    else if (!statusPath.empty()) building_.ended(base::path_key(statusPath));
                 }
                 if (host_->has_document(uri)) {
                     fileStatus_[uri] = params->value("state", std::string {});
@@ -2848,10 +2981,16 @@ private:
         }
         if (method == lsp::method::TEXT_DOCUMENT_PUBLISH_DIAGNOSTICS) {
             const Json& params { message["params"] };
+            // Issue 86 S2: whoever the diagnostics are for -- a prime unit, a unit opened for the index, the editor's
+            // file -- the build they end is no longer in flight.
+            if (const std::string built { host_->path_of_uri(host_->client_uri(params.value("uri", std::string {}))) }; !built.empty()) {
+                building_.ended(base::path_key(built));
+            }
             if (const Json* published { lsp::find(params, "diagnostics") }; finish_prime_(params.value("uri", std::string {}), published)) return;
             const std::string uri { host_->client_uri(params.value("uri", std::string {})) };
             const std::string diagnosedPath { host_->path_of_uri(uri) };
             const std::string diagnosedKey { diagnosedPath.empty() ? std::string {} : base::path_key(diagnosedPath) };
+            if (!diagnosedKey.empty()) built_without_ending_(diagnosedKey, diagnosedPath);
             // A doomed file's diagnostics are mcppls's own (real-project plan RP1.1, design P1):
             // mark_doomed_ already closed it in clangd, but a publish clangd had queued before that
             // close can still arrive after, and would otherwise clobber the module-failed diagnostic
@@ -2953,7 +3092,8 @@ private:
             const auto touched = touchedAt_.find(base::path_key(document.path));
             if (!document.path.empty() && touched != touchedAt_.end() && now - touched->second < std::chrono::seconds { 10 }) suspects.insert(document.path);
         }
-        pendingExit_ = PendingExit { generation_, now, std::move(suspects), std::move(unanswered) };
+        pendingExit_ = PendingExit { generation_, now, std::move(suspects), std::move(unanswered), building_.files() };
+        building_.clear();
         // An exit before the handshake leaves the server's own initialize waiting on this engine. One
         // may be a fluke the restart below mends; a second is not, and the editor is not kept
         // waiting for the restarts after it: initialize is answered with mcppls's own capabilities.
@@ -2989,6 +3129,8 @@ private:
             restartWhenQuiet_ = false;
             restartAt_ = std::max(now + std::chrono::seconds { 1 << std::min<std::size_t>(crashes_.size() - 1, 6) }, restartGate_.earliest(now, RestartCause::crash));
         }
+        // Issue 86 S4: inside the reserve no restart is coming, and the status says so now rather than when it was due.
+        (void)withhold_restart_(restartReason_, RestartCause::crash);
         host_->status_changed();
     }
 
@@ -3001,28 +3143,42 @@ private:
     }
 
     // Fix plan F3: an exit settled with what clangd said about it. Its crash context names the file it crashed
-    // on, and only that file is set aside; without one (a signal with no context, an exit code), what it was
-    // asked about or given just before is, as before. The exit code is read now, when the process is surely gone.
+    // on, and only that file is set aside. Issue 86 (design 2026-11-12): without one, the exit's own condition and
+    // the builds in flight say whose it was (exit_suspects) -- an ok image that traps prints nothing, and what clangd
+    // was asked about or given just before is every visible file in an editor at rest. The status is read now, when
+    // the process is surely gone.
     void settle_exit_() {
         if (!pendingExit_) return;
         PendingExit exit { std::move(*pendingExit_) };
         pendingExit_.reset();
-        const std::optional<int> code { process_ ? process_->exit_code() : std::nullopt };
+        const auto status = process_ ? process_->exit_status() : std::nullopt;
+        const std::optional<ExitCondition> condition { status
+            ? std::optional<ExitCondition> { exit_condition(status->code, status->byEnvironment, os::host() == os::platform::windows ? ExitHost::windows : ExitHost::posix) }
+            : std::nullopt };
+        const bool ended { condition && condition->kind != ExitKind::returned };   // by the system or from outside, not by a status of its own
         const auto context = crashContexts_.find(exit.generation);
         const bool known { context != crashContexts_.end() && !context->second.file.empty() };
-        std::set<std::string> suspects;
+        std::optional<std::string> named;
         if (known) {
             std::string path { base::canonical_path(context->second.file) };
             if (path.empty()) path = context->second.file;
             for (const auto& document : host_->documents()) {
                 if (!document.path.empty() && base::same_path(document.path, path)) path = document.path;
             }
-            suspects.insert(path);
-        } else {
-            suspects = std::move(exit.suspects);
+            named = std::move(path);
         }
+        const ExitSuspects verdict { exit_suspects(condition.value_or(ExitCondition {}), named, exit.inFlight,
+                                                   std::vector<std::string> { exit.suspects.begin(), exit.suspects.end() }) };
+        const std::set<std::string> suspects { verdict.files.begin(), verdict.files.end() };
+        // S1: the number the system gave, whole. A status the program returned is its own number; a condition is the
+        // system's (an NTSTATUS on Windows, a signal elsewhere), and `-1` is no longer written for it.
+        Json exitCode = nullptr;
+        if (condition) exitCode = condition->kind == ExitKind::returned ? Json(static_cast<std::int32_t>(condition->number)) : Json(condition->number);
         lastExit_ = Json { { "at", std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::milliseconds>(std::chrono::system_clock::now())) },
-                           { "exitCode", code ? Json(*code) : Json(nullptr) },
+                           { "exitCode", exitCode },
+                           { "exitCondition", ended ? Json(condition->text()) : Json(nullptr) },
+                           { "endedByEnvironment", ended },
+                           { "endedFromOutside", condition && condition->kind == ExitKind::outside },
                            { "crashFile", known ? Json(context->second.file) : Json(nullptr) },
                            { "crashAction", known ? Json(context->second.action) : Json(nullptr) },
                            { "exception", context != crashContexts_.end() && !context->second.exception.empty() ? Json(context->second.exception) : Json(nullptr) },
@@ -3031,31 +3187,51 @@ private:
                            { "stack", context != crashContexts_.end() ? Json(context->second.stack) : Json::array() },
                            { "clangd", Json { { "version", options_.version }, { "sha256", executable_sha256_() } } },
                            { "unansweredRequests", exit.unanswered },
+                           { "buildsInFlight", exit.inFlight },
+                           { "suspectRule", std::string { to_string(verdict.rule) } },
                            { "suspects", Json(std::vector<std::string> { suspects.begin(), suspects.end() }) } };
+        // D: the command that builds the suspect alone, for the reporter's shell.
+        if (!verdict.files.empty()) lastExit_["reproduce"] = reproduce_command_(verdict.files.front());
         host_->record_event("engine-exit", Json { { "recentExits", crashes_.size() }, { "suspects", lastExit_["suspects"] }, { "exitCode", lastExit_["exitCode"] },
+                                                  { "exitCondition", lastExit_["exitCondition"] }, { "suspectRule", lastExit_["suspectRule"] },
                                                   { "crashFile", lastExit_["crashFile"] }, { "crashAction", lastExit_["crashAction"] },
                                                   { "exception", lastExit_["exception"] } });
+        const std::string building { verdict.rule == ExitSuspects::Rule::in_flight
+            ? std::format(" while building {}", verdict.files.size() == 1 ? verdict.files.front() : std::format("{} files", verdict.files.size()))
+            : std::string {} };
         if (known) {
-            log::warning("clangd crashed while building {} ({}; {}{})", context->second.file, host_->root_directory(), context->second.action,
-                         context->second.exception.empty() ? std::string {} : std::format(", exception {}", context->second.exception));
+            log::warning("clangd crashed while building {} ({}; {}{}{})", context->second.file, host_->root_directory(), context->second.action,
+                         context->second.exception.empty() ? std::string {} : std::format(", exception {}", context->second.exception),
+                         ended ? std::format("; ended by {}", condition->text()) : std::string {});
             std::erase_if(issues_, [](const Issue& issue) { return issue.code == "engine-crashed"; });
             add_issue_(Issue { "engine-crashed",
                 std::format("clangd crashed while building {}; it was restarted without it", base::file_name(context->second.file)),
                 "mcppls.exportDiagnosticBundle" });
-        } else if (code) {
-            log::warning("clangd exited with {} ({})", *code, host_->root_directory());
+        } else if (ended) {
+            log::warning("clangd ended by {}{} ({})", condition->text(), building, host_->root_directory());
+            std::erase_if(issues_, [](const Issue& issue) { return issue.code == "engine-crashed"; });
+            add_issue_(Issue { "engine-crashed",
+                verdict.certain
+                    ? std::format("clangd ended by {} while building {}; that file is answered by mcppls's own engine meanwhile", condition->text(),
+                                  base::file_name(verdict.files.front()))
+                    : std::format("clangd ended by {}{}", condition->text(),
+                                  verdict.rule == ExitSuspects::Rule::in_flight ? std::format(" while building {} files", verdict.files.size()) : std::string {}),
+                "mcppls.exportDiagnosticBundle" });
+        } else if (condition) {
+            log::warning("clangd exited with {}{} ({})", static_cast<std::int32_t>(condition->number), building, host_->root_directory());
         }
         incident_("engine-crash", lastExit_, std::vector<std::string> { suspects.begin(), suspects.end() });
         const auto now = Clock::now();
         std::erase_if(exitStrikes_, [&](const auto& item) { return now - item.second > EXIT_STRIKE_WINDOW; });
-        for (const auto& path : suspects) {
+        for (const auto& path : verdict.files) {
             const std::string key { base::path_key(path) };
             // A file whose text on disk is known to stall clangd (fix plan F16) is what crashed it on Windows, where
             // UP-01 crashes instead of spinning: it goes back when the disk is fixed, not when a crash's term is up.
             const bool onDisk { diskHazards_.contains(key) };
             // W5 (#59 U9): an exit nothing names a file for was set aside for two minutes on the first time: a clangd
-            // killed while a file was being typed in took that file from clangd. Now the first is a strike.
-            if (!known && !onDisk && !exitStrikes_.contains(key)) {
+            // killed while a file was being typed in took that file from clangd. Now the first is a strike. S2: the one
+            // file whose build was in flight when a fault ended clangd is not a guess, and needs no second exit.
+            if (!verdict.certain && !onDisk && !exitStrikes_.contains(key)) {
                 exitStrikes_.emplace(key, now);
                 log::info("clangd exited while working on {} ({}); it stays with clangd, and a second exit within {} minutes sets it aside",
                           path, host_->root_directory(), EXIT_STRIKE_WINDOW.count());
@@ -3063,11 +3239,150 @@ private:
                 continue;
             }
             exitStrikes_.erase(key);
-            set_aside_(path, known ? std::format("clangd crashed while building it ({})", context->second.action) : std::string { "clangd exited while working on it" },
+            set_aside_(path, known ? std::format("clangd crashed while building it ({})", context->second.action)
+                             : ended && verdict.rule == ExitSuspects::Rule::in_flight ? std::format("clangd ended by {} while building it", condition->text())
+                             : std::string { "clangd exited while working on it" },
                        Reclaim::no, false, std::nullopt, onDisk);
-            if (const auto aside = aside_.find(key); aside != aside_.end() && !onDisk) aside->second.crashClosure = closure_identity_(key);
+            // The ledger is for a file clangd named or was building, twice over if it was not alone. A file set aside on
+            // the guess (it was asked about or edited lately, and clangd ended twice) keeps the short term and the way
+            // back on an edit it always had: holding an innocent file for a day, across sessions, would be the guess
+            // made worse.
+            if (!onDisk && verdict.rule != ExitSuspects::Rule::guessed) {
+                record_crash_(key, path, ended ? condition->text() : known ? std::string { "crash" } : std::string { "exit" });
+            }
         }
         host_->status_changed();
+    }
+
+    // ---- issue 86 S3: the crash ledger ---------------------------------------------------------
+
+    std::string ledger_path_() const { return base::join_path(host_->cache_directory(), "crash-ledger.json"); }
+
+    // Read once a session, when something first asks: most workspaces never have one.
+    void read_ledger_() {
+        if (ledgerRead_) return;
+        ledgerRead_ = true;
+        const auto text = os::fs::read(ledger_path_());
+        if (!text) return;
+        ledger_.from_json(Json::parse(*text, nullptr, false));
+        if (ledger_.empty()) return;
+        // Another engine starts clean, and a record nobody met for a month is forgotten.
+        if (ledger_.prune(executable_sha256_(), LedgerClock::now())) write_ledger_();
+    }
+
+    void write_ledger_() {
+        std::error_code ignored;
+        if (ledger_.empty()) {
+            (void)std::filesystem::remove(ledger_path_(), ignored);
+            return;
+        }
+        if (auto written = os::fs::write_atomic(ledger_path_(), ledger_.to_json().dump(2) + "\n"); !written) {
+            log::info("the crash ledger of {} could not be written: {}", host_->root_directory(), written.error().message());
+        }
+    }
+
+    // The text clangd had, or would be given: the editor's where the file is open, the disk's otherwise.
+    std::string content_identity_(std::string_view key, std::string_view path) const {
+        for (const auto& document : host_->documents()) {
+            if (!document.path.empty() && base::path_key(document.path) == key) return base::sha256_hex(document.text);
+        }
+        const auto disk = os::fs::read(std::string { path });
+        return disk ? base::sha256_hex(*disk) : std::string {};
+    }
+
+    CrashLedger::Verdict ledger_verdict_(const std::string& key, std::optional<std::string_view> text = std::nullopt) {
+        read_ledger_();
+        const CrashRecord* record { ledger_.find(key) };
+        if (record == nullptr) return CrashLedger::Verdict::clean;
+        return ledger_.verdict(key, executable_sha256_(), text ? base::sha256_hex(*text) : content_identity_(key, record->file),
+                               closure_identity_(key), LedgerClock::now());
+    }
+
+    // The soonest end of a term among the files set aside: when the ledger is asked again without anything changing.
+    void schedule_ledger_check_() {
+        ledgerCheckAt_.reset();
+        const auto wall = LedgerClock::now();
+        for (const auto& key : ledger_.keys()) {
+            const CrashRecord* record { ledger_.find(key) };
+            if (record == nullptr || !quarantine_.contains(key) || record->retryAt <= wall) continue;
+            const auto at = Clock::now() + std::chrono::duration_cast<Clock::duration>(record->retryAt - wall) + std::chrono::seconds { 1 };
+            if (!ledgerCheckAt_ || at < *ledgerCheckAt_) ledgerCheckAt_ = at;
+        }
+    }
+
+    void record_crash_(const std::string& key, const std::string& path, std::string_view condition) {
+        read_ledger_();
+        const CrashRecord& record { ledger_.exited(key, path, executable_sha256_(), condition, content_identity_(key, path), closure_identity_(key), LedgerClock::now()) };
+        write_ledger_();
+        schedule_ledger_check_();
+        log::info("{} has ended clangd {} time{} ({}); it is not given back for {} minutes, whatever changes ({})", path, record.exits,
+                  record.exits == 1 ? "" : "s", record.condition, record.term.count(), host_->root_directory());
+        host_->record_event("crash-ledger", Json { { "file", path }, { "exits", record.exits }, { "termMinutes", record.term.count() }, { "condition", record.condition } });
+        update_quarantine_issue_();
+    }
+
+    // clangd published the file's diagnostics: its build ended, and clangd did not. Whatever the ledger held
+    // against the file is over.
+    void built_without_ending_(const std::string& key, const std::string& path) {
+        building_.ended(key);
+        if (!ledgerRead_ || ledger_.empty() || quarantine_.contains(key) || ledger_.find(key) == nullptr) return;
+        ledger_.survived(key);
+        write_ledger_();
+        log::info("{} built in clangd without ending it: nothing is held against it any more ({})", path, host_->root_directory());
+        host_->record_event("crash-ledger-cleared", Json { { "file", path } });
+    }
+
+    // A file the editor opens that ended clangd in an earlier session, or earlier in this one: it is not handed to
+    // clangd until the ledger says so. True when it was kept.
+    bool kept_by_ledger_(const DocumentView& document) {
+        if (document.path.empty()) return false;
+        const std::string key { base::path_key(document.path) };
+        if (ledger_verdict_(key, document.text) != CrashLedger::Verdict::held) return false;
+        const CrashRecord* record { ledger_.find(key) };
+        if (!quarantine_.contains(key)) quarantine_.put(key, Clock::now());
+        if (!aside_.contains(key)) aside_[key] = Aside { structure_of_text_(document.text), false, std::nullopt, false, modelOrigin_ };
+        log::info("{} stays with mcppls's own engine ({}): it ended clangd {} time{} ({})", document.path, host_->root_directory(), record->exits,
+                  record->exits == 1 ? "" : "s", record->condition);
+        host_->record_event("file-kept-aside", Json { { "file", document.path }, { "exits", record->exits }, { "condition", record->condition } });
+        schedule_ledger_check_();
+        update_quarantine_issue_();
+        return true;
+    }
+
+    // The files whose term is over and that may go back (CrashLedger::verdict), handed back.
+    void hand_back_ledger_files_() {
+        if (!ledgerRead_ || ledger_.empty()) return;
+        std::vector<std::string> back;
+        for (const auto& [key, aside] : aside_) {
+            if (aside.onDisk || aside.spunOn || !quarantine_.contains(key) || ledger_.find(key) == nullptr) continue;
+            if (ledger_verdict_(key) == CrashLedger::Verdict::retry) back.push_back(key);
+        }
+        for (const auto& key : back) {
+            quarantine_.release(key);
+            aside_.erase(key);
+            for (const auto& document : host_->documents()) {
+                if (document.path.empty() || base::path_key(document.path) != key) continue;
+                log::info("handing {} back to clangd ({}): its term is over", document.path, host_->root_directory());
+                host_->record_event("file-handed-back", Json { { "file", document.path }, { "why", "its term is over" } });
+                if (accepting_ && !excluded_path_(document.path)) open_or_hold_(document, true);
+            }
+        }
+        schedule_ledger_check_();
+        if (!back.empty()) update_quarantine_issue_();
+    }
+
+    // D (design 5): `clangd --check=<file>` as this engine is started, against this workspace's engine database --
+    // what a reporter had to work out by hand to show that one file ends clangd.
+    Json reproduce_command_(const std::string& file) const {
+        std::vector<std::string> command;
+        if (!lastConfig_.runner.empty()) command.push_back(lastConfig_.runner);
+        command.push_back(lastConfig_.executable);
+        command.push_back("--check=" + file);
+        for (const auto& argument : clangd_arguments(lastConfig_)) {
+            if (argument.starts_with("--compile-commands-dir=") || argument == "--experimental-modules-support" || argument.starts_with("--modules-builder-")
+                || argument.starts_with("--pch-storage=") || argument.starts_with("--managed-input-root=")) command.push_back(argument);
+        }
+        return Json { { "file", file }, { "command", command }, { "directory", lastConfig_.workDirectory } };
     }
 
     // The loader said why clangd exited: before its exit was handled, it waits for it; after, it is
@@ -3625,41 +3940,27 @@ private:
         return closure;
     }
 
+    // What the modules a file imports were built from: each one's source, as the disk has it. Not how often they
+    // were built -- a restart builds the same modules again, and that is no change (issue 86 S3).
     std::string closure_identity_(std::string_view key) const {
         std::string identity;
         for (const auto& module : closure_of_(key)) {
-            const auto built = moduleBuilds_.find(module);
-            identity += std::format("{}={};", module, built == moduleBuilds_.end() ? 0 : built->second);
+            const auto source = moduleSources_.find(module);
+            identity += std::format("{}=", module);
+            if (source != moduleSources_.end()) {
+                const auto stamp = base::file_stamp(source->second);
+                identity += std::format("{}@{}:{}", source->second, stamp ? stamp->size : 0, stamp ? stamp->modified_ns : 0);
+            }
+            identity += ';';
         }
-        return identity;
+        return identity.empty() ? identity : base::sha256_hex(identity);
     }
 
-    // W5 (#59 U7a): a file set aside after clangd exited on it goes back once its modules have been built again and
-    // differently -- what it crashed on may well have been one of them, in the middle of being rebuilt -- and only once
-    // for each such closure: an exit on it after that sets it aside for a doubled term, as before. Asked when modules
-    // were built, once preparation is done; a closure with a module that failed to build stays as it is.
+    // W5 (#59 U7a), under the ledger's rule (issue 86 S3): modules were built again, which may be the change a file
+    // set aside after an exit was waiting for. It makes the file eligible; it goes back when its term is over.
     void retry_after_closure_rebuilt_() {
         closureRetryCheck_ = false;
-        std::vector<std::string> retried;
-        for (const auto& [key, aside] : aside_) {
-            if (!aside.crashClosure || aside.crashClosure->empty() || !quarantine_.contains(key)) continue;
-            const std::string identity { closure_identity_(key) };
-            if (identity == *aside.crashClosure || crashRetried_[key].contains(identity)) continue;
-            if (std::ranges::any_of(closure_of_(key), [&](const std::string& module) { return modulesFailedAt_.contains(module); })) continue;
-            crashRetried_[key].insert(identity);
-            retried.push_back(key);
-        }
-        for (const auto& key : retried) {
-            quarantine_.release(key);
-            aside_.erase(key);
-            for (const auto& document : host_->documents()) {
-                if (document.path.empty() || base::path_key(document.path) != key) continue;
-                log::info("handing {} back to clangd ({}): the modules it imports were built again since clangd exited on it", document.path, host_->root_directory());
-                host_->record_event("file-handed-back", Json { { "file", document.path }, { "why", "the modules it imports were built again" } });
-                if (accepting_ && !excluded_path_(document.path)) open_or_hold_(document, true);
-            }
-        }
-        if (!retried.empty()) update_quarantine_issue_();
+        hand_back_ledger_files_();
     }
 
     void set_aside_(const std::string& path, std::string_view why, Reclaim reclaim, bool moduleFailed = false,
@@ -3754,6 +4055,8 @@ private:
         detail["restartBudget"] = restart_budget_json_();
         detail["filesSetAside"] = quarantine_.members();
         detail["lastExit"] = lastExit_;
+        detail["startBudget"] = start_budget_json_();
+        detail["fileIdentity"] = fileIdentity_.empty() ? Json(nullptr) : Json(fileIdentity_);
         detail["lastPlanDiff"] = lastPlanDiff_;
         detail["scanFailures"] = Json { { "count", scanFailures_.count }, { "files", scanFailures_.files }, { "firstReason", scanFailures_.firstReason } };
         std::vector<IncidentFile> attached { IncidentFile { "clangd.log", logRing_->text() } };
@@ -4056,7 +4359,8 @@ private:
         std::erase_if(issues_, [](const Issue& issue) { return issue.code == "engine-crashed" || issue.code == "engine-restart-capped"; });
         std::vector<std::string> released;
         for (auto it = aside_.begin(); it != aside_.end();) {
-            if (it->second.modelOrigin == "inferred" && !it->second.onDisk && !it->second.spunOn) {
+            if (it->second.modelOrigin == "inferred" && !it->second.onDisk && !it->second.spunOn
+                && ledger_verdict_(it->first) != CrashLedger::Verdict::held) {
                 quarantine_.release(it->first);
                 released.push_back(it->first);
                 it = aside_.erase(it);
@@ -4264,8 +4568,11 @@ private:
     }
 
     void update_quarantine_issue_() {
-        std::erase_if(issues_, [](const Issue& issue) { return issue.code == "file-quarantined" || issue.code == "file-unsafe-on-disk"; });
+        std::erase_if(issues_, [](const Issue& issue) {
+            return issue.code == "file-quarantined" || issue.code == "file-unsafe-on-disk" || issue.code == "file-ended-engine";
+        });
         std::vector<std::string> members;
+        std::vector<const CrashRecord*> ended;
         for (const auto& key : quarantine_.members()) {
             // Fix plan F16, F17.5: set aside for what an autosave of a half-typed line put on disk. That is the code being
             // typed, not the server losing anything: said as such, with why, and never a degraded status.
@@ -4274,7 +4581,24 @@ private:
                     std::format("{} is answered by mcppls's own engine until it is saved again: {}", base::file_name(hazard->second.path), hazard->second.why), "", "code" });
                 continue;
             }
+            // Issue 86 S3: a file that ended clangd says so, with how and how often -- "stopped responding" it did not.
+            if (const CrashRecord* record { ledger_.find(key) }) {
+                ended.push_back(record);
+                continue;
+            }
             members.push_back(key);
+        }
+        if (!ended.empty()) {
+            const CrashRecord& first { *ended.front() };
+            std::string names;
+            for (std::size_t i { 0 }; i < ended.size() && i < 3; ++i) names += std::format("{}{}", i == 0 ? "" : ", ", base::file_name(ended[i]->file));
+            if (ended.size() > 3) names += std::format(" and {} more", ended.size() - 3);
+            issues_.push_back(Issue { "file-ended-engine",
+                ended.size() == 1
+                    ? std::format("{} made clangd end {} time{} ({}); it is answered by mcppls's own engine. Restart clangd tries it again",
+                                  names, first.exits, first.exits == 1 ? "" : "s", first.condition)
+                    : std::format("{} made clangd end ({}); they are answered by mcppls's own engine. Restart clangd tries them again", names, first.condition),
+                "mcppls.restartClangd" });
         }
         if (!members.empty()) {
             // import-hang plan §6: the files by name, and what they still get.
@@ -4371,8 +4695,14 @@ private:
     bool restart_on_request() override {
         if (options_.payloadCorrupt || incompatible_ || options_.executable.empty()) return false;
         std::vector<std::string> released;
+        // Issue 86 S3, S4: Restart clangd is the person's "try again" for the files that ended it -- unless the session
+        // is down to its reserve of starts, where a file that ends clangd again would spend what is left: those stay
+        // with mcppls's engine and clangd comes back for everything else.
+        read_ledger_();
+        const bool reserve { paused_ || !budget_.automatic(read_only_grants_()) };
+        if (!reserve) ledger_.try_all_again();
         for (auto it = aside_.begin(); it != aside_.end();) {
-            if (it->second.onDisk) {
+            if (it->second.onDisk || (reserve && ledger_.find(it->first) != nullptr)) {
                 ++it;
                 continue;
             }
@@ -4385,7 +4715,11 @@ private:
         }
         deferredReclaims_.clear();
         stuckAtCap_ = false;
-        std::erase_if(issues_, [](const Issue& issue) { return issue.code == "engine-crashed" || issue.code == "engine-timeout" || issue.code == "engine-crash-loop"; });
+        paused_ = false;
+        std::erase_if(issues_, [](const Issue& issue) {
+            return issue.code == "engine-crashed" || issue.code == "engine-timeout" || issue.code == "engine-crash-loop" || issue.code == "engine-paused"
+                || issue.code == "engine-restart-withheld";
+        });
         crashes_.clear();
         exitStrikes_.clear();
         crashLoops_ = 0;
@@ -4710,6 +5044,8 @@ private:
             backgroundRefused_.erase(refused);   // it changed: it may build now
         }
         if (excluded_.contains(key) || quarantine_.contains(key) || !writtenArguments_.contains(key)) return false;
+        // Issue 86 S2: a unit that ended clangd when it was opened for the index is not opened for it again.
+        if (ledger_verdict_(key) == CrashLedger::Verdict::held) return false;
         if (const auto joined = joinedAt_.find(key); joined != joinedAt_.end() && now < joined->second + DATABASE_REREAD) return false;
         // A unit of a module that did not compile can be one clangd never finishes (robustness design C6).
         if (modulesFailedAt_.contains(module) || reportedFailures_.contains(module)) return false;

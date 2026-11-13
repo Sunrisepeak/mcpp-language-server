@@ -62,7 +62,7 @@ public:
     std::optional<Json> diagnostics(std::string_view uri) const;    // the latest published list
     int diagnostics_publishes(std::string_view uri) const;          // how many lists were published
     bool indexing() const;                                          // an engine reports work in progress
-    int progress_begun() const;                                     // work reports begun so far
+    int progress_begun() const;                                     // an engine's work reports begun so far
 
     // Processes events until `done` holds or `timeout` passes; true when it held.
     bool wait_until(const std::function<bool()>& done, std::chrono::milliseconds timeout);

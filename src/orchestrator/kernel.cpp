@@ -87,8 +87,8 @@ public:
     std::map<std::string, Json> diagnostics;        // latest list by URI
     std::map<std::string, int> diagnosticsCounts;   // publications by URI
     Json status;
-    std::set<std::string> progress;                 // tokens with work begun and not ended
-    int progressBegun { 0 };
+    std::set<std::string> progress;                 // an engine's tokens with work begun and not ended
+    int progressBegun { 0 };                        // an engine's reports begun so far
     std::deque<Json> engineRequests;                // requests to the client, answered on the loop
     std::set<std::string> abandoned;                // requests that timed out: a late answer is dropped
 
@@ -125,6 +125,11 @@ private:
         } else if (method == "$/progress") {
             const Json* kind { lsp::find_path(params, { "value", "kind" }) };
             if (kind == nullptr || !kind->is_string()) return;
+            // The workspace reports its own busy states the same way (loading, preparing modules). That is no
+            // engine's work: counted here, a query that waits for the engine's index took a start slow enough to
+            // be reported for the index begun and ended, and asked an engine that had read no database yet
+            // (`query symbol` without the definition, `query refs`: "no symbol named").
+            if (is_status_progress_token(token_of(params))) return;
             if (*kind == "begin") {
                 progress.insert(token_of(params));
                 ++progressBegun;

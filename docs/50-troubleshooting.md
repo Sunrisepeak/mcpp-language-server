@@ -293,16 +293,64 @@ argument 3: -O0 -> -O2)`), so a burst names its cause.
 
 **"clangd crashed while building NormalJsonTranslator.Core.cpp".** clangd names the file it crashed
 on (its crash context), and that file is set aside: answered by mcppls's own engine while clangd is
-restarted without it. It goes back to clangd when it changes, when its term (two minutes, doubling
-if it crashes clangd again) is up, or once, as soon as the modules it imports have been built again:
-it may have crashed on one of them half rebuilt. A clangd that exits without naming a file (killed,
-or out of memory) costs the files it was working on a strike, not their place: only a second such
-exit on the same file within ten minutes sets it aside. `engines[].details.lastExit` in the report
-has the exit code, the file, what clangd was doing and, on Windows, the exception code. After five exits in five
-minutes clangd is started again after 1, 2, 4, then 8 minutes, and the status says so
-(`engine-crash-loop`, with **Restart clangd**); it is not given up for the session. The crash and
-timeout issues clear by themselves once clangd has stayed up for a minute. The last resort is
+restarted without it. A clangd that ends without saying anything -- the bundled clangd traps where a
+hardened library check fails, and prints nothing -- is judged by what it was building: the one file
+whose build was in flight is set aside at that first exit, and the log and the status name how
+clangd ended (`clangd ended by an illegal instruction (0xC000001D) while building
+monitor_view.cppm`, `SIGSEGV (signal 11)` elsewhere). Several builds in flight, or none, cost each
+file a strike, not its place: only a second such exit on the same file within ten minutes sets it
+aside. A clangd ended from outside (killed, terminated, out of memory) is nobody's fault and costs
+nothing.
+
+**"monitor_view.cppm made clangd end 2 times (an illegal instruction (0xC000001D))".** A file that
+ended clangd is kept in a ledger in the workspace's cache (`crash-ledger.json`), and stays with
+mcppls's own engine until its term is over: two minutes, then 4, 8, 16, an hour, a day, doubling
+each time it ends clangd again. An edit, a rebuilt module it imports, a changed command and a new
+editor session each make it *eligible*; none sends it back before the term ends, so a file clangd
+cannot build costs one engine start a term and not one a burst of typing. After a second exit an
+unchanged file is not tried again at all until its text or what its modules were built from changes.
+**Restart clangd** is "try again": it gives every such file back at once (unless the session is down
+to its reserve of starts, below). A file that then builds is forgotten by the ledger; another engine
+(a new mcppls) starts clean, and a record nobody met for thirty days is dropped.
+`engines[].details.lastExit` in the report has the number, the condition (`exitCondition`), the
+builds in flight, the rule that named the suspects (`suspectRule`) and, under `reproduce`, the
+`clangd --check=<file>` command that builds that file alone the way the session does; on Linux and
+macOS `exception` and `stack` carry the runner's own report of the fault (`clangd.okb+0x…` offsets,
+which name functions with the image of that version). After five exits in five minutes clangd is
+started again after 1, 2, 4, then 8 minutes, and the status says so (`engine-crash-loop`, with
+**Restart clangd**); it is not given up for the session. The crash and timeout issues clear by
+themselves once clangd has stayed up for a minute. The last resort is
 [below](#when-mcppls-cannot-recover-by-itself).
+
+**"clangd is paused: it was started 13 times this session and 3 starts are left".** The sandbox that
+holds clangd to its directories keeps a table of 64 granted directories for the life of the server
+process and, up to openkal-windows 0.21.0 (and its Linux and macOS counterparts), returns no slot:
+each start spends one for each read-only directory it grants. The server counts them
+(`engines[].details.startBudget`), and while only three starts are left it makes no restart by
+itself -- not for a crash, not for a plan that names a new directory: mcppls's own engine answers,
+and the three are yours (**Restart clangd**). When none is left the start is refused
+(`engine-start-failed`: "…this session's 17 engine starts spent it…"), and **Restart Server** brings
+the whole table back in a second, without restarting the editor; `mcppls.grants: ["all"]` does
+without the sandbox. How many starts the table holds depends on the system: a start is given three
+or four read-only directories on Windows and Linux (sixteen to twenty-one starts), and more on
+macOS, whose system directories are granted by convention, so the reserve is reached there after
+fewer; `startBudget.readOnlyGrantsEach` and `startsLeft` say it for the session. With the crash
+ledger above a file that ends clangd costs one or two starts, so this is the backstop for a long
+session of many restarts, not something a crash loop reaches.
+
+**clangd ends on a module unit with a library header (Windows 11 24H2, mcppls 0.22.0 and earlier).**
+On Windows builds 26100 and later the bundled clangd through `23.1.0-mcppls.10` ended by
+`0xC000001D` on the first build of any module unit that includes a header in its global module
+fragment, imports a module and uses a type of the header
+([#86](https://github.com/Sunrisepeak/mcpp-language-server/issues/86)). The engine does not
+since `23.1.0-mcppls.11`; 0.23.0 carries `23.1.0-mcppls.12`. On an earlier version, a `.clangd`
+beside the project turns the analysis that trapped off:
+
+```yaml
+Diagnostics:
+  UnusedIncludes: None
+  MissingIncludes: None
+```
 
 **"mcpp could not describe tools/updater/mcpp.toml".** The build tool described the rest of the
 workspace and said which part it could not (a member whose build program failed, say); that part's

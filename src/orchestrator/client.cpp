@@ -66,6 +66,10 @@ std::optional<std::string_view> take_field(std::string_view& rest) {
 
 } // namespace
 
+std::string status_progress_token(std::string_view rootKey) { return std::format("mcppls/{}", rootKey); }
+
+bool is_status_progress_token(std::string_view token) { return token.starts_with("mcppls/"); }
+
 std::string make_engine_request_key(std::string_view rootKey, std::string_view engineId, int generation, const Json& engineRequestId) {
     std::string key { "e:" };
     append_field(key, rootKey);

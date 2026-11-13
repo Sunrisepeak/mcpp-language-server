@@ -142,10 +142,16 @@ void Connection::stop(std::chrono::milliseconds grace) {
 }
 
 std::optional<int> Connection::exit_code() {
+    const auto status = exit_status();
+    if (!status) return std::nullopt;
+    return status->byEnvironment ? -1 : status->code;
+}
+
+std::optional<Connection::ExitStatus> Connection::exit_status() {
     if (!process_.valid()) return std::nullopt;
     auto waited = process_.try_wait();
     if (!waited || !waited->has_value()) return std::nullopt;
-    return (*waited)->by_environment ? -1 : (*waited)->code;
+    return ExitStatus { (*waited)->code, (*waited)->by_environment };
 }
 
 } // namespace mcppls::lsp

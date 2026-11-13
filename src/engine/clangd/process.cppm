@@ -71,6 +71,17 @@ public:
     // How the process ended, once it has: its exit status, -1 when a signal ended it; nullopt while it
     // runs or where nothing can say (fix plan F3). Never blocks.
     virtual std::optional<int> exit_code() { return std::nullopt; }
+    // The same, whole (issue 86): the status and whether the environment ended the process. A process that can say
+    // only the folded number answers through exit_code.
+    struct ExitStatus {
+        int code { 0 };
+        bool byEnvironment { false };
+    };
+    virtual std::optional<ExitStatus> exit_status() {
+        const auto code = exit_code();
+        if (!code) return std::nullopt;
+        return *code == -1 ? ExitStatus { 0, true } : ExitStatus { *code, false };
+    }
 };
 
 std::string format_fallback_style(std::string_view requested, bool supported, bool mcppProject);
@@ -260,6 +271,7 @@ public:
     std::function<std::optional<double>()> cpu_reader() const override;
     std::optional<std::int64_t> pid() const override;
     std::optional<int> exit_code() override;
+    std::optional<ExitStatus> exit_status() override;
 };
 
 } // namespace mcppls::engine::clangd

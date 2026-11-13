@@ -49,4 +49,10 @@ struct EngineRequestKey {
 };
 std::optional<EngineRequestKey> parse_engine_request_key(std::string_view key);
 
+// The token a root's own report of a busy state travels under (`$/progress`: loading, preparing modules), and whether
+// a token is one. An engine's reports carry the engine's own tokens (clangd: "backgroundIndexProgress"); who waits for
+// an engine's work -- the kernel, for a query that needs the engine's index -- tells the two apart by this.
+std::string status_progress_token(std::string_view rootKey);
+bool is_status_progress_token(std::string_view token);
+
 } // namespace mcppls::orchestrator

@@ -714,4 +714,11 @@ std::optional<int> ClangdProcess::exit_code() {
     return connection_->exit_code();
 }
 
+std::optional<Process::ExitStatus> ClangdProcess::exit_status() {
+    if (!connection_) return std::nullopt;
+    const auto status = connection_->exit_status();
+    if (!status) return std::nullopt;
+    return ExitStatus { status->code, status->byEnvironment };
+}
+
 } // namespace mcppls::engine::clangd

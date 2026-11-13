@@ -1601,16 +1601,21 @@ struct Workspace::Impl final : engine::Host {
         if (served->provenance.certainty == answer::Certainty::uncertain || served->doubted > 0) log::info("{}", line);
         else log::debug("{}", line);
         const bool coreAsked { !job.waitsForLate && job.next > 0 && job.answerers[job.next - 1] == coreEngine };
-        if (coreAsked) {
-            keep_in_background(jobId, *job.asked, *served, job.clientId);
-            coreEngine->detach(job.clientId);
-            for (const auto& engine : engines) {
-                if (engine.get() != coreEngine) engine->cancel(job.clientId);
-            }
-        }
+        const Json clientId = job.clientId;   // `=`: braces make an array holding it (CWG 2137)
+        if (coreAsked) keep_in_background(jobId, *job.asked, *served, clientId);
         job.answeredBy = "cache";
         job.coreAnswered = true;   // the file's words are not added to a kept answer
+        // The job is finished first, as answer_without_core finishes its own (issue 86): an engine that has not sent
+        // the request yet -- clangd between an exit and its restart holds it -- answers the detachment at once, as
+        // cancelled, and that answer finished the job under this function: the client was told "cancelled" instead of
+        // the kept answer, and `job` was written to after it was gone.
         finish_job(jobId, std::move(served->result), served->provenance);
+        if (coreAsked) {
+            coreEngine->detach(clientId);
+            for (const auto& engine : engines) {
+                if (engine.get() != coreEngine) engine->cancel(clientId);
+            }
+        }
         return true;
     }
 
@@ -3872,8 +3877,11 @@ struct Workspace::Impl final : engine::Host {
         const std::string after { kit ? std::format("{} {}", kit->name, kit->target) : std::string {} };
         if (after == before) return;
         if (!kit) log::warning("no semantic kit serves {} ({})", kitTarget, root);
-        else log::info("semantic kit {} ({}) for {} at {}{} ({})", kit->name, kit->target, kitTarget, kit->root,
-                       kitMissingTarget.empty() ? std::string {} : std::format(", standing in for mcppls-kit-{}", kitMissingTarget), root);
+        // Issue 86 (design 2026-11-12, 5): with no target asked for, this is the host's default, chosen before the project
+        // is described -- a report copied "for x86_64-w64-mingw32" from this line as the project's target, which was MSVC.
+        else log::info("semantic kit {} ({}) for {} at {}{} ({})", kit->name, kit->target,
+                       targetSelection.requestedTarget.empty() ? std::format("this host's default target {}, the project naming none so far", kitTarget) : kitTarget,
+                       kit->root, kitMissingTarget.empty() ? std::string {} : std::format(", standing in for mcppls-kit-{}", kitMissingTarget), root);
     }
 
     std::string kit_install_command() const {
@@ -4092,7 +4100,7 @@ struct Workspace::Impl final : engine::Host {
         if (busy && !progressToken.empty() && message == lastProgressMessage) return;
 
         if (busy && progressToken.empty()) {
-            progressToken = std::format("mcppls/{}", key);
+            progressToken = status_progress_token(key);
             // A request, but its answer is not needed: the token's work begins with the first
             // $/progress either way, and a client that refuses simply ignores what follows.
             client.send(lsp::make_request(std::format("w:{}:p", key), "window/workDoneProgress/create",

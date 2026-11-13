@@ -565,6 +565,8 @@ public:
     // Every `workspace/semanticTokens/refresh` the server asked for, when it arrived: an editor asks for the tokens of the
     // files it shows again on one (the tokens-latency check does).
     std::vector<Clock::time_point> tokensRefreshes;
+    // Issue 89: the edits the server asked this client to apply (workspace/applyEdit), each answered as applied.
+    std::vector<Json> appliedEdits;
     // The server's OS pid where the platform can say; read by the clangd watcher's thread, so atomic.
     std::atomic<std::int64_t> serverPid { -1 };
 
@@ -762,6 +764,9 @@ public:
                 }
             } else if (method == "workspace/semanticTokens/refresh") {
                 tokensRefreshes.push_back(Clock::now());
+            } else if (method == "workspace/applyEdit") {
+                appliedEdits.push_back(message.value("params", Json::object()));
+                result = Json { { "applied", true } };
             } else if (method == "client/unregisterCapability") {
                 // The protocol spells the field "unregisterations".
                 for (const auto& registration : message["params"].value("unregisterations", Json::array())) {
@@ -4704,7 +4709,11 @@ public:
             const Json value = Json::parse(result->out, nullptr, false);
             if (value.is_discarded()) return { false, "the output is not JSON: " + clipped(result->out, 200) };
             auto [held, detail] = expectations_hold(value, check.value("expect", Json::array()));
-            return { held, held ? clipped(lsp::dump(value), 160) : detail };
+            if (held) return { true, clipped(lsp::dump(value), 160) };
+            // What the command said is the evidence of a failed expectation: where its answers came from (provenance),
+            // the session's state (snapshot), and whatever it warned of.
+            return { false, std::format("{}\n  output: {}{}", detail, clipped(lsp::dump(value), 2000),
+                                        result->err.empty() ? std::string {} : "\n  stderr: " + clipped(result->err, 1500)) };
         }
         if (kind == "type-text") {
             // import-hang plan §8: a person typing a line one key at a time. Line `line` of `file` takes each of
@@ -5143,6 +5152,84 @@ public:
             // "subset": no line outside `lines` (a clangd that reports fewer is not wrong; one that reports more is).
             const bool held { check.value("subset", false) ? std::ranges::includes(expected, lines) : lines == expected };
             return { published && held, published ? std::format("{} on lines {}", code.dump(), lines) : std::string { "no diagnostics were published" } };
+        }
+        if (kind == "code-action") {
+            // Issue 89: the actions offered at `at` (through `to`, when a range is selected) hold one titled `title`; with
+            // `edit-contains`, that action carried out as an editor carries it out -- its own edit, or its command and the
+            // workspace/applyEdit the server then asks for -- puts that text into this file. `absent` names titles that are
+            // not offered.
+            open(file);
+            const std::string documentUri { uri(file) };
+            const std::string title { check.value("title", std::string {}) };
+            const Json at = position(check.at("at"));
+            const Json to = check.contains("to") ? position(check.at("to")) : at;
+            Json chosen = nullptr;
+            Json actions = nullptr;
+            // Asked again while the file is being built, for a minute at most: an engine that has no such action answers
+            // at once, each time, and the check's whole time would be spent learning nothing more.
+            const auto deadline = Clock::now() + std::min<std::chrono::seconds>(timeout_, std::chrono::seconds { 60 });
+            bool offered { false };
+            while (!offered) {
+                const auto outcome = client_.request_full("textDocument/codeAction",
+                    Json { { "textDocument", Json { { "uri", documentUri } } }, { "range", Json { { "start", at }, { "end", to } } },
+                           { "context", Json { { "diagnostics", Json::array() } } } }, timeout_);
+                if (outcome.timedOut) return { false, "no answer" };
+                if (outcome.isError) return { false, lsp::dump(outcome.error) };
+                actions = outcome.result;
+                if (actions.is_array()) {
+                    for (const auto& action : actions) {
+                        if (action.is_object() && action.value("title", std::string {}) == title) {
+                            chosen = action;
+                            offered = true;
+                            break;
+                        }
+                    }
+                    offered = offered || title.empty();
+                }
+                if (offered || Clock::now() >= deadline) break;
+                client_.drain(std::chrono::milliseconds { 500 });
+            }
+            if (!offered) return { false, lsp::dump(actions) };
+            for (const auto& unwanted : check.value("absent", Json::array())) {
+                for (const auto& action : actions) {
+                    if (action.is_object() && Json(action.value("title", std::string {})) == unwanted) return { false, lsp::dump(actions) };
+                }
+            }
+            const std::string wanted { check.value("edit-contains", std::string {}) };
+            if (wanted.empty()) return { true, lsp::dump(actions) };
+            Json edit = nullptr;
+            if (const auto own = chosen.find("edit"); own != chosen.end() && own->is_object()) {
+                edit = *own;
+            } else {
+                // A Command, or a CodeAction that holds one.
+                const auto held = chosen.find("command");
+                const Json& command { held != chosen.end() && held->is_object() ? *held : chosen };
+                const std::size_t before { client_.appliedEdits.size() };
+                const auto outcome = client_.request_full("workspace/executeCommand",
+                    Json { { "command", command.value("command", std::string {}) }, { "arguments", command.value("arguments", Json::array()) } }, timeout_);
+                if (outcome.timedOut) return { false, "the action's command was not answered" };
+                if (outcome.isError) return { false, lsp::dump(outcome.error) };
+                if (client_.appliedEdits.size() == before) return { false, std::format("the action's command asked for no edit: {}", lsp::dump(outcome.result)) };
+                edit = client_.appliedEdits.back().value("edit", Json::object());
+            }
+            // The text the edit gives this file, whichever of the protocol's two shapes it has.
+            std::string inserted;
+            const auto take = [&](const Json& edits) {
+                if (!edits.is_array()) return;
+                for (const auto& item : edits) {
+                    if (item.is_object()) inserted += item.value("newText", std::string {}) + "\n";
+                }
+            };
+            if (const Json* changes { lsp::find(edit, "changes") }; changes != nullptr && changes->is_object()) {
+                if (const auto own = changes->find(documentUri); own != changes->end()) take(*own);
+            }
+            if (const Json* changes { lsp::find(edit, "documentChanges") }; changes != nullptr && changes->is_array()) {
+                for (const auto& change : *changes) {
+                    const Json* changed { lsp::find_path(change, { "textDocument", "uri" }) };
+                    if (changed != nullptr && *changed == Json(documentUri)) take(change.value("edits", Json::array()));
+                }
+            }
+            return { inserted.find(wanted) != std::string::npos, lsp::dump(edit) };
         }
         if (kind == "request") {
             // mcpp-community/mcpp#797: one request about `file` -- `method`, at `at` when given, with `params` added -- and
@@ -6586,6 +6673,62 @@ int prepare_crashing_clangd(std::string_view kind, const std::string& payload, s
     return 0;
 }
 
+// Issue 86 (design 2026-11-12): a clangd that a fault of its own ends whenever it builds one file -- every start, the
+// way an ok image trapped in a hardened library check on the reporter's module unit and printed nothing. The stand-in
+// IS the payload's clangd (the script replaces itself with it), with its standard error read by a watch that forwards
+// every line and, at "ASTWorker building file <...trapFile>", ends clangd with SIGTRAP: the system reports the signal,
+// and nothing names the file but what clangd was building. POSIX only.
+int prepare_trapping_clangd(std::string_view kind, const std::string& payload, std::string_view trapFile) {
+    std::error_code ignored;
+    if (os::host() == os::platform::windows) {
+        say("{}: POSIX only", kind);
+        return 2;
+    }
+    const std::string workspace { base::current_directory() };
+    const std::string real { payload_clangd(payload) };
+    const ClangdCommand realCommand { payload_clangd_command(payload) };
+    if (!std::filesystem::exists(real, ignored)) {
+        say("{}: no clangd at {}", kind, real);
+        return 1;
+    }
+    const std::string directory { base::join_path(workspace, "stand-in") };
+    (void)std::filesystem::create_directories(directory, ignored);
+    const std::string script { std::format(
+        "#!/bin/sh\n"
+        "real='{}'\n"
+        // The ok image's runner takes the image first (S4-4-12); a program engine has none.
+        "image='{}'\n"
+        "case \"$1\" in --version|--help) exec \"$real\" ${{image:+\"$image\"}} \"$@\" ;; esac\n"
+        "echo start >> '{}/starts'\n"
+        "fifo='{}/log.'$$\n"
+        "rm -f \"$fifo\"\n"
+        "mkfifo \"$fifo\" || exit 70\n"
+        "pid=$$\n"
+        // The watch: clangd's log, line by line, to the server as it was; the line that begins the file's build ends clangd.
+        "(\n"
+        "  while IFS= read -r line; do\n"
+        "    printf '%s\\n' \"$line\" >&2\n"
+        // SIGTRAP: a fault of the program's own that no runner takes for itself. okrun reports SIGILL, SIGSEGV, SIGBUS
+        // and SIGFPE (openkal's fault report) and returns to the faulting instruction, which a signal sent from outside
+        // has not got: the first one would be reported and survived, and clangd would finish the build meanwhile.
+        "    case \"$line\" in *'ASTWorker building file '*'{}'*) kill -TRAP \"$pid\" ;; esac\n"
+        "  done < \"$fifo\"\n"
+        "  rm -f \"$fifo\"\n"
+        ") < /dev/null > /dev/null &\n"
+        "exec \"$real\" ${{image:+\"$image\"}} \"$@\" 2> \"$fifo\"\n",
+        realCommand.program, realCommand.prefix.empty() ? std::string {} : realCommand.prefix.front(), directory, directory, base::file_name(trapFile)) };
+    const std::string clangd { base::join_path(directory, "clangd") };
+    if (auto written = os::fs::write(clangd, script); !written) {
+        say("{}: {}", kind, written.error().message());
+        return 1;
+    }
+    if (auto marked = base::make_executable(std::vector<std::string> { clangd }); !marked) {
+        say("{}: {}", kind, marked.error().message);
+        return 1;
+    }
+    return 0;
+}
+
 // 0.0.8 plan R-4: a producer that answers late. A shell script around the mock mcpp that waits `seconds` before
 // `emit build-database` and lets every other command through at once, so the server plans with what it scanned itself
 // meanwhile and then receives the build tool's model. POSIX only.
@@ -6736,12 +6879,13 @@ int prepare(const std::string& kind, const std::string& argument) {
     if (kind == "clangd-crash-context") return prepare_crashing_clangd(kind, argument, "src/crasher.cpp");
     if (kind == "clangd-crash-closure") return prepare_crashing_clangd(kind, argument, "src/main.cpp");
     if (kind == "clangd-exit-strike") return prepare_crashing_clangd(kind, argument, "");
+    if (kind == "clangd-trap") return prepare_trapping_clangd(kind, argument, "src/trap.cppm");
     if (kind == "compdb-rejected-command") return prepare_compdb_rejected_command(argument);
     if (kind == "compdb-mixed-standards") return prepare_compdb_mixed_standards(argument);
     if (kind == "xmake-stale-compdb") return prepare_marked_compdb(kind, argument.empty() ? std::string { "g++" } : argument, "-DSTALE_COMPDB", "-std=c++17");
     if (kind == "compdb-midwrite") return prepare_marked_compdb(kind, argument.empty() ? std::string { "clang++" } : argument, "-DVERSION_ONE", "-std=c++23");
     if (kind == "compdb-lto-msvc") return prepare_compdb_lto_msvc(argument);
-    say("prepare: unknown fixture kind {} (heavy-headers, large-module-file, s1-two-sets, payload-corrupt, producer-candidate, delayed-producer, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp, clangd-cannot-load, compdb-lto-msvc, clangd-crash-context, clangd-crash-closure, clangd-exit-strike, compdb-rejected-command, compdb-mixed-standards, xmake-stale-compdb, compdb-midwrite)", kind);
+    say("prepare: unknown fixture kind {} (heavy-headers, large-module-file, s1-two-sets, payload-corrupt, producer-candidate, delayed-producer, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp, clangd-cannot-load, compdb-lto-msvc, clangd-crash-context, clangd-crash-closure, clangd-exit-strike, clangd-trap, compdb-rejected-command, compdb-mixed-standards, xmake-stale-compdb, compdb-midwrite)", kind);
     return 2;
 }
 
