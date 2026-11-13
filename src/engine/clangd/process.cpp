@@ -615,6 +615,12 @@ FailureKind failure_kind(const ModuleFailure& failure) {
     return FailureKind::other;
 }
 
+bool transient_module_failure(const ModuleFailure& failure) {
+    // The lock is the engine's own and names no unit: a failure that names one (a worker that compiled and failed)
+    // is the unit's, whatever words follow.
+    return failure.failedSource.empty() && failure.reason.find("Failed to open lock file anchor") != std::string::npos;
+}
+
 FailureAction failure_action(FailureKind kind, const FailureContext& context) {
     if (kind == FailureKind::unresolved && context.providerPlanned && !context.providerRead) return FailureAction::ignore;
     const bool kitHelps { kind == FailureKind::compile || (kind == FailureKind::unresolved && !context.providerPlanned) };

@@ -242,6 +242,11 @@ std::vector<std::string> stale_module_builds(std::string_view databaseDirectory,
 // built. `compile`: the unit was found and did not compile; its importers get errors, not a hang (S3).
 enum class FailureKind { unresolved, compile, other };
 FailureKind failure_kind(const ModuleFailure& failure);
+// A failure of the engine's module cache, not of a module: the lock that orders builds of one unit could not be
+// opened ("Failed to open lock file anchor <cache>/.locks/<hash>: No such file or directory", seen on macOS
+// while several files' prerequisites are built at once; mcppls-clangd 0.0.20 on). Nothing about the project
+// is wrong, and the same build asked again succeeds: the importer is rebuilt, not recorded as failing.
+bool transient_module_failure(const ModuleFailure& failure);
 
 // What a module failure clangd reported means for the session (plan 2026-09-27 Q1-1, Q1-4).
 //   ignore      the unit joined an engine database this clangd has not read yet: the report is about the old one

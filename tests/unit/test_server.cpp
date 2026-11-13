@@ -685,6 +685,17 @@ UTest server_tests{"server", [] {
         expect(worker->importer == "/p/src/plain-importer.cpp") << worker->importer;
         expect(worker->failedSource == "/p/src/broken/e.cppm") << worker->failedSource;
         expect(cld::failure_kind(*worker) == cld::FailureKind::compile) << worker->reason;
+        expect(!cld::transient_module_failure(*worker));
+        // The engine's own lock, on macOS under concurrent prerequisite builds (release 0.23.0's stability rounds):
+        // a failure of no unit, which the same build asked again does not repeat.
+        const auto anchor = cld::parse_module_failure(
+            "E[05:15:40.539] Failed to build module prerequisites for /p/src/good/user.cppm; due to Failed to open lock file anchor "
+            "/c/contexts/clangd-23.1.0-mcppls.12-openkal-73feaa0a7a52/cdb/.cache/clangd/modules/.locks/90D2A255B17AD65E: No such file or directory");
+        expect(fatal(anchor.has_value()));
+        expect(anchor->importer == "/p/src/good/user.cppm") << anchor->importer;
+        expect(anchor->module.empty() && anchor->failedSource.empty()) << anchor->module << " " << anchor->failedSource;
+        expect(cld::transient_module_failure(*anchor)) << anchor->reason;
+        expect(cld::failure_kind(*anchor) == cld::FailureKind::other);
         const auto windows = cld::parse_module_failure(
             R"(E[03:15:19.435] Failed to build module prerequisites for C:\p\main.cpp; due to module worker failed: C:\p\a b\e.cppm:12:3: fatal error: 'x.h' file not found)");
         expect(fatal(windows.has_value()));
@@ -2001,6 +2012,82 @@ UTest server_tests{"server", [] {
         host.pump(*engine);
         const Json& built { host.diagnostics[slowView.uri] };
         expect(built.is_array() && built.size() == 1u && built[0].is_object()) << "clangd's list reaches the editor: " << built.dump();
+        engine->shut_down();
+        std::filesystem::remove_all(root, ignored);
+    };
+
+    "a module lock clangd could not open is asked again, not recorded as the file's failure"_test = [] {
+        std::error_code ignored;
+        using mcppls::base::join_path;
+        using namespace std::chrono_literals;
+        const std::string root { base::canonical_path(join_path(base::spelled(os::dirs::temp()),
+            std::format("mcppls-test-lock-anchor-{}", std::chrono::steady_clock::now().time_since_epoch().count()))) };
+        (void)std::filesystem::create_directories(join_path(root, "src"), ignored);
+        const std::string executable { join_path(root, "clangd") };
+        (void)os::fs::write(executable, "pretend-clangd");
+        const std::string main { join_path(root, "src/main.cpp") };
+        const std::string greet { join_path(root, "src/greet.cppm") };
+        const std::string mainText { "import hello.greet;\nint main() { return hello::add(1, 2); }\n" };
+        (void)os::fs::write(main, mainText);
+        (void)os::fs::write(greet, "export module hello.greet;\nexport namespace hello { int add(int a, int b) { return a + b; } }\n");
+        auto shared = std::make_shared<BuildingProcess::Shared>();
+        cld::Options options;
+        options.executable = executable;
+        options.version = "23.1.0";
+        options.primeImplementationUnits = false;
+        options.processFactory = [shared] { return std::make_unique<BuildingProcess>(shared); };
+        EditorHost host { root };
+        auto engine = cld::make_engine(std::move(options));
+        engine->start(host);
+        host.pump(*engine);
+        mcppls::normalize::EnginePlan plan;
+        plan.entries.push_back(mcppls::normalize::EngineEntry { root, main, { "clang++", "-std=c++23", "-c", main }, "", "", { "hello.greet" }, {} });
+        plan.entries.push_back(mcppls::normalize::EngineEntry { root, greet, { "clang++", "-std=c++23", "-c", greet }, "hello.greet", "hello.greet", {}, {} });
+        engine->apply(&plan);
+        host.pump(*engine);
+        const eng::DocumentView mainView { mcppls::base::path_to_uri(main), main, "cpp", 1, mainText };
+        host.open.push_back(mainView);
+        engine->document(eng::DocumentEvent { eng::DocumentChange::opened, mainView });
+        engine->handle_timers();
+        for (int turn { 0 }; turn < 3; ++turn) host.pump(*engine);
+        expect(fatal(std::ranges::count(BuildingProcess::files(*shared, "textDocument/didOpen"), main) == 1));
+        const auto rebuilds = [&] {
+            const std::lock_guard lock { shared->mutex };
+            return std::ranges::count_if(shared->sent, [&](const Json& message) {
+                return message.value("method", std::string {}) == "textDocument/didChange" && message["params"]["textDocument"]["uri"] == mainView.uri
+                    && message["params"].value("forceRebuild", false) && message["params"]["contentChanges"].empty();
+            });
+        };
+        const auto fail = [&] {
+            shared->log(std::format("E[05:15:40.539] Failed to build module prerequisites for {}; due to Failed to open lock file anchor "
+                                    "{}/.cache/clangd/modules/.locks/90D2A255B17AD65E: No such file or directory", main, root));
+            host.pump(*engine);
+        };
+        const auto wait_out = [&] {
+            std::this_thread::sleep_for(600ms);
+            engine->handle_timers();
+            host.pump(*engine);
+        };
+        const auto unplaced = [&] { return std::ranges::count(host.events, std::string { "module-failed-unplaced" }); };
+
+        fail();
+        expect(rebuilds() == 0) << "not at once: the builds that raced are given a moment";
+        expect(unplaced() == 0) << "the engine's lock is no failure of the file's";
+        wait_out();
+        expect(rebuilds() == 1) << "main.cpp is built again, the text clangd has, its prerequisites with it";
+        wait_out();
+        expect(rebuilds() == 1) << "once for each failure";
+
+        // A lock that keeps failing is not the race: after LOCK_RETRIES it is reported as any failure is.
+        fail();
+        wait_out();
+        fail();
+        wait_out();
+        expect(rebuilds() == 3);
+        fail();
+        wait_out();
+        expect(rebuilds() == 3) << "no fourth";
+        expect(unplaced() == 1) << "reported once the retries are spent";
         engine->shut_down();
         std::filesystem::remove_all(root, ignored);
     };

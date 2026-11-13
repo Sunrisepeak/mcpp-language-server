@@ -78,6 +78,15 @@ patch is `## [<component> X.Y.Z]` (`server`, `vscode`, `clion`, `zed`, `claude-c
   not read its database yet, and answered with what the module index alone knows -- the declaration.
   Only an engine's reports count now. CI met it as the first round of `stability` on a fresh runner;
   a failed `cli` check of the conformance runner now says what the command printed.
+- **On macOS a file could stay without its modules for the whole session after a cold start**: no
+  definition or hover across an import, and "module ... could not be built: Failed to open lock file
+  anchor ..." until the file was edited. clangd builds several files' prerequisites at once when a
+  session starts, and the lock that orders builds of one module sometimes cannot be opened then (the
+  engine's code since mcppls-clangd 0.0.20; met in 1 to 2 of 81 stability rounds on darwin-arm64
+  with this release's engine, none with 0.22.0's). Nothing about the project is wrong and the same
+  build asked again succeeds: the server no longer records it as the file's module failure, and asks
+  clangd to build that file again half a second later (`forceRebuild`), up to three times until the
+  sources change. The race itself is follow-up in the engine.
 
 ### Added
 
