@@ -133,7 +133,7 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 
 **“clangd is paused: it was started 13 times this session and 3 starts are left”。** 把 clangd 限制在它的目录里的沙箱，在服务端进程的生命周期内只有一张 64 项的授权目录表，而且 openkal-windows 0.21.0 及之前（Linux、macOS 的对应实现也一样）从不归还表项：每次启动为每个只读目录花一项。服务端会计数（`engines[].details.startBudget`），只剩三次启动时不再自己重启——崩溃不重启，计划里出现新目录也不重启：由 mcppls 自己的引擎回答，这三次留给你（**Restart clangd**）。一次都不剩时启动会被拒绝（`engine-start-failed`：“…this session's 17 engine starts spent it…”），**Restart Server** 一秒钟就能把整张表拿回来，不用重启编辑器；`mcppls.grants: ["all"]` 则不用沙箱。这张表能容纳多少次启动因系统而异：Windows 和 Linux 上每次启动授予三到四个只读目录（十六到二十一次启动），macOS 按惯例授予的系统目录更多，所以更早用到保留的三次；`startBudget.readOnlyGrantsEach` 和 `startsLeft` 给出当前会话的数字。有了上面的账本，一个让 clangd 结束的文件只花一两次启动，所以这是长会话里多次重启的兜底，而不是崩溃循环会走到的地方。
 
-**clangd 在带库头文件的模块单元上结束（Windows 11 24H2，mcppls 0.22.0 及之前）。** 在 Windows 26100 及之后的版本上，`23.1.0-mcppls.10` 及之前的内置 clangd，会在第一次构建这样的模块单元时以 `0xC000001D` 结束：全局模块片段里包含头文件、导入了模块、并且用到了头文件里的类型（[#86](https://github.com/Sunrisepeak/mcpp-language-server/issues/86)）。0.23.0 带的引擎（`23.1.0-mcppls.11`）已经修复。更早的版本可以在项目旁边放一个 `.clangd`，关掉出问题的分析：
+**clangd 在带库头文件的模块单元上结束（Windows 11 24H2，mcppls 0.22.0 及之前）。** 在 Windows 26100 及之后的版本上，`23.1.0-mcppls.10` 及之前的内置 clangd，会在第一次构建这样的模块单元时以 `0xC000001D` 结束：全局模块片段里包含头文件、导入了模块、并且用到了头文件里的类型（[#86](https://github.com/Sunrisepeak/mcpp-language-server/issues/86)）。`23.1.0-mcppls.11` 起的引擎已经修复（0.23.0 带的是 `23.1.0-mcppls.12`）。更早的版本可以在项目旁边放一个 `.clangd`，关掉出问题的分析：
 
 ```yaml
 Diagnostics:

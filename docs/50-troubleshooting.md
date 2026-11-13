@@ -342,9 +342,9 @@ session of many restarts, not something a crash loop reaches.
 On Windows builds 26100 and later the bundled clangd through `23.1.0-mcppls.10` ended by
 `0xC000001D` on the first build of any module unit that includes a header in its global module
 fragment, imports a module and uses a type of the header
-([#86](https://github.com/Sunrisepeak/mcpp-language-server/issues/86)). 0.23.0 carries the engine
-that does not (`23.1.0-mcppls.11`). On an earlier version, a `.clangd` beside the project turns the
-analysis that trapped off:
+([#86](https://github.com/Sunrisepeak/mcpp-language-server/issues/86)). The engine does not
+since `23.1.0-mcppls.11`; 0.23.0 carries `23.1.0-mcppls.12`. On an earlier version, a `.clangd`
+beside the project turns the analysis that trapped off:
 
 ```yaml
 Diagnostics:
