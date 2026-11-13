@@ -169,7 +169,17 @@ private:
     // A3 (plan 2026-10-14): importer (path key) -> why a module it imports could not be built, when the unit that failed
     // is none the plan names; until the sources change.
     std::map<std::string, std::string> unplacedFailures_;
-    std::string stubDirectory_;       // stand-ins for modules nothing usable provides (robustness design C2)
+    // A failure of the engine's own module lock (transient_module_failure): the importer (path key) is asked to be
+    // built again at `due`, at most LOCK_RETRIES times until the sources change -- a session that met the race
+    // recovers instead of keeping a file without its modules until the next edit.
+    struct LockRetry {
+        int asked { 0 };
+        std::optional<Clock::time_point> due;
+    };
+    static constexpr int LOCK_RETRIES { 3 };
+    static constexpr std::chrono::milliseconds LOCK_RETRY_DELAY { 500 };
+    std::map<std::string, LockRetry, std::less<>> lockRetries_;
+    std::string stubDirectory_;      // stand-ins for modules nothing usable provides (robustness design C2)
 
     // Plan.
     bool planApplied_ { false };
@@ -1257,6 +1267,7 @@ public:
         lastSourceChangeAt_ = Clock::now();
         modulesFailedAt_.clear();   // a module that still does not compile is reported again
         unplacedFailures_.clear();
+        lockRetries_.clear();
         // A unit set aside because its module did not compile goes back to clangd: the module may compile now.
         std::vector<std::string> released;
         for (auto it = aside_.begin(); it != aside_.end();) {
@@ -1599,6 +1610,7 @@ public:
         if (upSince_) consider(*upSince_ + RECOVERED_AFTER);
         for (const auto& [uri, closing] : closingAfterBuild_) consider(closing.second);
         consider(diskRecheckAt_);
+        for (const auto& [key, retry] : lockRetries_) consider(retry.due);
         if (accepting_) consider(spin_.next_due());   // only acted on while accepting (handle_spins_)
         // While a reading of clangd's CPU is on its way, its event is what wakes the loop.
         if (!cpuReadInFlight_) {
@@ -1739,6 +1751,7 @@ public:
             request_restart_("clangd did not answer initialize");
         }
         if (closureRetryCheck_ && !primer_.busy()) retry_after_closure_rebuilt_();
+        rebuild_after_lock_failure_(now);
         if (ledgerCheckAt_ && *ledgerCheckAt_ <= now) {
             ledgerCheckAt_.reset();   // asked now; hand_back_ledger_files_ sets the next one, if a term is still running
             hand_back_ledger_files_();
@@ -2036,6 +2049,7 @@ private:
         if (!process_) process_ = make_process_();
         lastConfig_ = config;
         building_.clear();
+        lockRetries_.clear();   // a new clangd builds every file it is given anyway
         paused_ = false;
         // Issue 86 S4: what this start spends of the sandbox's table -- one slot for each read-only grant, for the life
         // of the server process (openkal through 0.25; a platform that returns them makes the count harmless).
@@ -3412,9 +3426,50 @@ private:
         host_->status_changed();
     }
 
+    // The importers whose modules clangd could not build for its own lock: each open one is asked to be built again,
+    // its preamble and with it its prerequisites (clangd's `forceRebuild`), the text as clangd has it. A unit clangd has
+    // that the editor does not (a prime unit, one opened for the index) is the primer's and the index's to ask again.
+    void rebuild_after_lock_failure_(Clock::time_point now) {
+        if (lockRetries_.empty() || !accepting_) return;
+        for (auto& [key, retry] : lockRetries_) {
+            if (!retry.due || *retry.due > now) continue;
+            retry.due.reset();
+            ++retry.asked;
+            for (const auto& document : host_->documents()) {
+                if (document.path.empty() || base::path_key(document.path) != key) continue;
+                if (excluded_path_(document.path) || quarantined_(document.path) || held_path_(document.path) || doomed_path_(document.path)) continue;
+                const auto sent = sentVersions_.find(document.uri);
+                if (sent == sentVersions_.end()) continue;   // not open in this clangd
+                if (!send_(lsp::make_notification("textDocument/didChange",
+                                                  Json { { "textDocument", Json { { "uri", document.uri }, { "version", sent->second } } },
+                                                         { "contentChanges", Json::array() }, { "wantDiagnostics", true }, { "forceRebuild", true } }))) {
+                    continue;
+                }
+                log::info("asking clangd to build {} again ({}): its module lock failed, attempt {} of {}", document.path, host_->root_directory(),
+                          retry.asked, LOCK_RETRIES);
+                host_->record_event("module-lock-rebuild", Json { { "file", document.path }, { "attempt", retry.asked } });
+            }
+        }
+    }
+
     void handle_module_failure_(const Json& failure) {
         ModuleFailure parsed { failure.value("module", std::string {}), failure.value("reason", std::string {}), failure.value("source", std::string {}),
                                failure.value("importer", std::string {}) };
+        // The engine's module lock, not the module (transient_module_failure): the importer is built again shortly, and
+        // nothing is recorded against a module or a file -- not a stand-in, not a doomed closure, not an unplaced failure
+        // whose words an `ast_file_not_found` would then repeat until the next edit.
+        if (transient_module_failure(parsed) && !parsed.importer.empty()) {
+            const std::string importer { base::path_key(base::normalize_path(parsed.importer)) };
+            LockRetry& retry { lockRetries_[importer] };
+            if (retry.asked < LOCK_RETRIES) {
+                if (!retry.due) retry.due = Clock::now() + LOCK_RETRY_DELAY;
+                log::info("clangd could not open its module lock while building what {} imports ({}): {}; it is asked again", parsed.importer,
+                          host_->root_directory(), parsed.reason);
+                host_->record_event("module-lock-retry", Json { { "importer", parsed.importer }, { "asked", retry.asked }, { "reason", parsed.reason } });
+                return;
+            }
+            // Asked LOCK_RETRIES times and still failing: not the race this is for. Reported as any failure is.
+        }
         // mcppls-clangd names the importer and the unit that failed to compile, not the module: it is
         // the one the plan gave that unit.
         if (parsed.module.empty() && !parsed.failedSource.empty()) {
