@@ -1,4 +1,4 @@
-id = "mcppls-language-server"
+id = "mcpp-language-server"
 name = "C++ Modules Language Server"
 version = "0.23.1"
 schema_version = 1

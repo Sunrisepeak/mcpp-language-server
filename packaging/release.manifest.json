@@ -32,7 +32,7 @@
       "per-platform": false,
       "required": true,
       "what": "The Zed extension directory `mcppls-zed/`: extension.toml, the compiled extension.wasm and the crate it was compiled from, which Zed's dev-extension install compiles again. Platform-independent; the server comes from Zed's settings, PATH, or the payload of the server it names, which it downloads",
-      "install": "Unpack it, then Zed's command palette: `zed: install dev extension`, and choose `mcppls-zed` (Zed compiles it, which needs Rust through rustup). Zed's registry installs it as `mcppls-language-server`. The server is the one `lsp.mcppls.binary` names, else `mcppls` on PATH (the openkal package or a single file), else the payload the extension downloads",
+      "install": "Unpack it, then Zed's command palette: `zed: install dev extension`, and choose `mcppls-zed` (Zed compiles it, which needs Rust through rustup). Zed's registry installs it as `mcpp-language-server`. The server is the one `lsp.mcppls.binary` names, else `mcppls` on PATH (the openkal package or a single file), else the payload the extension downloads",
       "component": "zed"
     },
     {

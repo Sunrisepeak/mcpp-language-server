@@ -25,7 +25,7 @@ A server of another series refuses the extension at `initialize` and names both 
 ## Install
 
 **1. The extension.** Zed's extensions page (command palette → **zed: extensions**): search for
-**C++ Modules Language Server** (`mcppls-language-server`) and install it. The first C++ file you
+**C++ Modules Language Server** (`mcpp-language-server`) and install it. The first C++ file you
 open downloads the payload (about 60 MB) and starts the server.
 
 **2. Put mcppls first and clangd off.** Open the settings (command palette → **zed: open
@@ -77,7 +77,7 @@ rustup. The extension does not look in `<user data>`: to have Zed start that ser
 `lsp.mcppls.binary` as above, or put an `mcppls` on PATH.
 
 To skip the palette, add `--link`: it makes the same link the palette would,
-`<Zed data>/extensions/installed/mcppls-language-server` → this directory, and a running Zed picks
+`<Zed data>/extensions/installed/mcpp-language-server` → this directory, and a running Zed picks
 it up at once. Where a link cannot be made (Windows without developer mode) it copies the two files
 instead. An install under the extension's former id, `mcppls`, is removed.
 
@@ -142,5 +142,5 @@ it locally against an X display.
 
 Zed's registry, [zed-industries/extensions](https://github.com/zed-industries/extensions), builds
 this directory at the commit a pull request there names, and publishes it under the id
-`mcppls-language-server`. [docs/92-release.md](../../docs/92-release.md#zeds-extension-registry)
+`mcpp-language-server`. [docs/92-release.md](../../docs/92-release.md#zeds-extension-registry)
 has the procedure and the registry's rules.

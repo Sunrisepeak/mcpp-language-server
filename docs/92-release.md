@@ -287,7 +287,7 @@ stays 261. A new plugin is registered manually before automated updates can use 
 ## Zed's extension registry
 
 [zed-industries/extensions](https://github.com/zed-industries/extensions) builds `editors/zed` at the
-commit its `extensions.toml` names and publishes it as `mcppls-language-server`. The extension needs
+commit its `extensions.toml` names and publishes it as `mcpp-language-server`. The extension needs
 nothing from a release of its own: it downloads the payload of the server it names (`SERVER` in
 `editors/zed/src/resolve.rs`, from `vX.Y.0` or a server patch's `server-vX.Y.Z`), so that release must
 exist first. A server's patch reaches Zed with the extension's next patch, which names it.
@@ -297,7 +297,7 @@ What the registry requires ([prerequisites](https://zed.dev/docs/extensions/publ
 
 | Rule | Here |
 |---|---|
-| An id of lowercase letters, digits and `-`, without `zed` or `extension`; a language server alone ends in `-language-server` or `-lsp`; it never changes once published | `mcppls-language-server` |
+| An id of lowercase letters, digits and `-`, without `zed` or `extension`; a language server alone ends in `-language-server` or `-lsp`; it never changes once published | `mcpp-language-server` |
 | An accepted license in the extension's own directory (a license at the repository's root does not count) | `editors/zed/LICENSE`, Apache-2.0 |
 | The server is downloaded or found, never bundled; nothing is read or written outside the extension's work directory | the settings, PATH, else the named server's payload, downloaded into the work directory |
 | `version` in `extensions.toml` is `extension.toml`'s at that commit, and only rises | `mcppls-devtools version --bump zed` |
@@ -318,23 +318,23 @@ A version reaches Zed in four steps:
 3. From a fork of zed-industries/extensions under a personal account (not an organization):
 
    ```bash
-   git submodule add https://github.com/Sunrisepeak/mcpp-language-server.git extensions/mcppls-language-server
-   git -C extensions/mcppls-language-server checkout <commit on main>
+   git submodule add https://github.com/Sunrisepeak/mcpp-language-server.git extensions/mcpp-language-server
+   git -C extensions/mcpp-language-server checkout <commit on main>
    ```
 
    and in `extensions.toml`:
 
    ```toml
-   [mcppls-language-server]
-   submodule = "extensions/mcppls-language-server"
+   [mcpp-language-server]
+   submodule = "extensions/mcpp-language-server"
    path = "editors/zed"
    version = "X.Y.Z"
    ```
 
    then `pnpm sort-extensions`, which orders `extensions.toml` and `.gitmodules`.
-4. Open the pull request, titled `Add mcppls-language-server` (later `Update mcppls-language-server
+4. Open the pull request, titled `Add mcpp-language-server` (later `Update mcpp-language-server
    to X.Y.Z`), with the registry's checklist confirmed. An update moves the submodule
-   (`git submodule update --remote extensions/mcppls-language-server`) and the version.
+   (`git submodule update --remote extensions/mcpp-language-server`) and the version.
 
 ## The xlings index
 

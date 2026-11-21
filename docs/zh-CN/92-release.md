@@ -201,14 +201,14 @@ Marketplace 更新 API 上传同一归档。工作流保留平台回执，其中
 ## Zed 扩展仓库
 
 [zed-industries/extensions](https://github.com/zed-industries/extensions) 按其 `extensions.toml`
-指定的提交构建 `editors/zed`，以 `mcppls-language-server` 发布。扩展不需要自己的 release：它下载它写明的那个服务端版本的 payload（`editors/zed/src/resolve.rs` 的 `SERVER`，来自 `vX.Y.0`，服务端补丁则来自 `server-vX.Y.Z`），所以这个 release 要先存在。服务端补丁随扩展的下一个补丁到达 Zed，由那个补丁写明。
+指定的提交构建 `editors/zed`，以 `mcpp-language-server` 发布。扩展不需要自己的 release：它下载它写明的那个服务端版本的 payload（`editors/zed/src/resolve.rs` 的 `SERVER`，来自 `vX.Y.0`，服务端补丁则来自 `server-vX.Y.Z`），所以这个 release 要先存在。服务端补丁随扩展的下一个补丁到达 Zed，由那个补丁写明。
 
 仓库的要求（[prerequisites](https://zed.dev/docs/extensions/publishing/prerequisites)、
 [publishing guide](https://zed.dev/docs/extensions/publishing/publishing-guide) 及其 CI）：
 
 | 规则 | 本仓库 |
 |---|---|
-| id 只含小写字母、数字和 `-`，不含 `zed` 和 `extension`；只提供语言服务器时以 `-language-server` 或 `-lsp` 结尾；发布后不能再改 | `mcppls-language-server` |
+| id 只含小写字母、数字和 `-`，不含 `zed` 和 `extension`；只提供语言服务器时以 `-language-server` 或 `-lsp` 结尾；发布后不能再改 | `mcpp-language-server` |
 | 扩展自己的目录里有被接受的许可证（仓库根目录的不算） | `editors/zed/LICENSE`，Apache-2.0 |
 | 服务器靠下载或查找得到，不打包进扩展；不读写扩展工作目录以外的东西 | 设置、PATH，否则把写明的服务端版本的 payload 下载到工作目录 |
 | `extensions.toml` 的 `version` 等于该提交上 `extension.toml` 的版本，且只升不降 | `mcppls-devtools version --bump zed` |
@@ -225,22 +225,22 @@ pull request 由人打开，说明由人写，评审由人回复。一个 pull r
 3. 在个人账号（不是组织）下 fork zed-industries/extensions：
 
    ```bash
-   git submodule add https://github.com/Sunrisepeak/mcpp-language-server.git extensions/mcppls-language-server
-   git -C extensions/mcppls-language-server checkout <main 上的提交>
+   git submodule add https://github.com/Sunrisepeak/mcpp-language-server.git extensions/mcpp-language-server
+   git -C extensions/mcpp-language-server checkout <main 上的提交>
    ```
 
    在 `extensions.toml` 里加上：
 
    ```toml
-   [mcppls-language-server]
-   submodule = "extensions/mcppls-language-server"
+   [mcpp-language-server]
+   submodule = "extensions/mcpp-language-server"
    path = "editors/zed"
    version = "X.Y.Z"
    ```
 
    再执行 `pnpm sort-extensions`，它给 `extensions.toml` 和 `.gitmodules` 排序。
-4. 打开 pull request，标题 `Add mcppls-language-server`（之后是 `Update mcppls-language-server to X.Y.Z`），勾选仓库的检查清单。
-   更新时移动子模块（`git submodule update --remote extensions/mcppls-language-server`）并改版本。
+4. 打开 pull request，标题 `Add mcpp-language-server`（之后是 `Update mcpp-language-server to X.Y.Z`），勾选仓库的检查清单。
+   更新时移动子模块（`git submodule update --remote extensions/mcpp-language-server`）并改版本。
 
 ## xlings 索引
 

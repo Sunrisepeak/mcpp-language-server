@@ -14,9 +14,10 @@ patch is `## [<component> X.Y.Z]` (`server`, `vscode`, `clion`, `zed`, `claude-c
 ### Changed
 
 - **The Zed extension can be installed from Zed's extensions page.** Its id is now
-  `mcppls-language-server`, the suffix Zed's registry asks of an extension that provides a language
-  server only, and `editors/zed/` carries the license the registry looks for there. Where neither the
-  settings (`lsp.mcppls.binary`) nor PATH name a server, the extension downloads the payload of the
+  `mcpp-language-server`, this repository's name and the VS Code Marketplace's, with the suffix Zed's
+  registry asks of an extension that provides a language server only, and `editors/zed/` carries the
+  license the registry looks for there. Where neither the settings (`lsp.mcppls.binary`) nor PATH
+  name a server, the extension downloads the payload of the
   server it names (0.23.0, `mcppls-payload-0.23.0.tar.gz` of `v0.23.0`; a server's patch comes with
   the extension's next patch) into the work directory Zed gives it, and starts it; before, it started the payload `devtools extension --install` put under the
   user data directory, a path the extension could not check and an install from the registry does not

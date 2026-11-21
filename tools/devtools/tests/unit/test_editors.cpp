@@ -44,19 +44,19 @@ UTest editors_tests{"editors", [] {
         const std::string root { scratch("zed") };
         const std::string source { zed_source(root) };
         const std::string zed { base::join_path(root, "zed") };
-        (void)std::filesystem::create_directories(base::join_path(zed, "extensions/work/mcppls-language-server"), ignored);
+        (void)std::filesystem::create_directories(base::join_path(zed, "extensions/work/mcpp-language-server"), ignored);
 
         auto installed = editors::install_zed(zed, source);
         expect(installed.has_value()) << (installed ? "" : installed.error().message);
         expect(editors::zed_installed(zed));
-        expect(std::filesystem::is_regular_file(base::join_path(zed, "extensions/installed/mcppls-language-server/extension.wasm"), ignored));
+        expect(std::filesystem::is_regular_file(base::join_path(zed, "extensions/installed/mcpp-language-server/extension.wasm"), ignored));
 
         // Installing again replaces what the first one left.
         expect(editors::install_zed(zed, source).has_value());
 
         expect(editors::remove_zed(zed));
         expect(!editors::zed_installed(zed));
-        expect(!std::filesystem::exists(base::join_path(zed, "extensions/work/mcppls-language-server"), ignored));
+        expect(!std::filesystem::exists(base::join_path(zed, "extensions/work/mcpp-language-server"), ignored));
         // Removing a link must not remove what it pointed at.
         expect(std::filesystem::is_regular_file(base::join_path(source, "extension.toml"), ignored));
         expect(!editors::remove_zed(zed));
@@ -68,7 +68,7 @@ UTest editors_tests{"editors", [] {
         const std::string root { scratch("zed-occupied") };
         const std::string source { zed_source(root) };
         const std::string zed { base::join_path(root, "zed") };
-        const std::string other { base::join_path(zed, "extensions/installed/mcppls-language-server") };
+        const std::string other { base::join_path(zed, "extensions/installed/mcpp-language-server") };
         (void)std::filesystem::create_directories(other, ignored);
         (void) os::fs::write(base::join_path(other, "extension.toml"), "id = \"someone-else\"\n");
         auto installed = editors::install_zed(zed, source);
@@ -104,7 +104,7 @@ UTest editors_tests{"editors", [] {
         const std::string root { scratch("zed-unbuilt") };
         const std::string source { base::join_path(root, "source") };
         (void)std::filesystem::create_directories(source, ignored);
-        (void) os::fs::write(base::join_path(source, "extension.toml"), "id = \"mcppls-language-server\"\n");
+        (void) os::fs::write(base::join_path(source, "extension.toml"), "id = \"mcpp-language-server\"\n");
         expect(!editors::install_zed(base::join_path(root, "zed"), source).has_value());
         std::filesystem::remove_all(root);
     };

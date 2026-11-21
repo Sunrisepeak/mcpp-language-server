@@ -28,7 +28,7 @@ std::string server_directory();
 // marked dev because it is a link (extension_host.rs, `add_extension_to_index`). Doing the same
 // here is doing what the palette does, minus the compile, which has already happened.
 
-inline constexpr std::string_view ZED_EXTENSION_ID { "mcppls-language-server" };
+inline constexpr std::string_view ZED_EXTENSION_ID { "mcpp-language-server" };
 // The id the extension had before Zed's registry asked for a `-language-server` suffix. An entry under
 // it is this extension's earlier install: left there, Zed would run two extensions with one server.
 inline constexpr std::string_view ZED_FORMER_EXTENSION_ID { "mcppls" };

@@ -108,7 +108,7 @@ names in Zed's settings, else an `mcppls` on PATH, else the payload of the serve
 from the release into its own work directory. Install it in two steps:
 
 1. Zed's extensions page (`zed: extensions`): **C++ Modules Language Server**
-   (`mcppls-language-server`). From this checkout instead, `mcpp run -p devtools -- extension
+   (`mcpp-language-server`). From this checkout instead, `mcpp run -p devtools -- extension
    --editor zed --install` builds it and the server, then leaves one step: command palette →
    "zed: install dev extension" → `editors/zed`. Add `--link` to have the tool make that same link
    itself.
