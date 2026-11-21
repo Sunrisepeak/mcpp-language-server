@@ -1,0 +1,24 @@
+# mcppls for Helix: the server and the C and C++ languages that use it. Merge this into Helix's
+# languages.toml: ~/.config/helix/languages.toml for every project, or <project>/.helix/languages.toml
+# for one (README.md).
+#
+# A language's `file-types` and `language-servers` are lists, and a list given here replaces Helix's
+# own: `file-types` therefore repeats Helix's C++ types (25.07) and adds the module suffixes mcppls
+# reads and build.mcpp, mcpp's build program; clangd is not listed, since mcppls starts its own.
+
+[language-server.mcppls]
+command = "mcppls"
+args = ["serve"]
+
+[[language]]
+name = "cpp"
+file-types = [
+  "cc", "hh", "c++", "cpp", "hpp", "h", "ipp", "tpp", "cxx", "hxx", "ixx", "txx", "ino", "C", "H",
+  "cu", "cuh", "cppm", "h++", "ii", "inl", { glob = ".hpp.in" }, { glob = ".h.in" },
+  "ccm", "cxxm", "c++m", "mpp", "mxx", "mcpp",
+]
+language-servers = ["mcppls"]
+
+[[language]]
+name = "c"
+language-servers = ["mcppls"]

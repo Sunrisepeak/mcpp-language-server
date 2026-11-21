@@ -43,6 +43,8 @@ vscode	editors/vscode/*
 clion	editors/clion/*
 zed	editors/zed/*
 nvim	editors/nvim/*
+# A configuration fragment, read by people and by Helix; nothing to build or test in CI.
+docs	editors/helix/*
 agents	editors/claude-code/*
 agents	editors/copilot-cli/*
 agents	editors/agents/*

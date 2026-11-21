@@ -67,6 +67,10 @@ Zed 自带 C/C++ 的 clangd，不做第 2 步它会和 mcppls 同时跑在同一
 
 [`editors/nvim/`](../../editors/nvim/README.md) 里的插件（Neovim 0.10 及以上）会找到 `mcppls`——PATH 上的，或者 `--install` 放在用户数据目录下的 payload——然后通过 Neovim 自带的 LSP 客户端，为 C 和 C++ buffer 启动它。把 `editors/nvim` 加进 runtimepath，调用 `require('mcppls').setup()` 即可；0.11 及以上也可以用 `vim.lsp.enable('mcppls')`。插件提供 `:McpplsStatus`、`:McpplsRestart`、`:McpplsReload`、`:McpplsResetCache`（重置这个工作区的缓存并重新准备）四个命令和一个状态栏组件。不要再为 C/C++ 另外启动 clangd：如果有第二个 C++ 服务器挂到同一个 buffer 上，插件会提示一次；设置 `disable_conflicting = true` 后插件会替你停掉它。模块关键字和模块名来自服务端的语义 token（`@lsp.type.keyword`、`@lsp.type.module`；`semantic_tokens_modules = false` 可关闭）。它没有按项目的开关；README 里给了两种在某个项目里关掉它的办法（[editors/nvim/README.md](../../editors/nvim/README.md#keeping-mcppls-off-for-one-project)）。
 
+## Helix
+
+Helix 的正式版本没有插件系统；[`editors/helix/languages.toml`](../../editors/helix/languages.toml) 声明 `mcppls serve`，并把 C 和 C++ 语言交给它：在 Helix 的 C++ 文件类型上加入模块后缀和 `.mcpp`，不启用 clangd。把它合并进 `~/.config/helix/languages.toml`（或某个项目的 `.helix/languages.toml`），再用 `hx --health cpp` 检查。参见 [editors/helix/README.md](../../editors/helix/README.md)。
+
 ## CLion
 
 [`editors/clion/`](../../editors/clion/README.md) 里的插件通过 IntelliJ 平台的 LSP API 注册 mcppls。它以 **C++ Modules Language Server**（`io.github.sunrisepeak.mcppls`）上架 JetBrains Marketplace，一个包服务所有系统，带着服务端、各平台锁定版本的 clangd 和 openkal 语义工具包，并启动 CLion 所在机器的运行器和 clangd。支持 CLion 2026.1 及以上；插件基于 CLion 2026.2.3 构建，并在这个版本里测试。`mcpp run --features clion -p devtools -- extension --editor clion --install` 会构建这个包，并把它解包进每一个 CLion 的插件目录；然后重启 CLion。

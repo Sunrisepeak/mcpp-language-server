@@ -148,6 +148,14 @@ semantic tokens (`@lsp.type.keyword`, `@lsp.type.module`; `semantic_tokens_modul
 them off). There is no per-project switch; the README shows two ways to keep it off for one project
 ([editors/nvim/README.md](../editors/nvim/README.md#keeping-mcppls-off-for-one-project)).
 
+## Helix
+
+Helix has no plugin system in a release; [`editors/helix/languages.toml`](../editors/helix/languages.toml)
+declares `mcppls serve` and gives it the C and C++ languages, with the module suffixes and `.mcpp`
+added to Helix's C++ file types and clangd left out. Merge it into `~/.config/helix/languages.toml`
+(or a project's `.helix/languages.toml`) and check with `hx --health cpp`. See
+[editors/helix/README.md](../editors/helix/README.md).
+
 ## CLion
 
 The plugin at [`editors/clion/`](../editors/clion/README.md) registers mcppls through the IntelliJ
