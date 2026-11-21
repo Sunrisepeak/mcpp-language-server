@@ -1107,7 +1107,15 @@ jobs:
           $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           Set-Content -Path "$env:RUNNER_TEMP\capture-msvc.cmd" -Value "@call `"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul`r`n@set"
           cmd /d /c "$env:RUNNER_TEMP\capture-msvc.cmd" | Out-File -Encoding utf8 "$env:RUNNER_TEMP\msvc.env"
+          # The fixtures' clang++ and clang-cl are the pinned LLVM's, first on the environment's PATH: the
+          # runner image's own LLVM (C:\Program Files\LLVM) is older than its MSVC STL accepts (14.52:
+          # "STL1000: Unexpected compiler version, expected Clang 22 or newer").
+          $llvm = Join-Path $env:USERPROFILE ".mcpp\registry\data\xpkgs\xim-x-llvm\$env:LLVM_VERSION\bin"
+          if (-not (Test-Path (Join-Path $llvm "clang-cl.exe"))) { throw "the pinned LLVM has no clang-cl.exe at $llvm" }
+          (Get-Content "$env:RUNNER_TEMP\msvc.env") | ForEach-Object { if ($_ -match '^(?i)path=') { "Path=$llvm;" + $_.Substring(5) } else { $_ } } |
+            Out-File -Encoding utf8 "$env:RUNNER_TEMP\msvc.env"
           Select-String -Path "$env:RUNNER_TEMP\msvc.env" -Pattern '^(VCToolsInstallDir|WindowsSDKVersion)='
+          & (Join-Path $llvm "clang++.exe") --version
       - name: The packaged mock producer starts on this host
         run: |
           set -euo pipefail
