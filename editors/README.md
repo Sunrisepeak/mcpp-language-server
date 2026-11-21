@@ -6,7 +6,7 @@ subdirectory is self-contained.
 
 | Directory | What it is |
 |---|---|
-| `zed` | The Zed extension: finds `mcppls` on PATH and starts it; built to WebAssembly |
+| `zed` | The Zed extension: starts the server Zed's settings name, else `mcppls` on PATH, else the payload it downloads; built to WebAssembly |
 | `helix` | A `languages.toml` fragment for Helix, which has no plugin system: the server and the C and C++ languages that use it; nothing to build |
 | `nvim` | The Neovim plugin (Lua, Neovim 0.10+): finds `mcppls` and starts it for C/C++ buffers through Neovim's own LSP client, with a statusline component and `vim.lsp.enable('mcppls')` support; no build step |
 | `vscode` | The VS Code extension ("C++ Modules"): a full npm package, marketplace `README.md`/`CHANGELOG.md`, and a bundled payload (server + clangd + semantic kit) |

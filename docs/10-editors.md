@@ -14,10 +14,10 @@ so `mcpp run` provisions it before the tool starts. Gradle and the JDK it runs o
 `mcpp run --features clion -p devtools -- extension --editor clion`. Zed and CLion have no
 command line for installing a plugin, so `--install` leaves on disk exactly what their own UI would:
 for Zed it stops one step short and names the palette action, the recommended route (`--link`
-takes that step too); for CLion it unpacks the package as *Install Plugin from Disk* does. Zed
-starts `mcppls` from PATH, or else the server of the payload `--install` puts at
-`<user data>/mcppls/payload`: this system's runner `libexec/okrun/<system>-<arch>/okrun` starting
-the okb `bin/mcppls.okb`, as the payload's entry for this platform says. The CLion package carries
+takes that step too); for CLion it unpacks the package as *Install Plugin from Disk* does. `--install`
+also puts a payload at `<user data>/mcppls/payload`, which Neovim starts when PATH has no `mcppls`:
+this system's runner `libexec/okrun/<system>-<arch>/okrun` starting the okb `bin/mcppls.okb`, as the
+payload's entry for this platform says. Zed downloads its own (section "Zed"). The CLion package carries
 the payload, as the VSIX does: one payload, one VSIX and one CLion package serve every system.
 
 ## VS Code
@@ -104,7 +104,7 @@ for a project rather than running beside it. See
 ## Zed
 
 The extension at [`editors/zed/`](../editors/zed/README.md) starts the server `lsp.mcppls.binary`
-names in Zed's settings, else an `mcppls` on PATH, else the payload of its series, which it downloads
+names in Zed's settings, else an `mcppls` on PATH, else the payload of the server it names, which it downloads
 from the release into its own work directory. Install it in two steps:
 
 1. Zed's extensions page (`zed: extensions`): **C++ Modules Language Server**

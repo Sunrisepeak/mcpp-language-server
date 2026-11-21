@@ -85,7 +85,7 @@ mcpp run -p devtools -- extension --editor vscode --install  # payload、VS Code
 | 某个目标的工具包，及其 release 归档（`mcppls-kit-<target>-<version>.tar.gz`） | `mcpp run -p devtools -- kit --platform linux-x64 --out DIR [--archive DIR]` |
 | 按 S4 的规则检查一个工具包 | `mcpp run -p devtools -- kit --verify DIR` |
 | 编辑器扩展 | `mcpp run -p devtools -- extension [--editor vscode\|zed\|clion\|all] [--install [--link]]` |
-| 安装一个已有的插件（来自某次 release） | `... -- extension --editor zed --install --plugin PATH --payload DIR`；`... -- extension --editor clion --install --plugin mcppls-clion-<version>.zip`（包里自带 payload） |
+| 安装一个已有的插件（来自某次 release） | `... -- extension --editor zed --install --plugin PATH --payload DIR`（payload 放到 `<user data>/mcppls/payload`，Neovim 启动它；Zed 自己下载，除非 `lsp.mcppls.binary` 指定了服务端）；`... -- extension --editor clion --install --plugin mcppls-clion-<version>.zip`（包里自带 payload） |
 | 用已经做好的 payload 构建 CLion 的包（CI） | `mcpp run --features clion -p devtools -- extension --editor clion --payload DIR`；写到 `target/pack/mcppls-clion-<version>.zip` |
 | 移除已安装的扩展 | `mcpp run -p devtools -- uninstall --editor vscode\|zed\|clion\|all` |
 | 检查暂存好的 release | `mcppls-devtools release check --version V --dir release [--render]` |

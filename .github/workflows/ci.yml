@@ -1970,12 +1970,16 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+      - name: The Rust of Zed's registry
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^ZED_RUST_VERSION=//p' .github/versions.env)"
+          rustup toolchain install "$version" --profile minimal --target wasm32-wasip2
+          echo "RUSTUP_TOOLCHAIN=$version" >> "$GITHUB_ENV"
       - name: Unit tests
         run: cargo test --manifest-path editors/zed/Cargo.toml
       - name: The wasm build Zed loads
-        run: |
-          rustup target add wasm32-wasip2
-          cargo build --release --target wasm32-wasip2 --manifest-path editors/zed/Cargo.toml
+        run: cargo build --release --target wasm32-wasip2 --manifest-path editors/zed/Cargo.toml
 
   # A pull request that changes release packaging gets the same smoke from release-checks.yml, so
   # it is not run twice here. nightly.yml and every release candidate run it on their own.

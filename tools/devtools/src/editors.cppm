@@ -3,10 +3,11 @@
 // and says what happened; this module only knows the places and does the moves, so the tests can
 // point it at a scratch directory.
 //
-// Zed starts `mcppls` from PATH first. A server installed here, the one the VS Code extension
-// carries inside itself, is its fallback: `<user data>/mcppls/payload` (editors/zed/src/lib.rs). The
-// CLion plugin carries its own: each system's package holds that system's payload (design
-// 2026-10-29 §2), so a CLion install needs no server here.
+// A server installed here, the one the VS Code extension carries inside itself, is the one Neovim
+// starts when PATH has none: `<user data>/mcppls/payload`. Zed downloads the payload of its series
+// into its own work directory (editors/zed/src/lib.rs). The CLion plugin carries its own: each
+// system's package holds that system's payload (design 2026-10-29 §2), so a CLion install needs no
+// server here.
 export module mcppls.devtools.editors;
 
 import std;
@@ -18,7 +19,7 @@ export namespace mcppls::devtools::editors {
 // Linux, ~/Library/Application Support on macOS, %LOCALAPPDATA% on Windows.
 std::string user_data_directory();
 
-// <user data>/mcppls/payload: the server Zed falls back to when PATH has none.
+// <user data>/mcppls/payload: the server Neovim starts when PATH has none.
 std::string server_directory();
 
 // ---- Zed -------------------------------------------------------------------------------------
@@ -31,6 +32,9 @@ inline constexpr std::string_view ZED_EXTENSION_ID { "mcppls-language-server" };
 // The id the extension had before Zed's registry asked for a `-language-server` suffix. An entry under
 // it is this extension's earlier install: left there, Zed would run two extensions with one server.
 inline constexpr std::string_view ZED_FORMER_EXTENSION_ID { "mcppls" };
+// The repository editors/zed/extension.toml names, which tells an install of this extension under the
+// former id from another extension's.
+inline constexpr std::string_view ZED_REPOSITORY { "https://github.com/Sunrisepeak/mcpp-language-server" };
 
 // Zed's data directory: ~/.local/share/zed, ~/Library/Application Support/Zed or %LOCALAPPDATA%\Zed.
 std::string zed_directory();

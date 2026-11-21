@@ -105,7 +105,7 @@ each row names its kit (`mcppls-devtools check platforms`).
 | A target's kit, and its release archive (`mcppls-kit-<target>-<version>.tar.gz`) | `mcpp run -p devtools -- kit --platform linux-x64 --out DIR [--archive DIR]` |
 | Check a kit by S4's rules | `mcpp run -p devtools -- kit --verify DIR` |
 | Editor extensions | `mcpp run -p devtools -- extension [--editor vscode\|zed\|clion\|all] [--install [--link]]` |
-| Install a plugin you already have (a release's) | `... -- extension --editor zed --install --plugin PATH --payload DIR`; `... -- extension --editor clion --install --plugin mcppls-clion-<version>.zip` (the package carries the payload) |
+| Install a plugin you already have (a release's) | `... -- extension --editor zed --install --plugin PATH --payload DIR` (the payload goes to `<user data>/mcppls/payload`, which Neovim starts; Zed downloads its own unless `lsp.mcppls.binary` names a server); `... -- extension --editor clion --install --plugin mcppls-clion-<version>.zip` (the package carries the payload) |
 | The CLion package from a payload already made (CI) | `mcpp run --features clion -p devtools -- extension --editor clion --payload DIR`; written to `target/pack/mcppls-clion-<version>.zip` |
 | Remove an installed extension | `mcpp run -p devtools -- uninstall --editor vscode\|zed\|clion\|all` |
 | Check a staged release | `mcppls-devtools release check --version V --dir release [--render]` |

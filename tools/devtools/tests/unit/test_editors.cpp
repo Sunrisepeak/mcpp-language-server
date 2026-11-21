@@ -84,14 +84,16 @@ UTest editors_tests{"editors", [] {
         const std::string zed { base::join_path(root, "zed") };
         const std::string former { base::join_path(zed, "extensions/installed/mcppls") };
         (void)std::filesystem::create_directories(former, ignored);
-        (void) os::fs::write(base::join_path(former, "extension.toml"), "id = \"mcppls\"\n");
+        (void) os::fs::write(base::join_path(former, "extension.toml"),
+                             "id = \"mcppls\"\nrepository = \"https://github.com/Sunrisepeak/mcpp-language-server\"\n");
         (void)std::filesystem::create_directories(base::join_path(zed, "extensions/work/mcppls"), ignored);
         expect(editors::install_zed(zed, source).has_value());
         expect(!std::filesystem::exists(former, ignored));
         expect(!std::filesystem::exists(base::join_path(zed, "extensions/work/mcppls"), ignored));
 
+        // Another extension published under the freed id: Zed names its directory by that id too.
         (void)std::filesystem::create_directories(former, ignored);
-        (void) os::fs::write(base::join_path(former, "extension.toml"), "id = \"someone-else\"\n");
+        (void) os::fs::write(base::join_path(former, "extension.toml"), "id = \"mcppls\"\nrepository = \"https://example.com/other\"\n");
         expect(editors::remove_zed(zed));
         expect(std::filesystem::is_regular_file(base::join_path(former, "extension.toml"), ignored));
         std::filesystem::remove_all(root);

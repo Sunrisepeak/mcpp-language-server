@@ -201,8 +201,7 @@ Marketplace 更新 API 上传同一归档。工作流保留平台回执，其中
 ## Zed 扩展仓库
 
 [zed-industries/extensions](https://github.com/zed-industries/extensions) 按其 `extensions.toml`
-指定的提交构建 `editors/zed`，以 `mcppls-language-server` 发布。扩展不需要自己的 release：它下载所属系列
-release `vX.Y.0` 的 payload，所以这个 release 要先存在。
+指定的提交构建 `editors/zed`，以 `mcppls-language-server` 发布。扩展不需要自己的 release：它下载它写明的那个服务端版本的 payload（`editors/zed/src/resolve.rs` 的 `SERVER`，来自 `vX.Y.0`，服务端补丁则来自 `server-vX.Y.Z`），所以这个 release 要先存在。服务端补丁随扩展的下一个补丁到达 Zed，由那个补丁写明。
 
 仓库的要求（[prerequisites](https://zed.dev/docs/extensions/publishing/prerequisites)、
 [publishing guide](https://zed.dev/docs/extensions/publishing/publishing-guide) 及其 CI）：
@@ -211,9 +210,9 @@ release `vX.Y.0` 的 payload，所以这个 release 要先存在。
 |---|---|
 | id 只含小写字母、数字和 `-`，不含 `zed` 和 `extension`；只提供语言服务器时以 `-language-server` 或 `-lsp` 结尾；发布后不能再改 | `mcppls-language-server` |
 | 扩展自己的目录里有被接受的许可证（仓库根目录的不算） | `editors/zed/LICENSE`，Apache-2.0 |
-| 服务器靠下载或查找得到，不打包进扩展；不读写扩展工作目录以外的东西 | 设置、PATH，否则把本系列的 payload 下载到工作目录 |
+| 服务器靠下载或查找得到，不打包进扩展；不读写扩展工作目录以外的东西 | 设置、PATH，否则把写明的服务端版本的 payload 下载到工作目录 |
 | `extensions.toml` 的 `version` 等于该提交上 `extension.toml` 的版本，且只升不降 | `mcppls-devtools version --bump zed` |
-| 用仓库的工具链能构建：Rust 1.90、`wasm32-wasip2`、它的 `zed-extension` CLI | `ci.yml` 的 Zed job 为 `wasm32-wasip2` 构建 crate |
+| 用仓库的工具链能构建：Rust 1.90、`wasm32-wasip2`、它的 `zed-extension` CLI | `ci.yml` 的 `zed-unit` 用 Rust `ZED_RUST_VERSION`（`.github/versions.env`）为 `wasm32-wasip2` 构建 crate |
 | 在提交的那个提交上用 Zed 手动测过；文字用英文 | |
 
 仓库的 [AI 政策](https://github.com/zed-industries/extensions/blob/main/AI_POLICY.md)不接受自主代理：
@@ -221,7 +220,7 @@ pull request 由人打开，说明由人写，评审由人回复。一个 pull r
 
 一个版本分四步到达 Zed：
 
-1. 所属系列的 release `vX.Y.0` 已存在，要发布的提交在 `main` 上，CHANGELOG.md 里有它的 `## [zed X.Y.Z]` 一节。
+1. 它写明的那个服务端版本的 release 已存在，要发布的提交在 `main` 上，CHANGELOG.md 里有它的 `## [zed X.Y.Z]` 一节。
 2. 按仓库的方式检查：在那个提交上把它作为 dev extension 装进 Zed，打开一个 C++ 项目，确认 payload 下载了、服务器有回答。
 3. 在个人账号（不是组织）下 fork zed-industries/extensions：
 

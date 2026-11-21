@@ -128,13 +128,13 @@ jobs:
           where=(--server-dir "$t/server" --zed-dir "$t/zed" --clion-dir "$t/clion/CLion2026.2")
 
           "$dev" extension --editor zed --install --link --plugin "$t/mcppls-zed" --payload payload "${where[@]}"
-          test -f "$t/zed/extensions/installed/mcppls/extension.wasm"
+          test -f "$t/zed/extensions/installed/mcppls-language-server/extension.wasm"
           "$dev" extension --editor clion --install --plugin "$(ls mcppls-clion-*.zip)" "${where[@]}"
           plugin="$t/clion/CLion2026.2/mcppls-clion"
           ls "$plugin"/lib/mcppls-clion-*.jar
           jq -e '.platforms | has("${{ matrix.platform }}")' "$plugin/payload/payload.json"
 
-          # The server Zed falls back to, and the one the CLion package carries, each answer a project through this platform's entry.
+          # The server devtools installs (Neovim's), and the one the CLion package carries, each answer a project through this platform's entry.
           for server in "$t/server" "$plugin/payload"; do
             "$server/$(jq -r '.platforms["${{ matrix.platform }}"].runner' "$server/payload.json")" "$server/bin/mcppls.okb" --version
             "stage/mcppls-conformance${{ matrix.exe }}" run --server "$server/bin/mcppls.okb" --payload "$server" \
@@ -147,7 +147,7 @@ jobs:
           "$dev" uninstall --editor zed "${where[@]}"
           if [ -e "$t/server" ]; then echo "::error::Zed's server outlived Zed: the CLion package carries its own"; exit 1; fi
           "$dev" uninstall --editor clion "${where[@]}"
-          for gone in "$t/server" "$t/zed/extensions/installed/mcppls" "$t/clion/CLion2026.2/mcppls-clion"; do
+          for gone in "$t/server" "$t/zed/extensions/installed/mcppls-language-server" "$t/clion/CLion2026.2/mcppls-clion"; do
             if [ -e "$gone" ]; then echo "::error::$gone is still there after uninstall"; exit 1; fi
           done
           # The source of a linked install is untouched by removing the link.

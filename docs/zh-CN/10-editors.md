@@ -10,7 +10,7 @@ mcpp run -p devtools -- extension --editor vscode|zed|clion --install   # 并安
 mcpp run -p devtools -- uninstall --editor vscode|zed|clion|all   # 卸载
 ```
 
-打包需要什么——Node 和 Rust——都写在 `mcpp.toml` 的 `[workspace.xlings.workspace]` 里，工具启动前 `mcpp run` 会先准备好。Gradle 和它要用的 JDK 放在 `clion` feature 后面，只有构建那个插件的人才需要下载它们：`mcpp run --features clion -p devtools -- extension --editor clion`。Zed 和 CLion 都没有装插件的命令行，所以 `--install` 在磁盘上留下的东西和它们自己的 UI 装出来的完全一样：对 Zed，它停在最后一步之前，告诉你在命令面板里执行哪个操作（推荐这样装，加 `--link` 则由它自己完成）；对 CLion，它按 *Install Plugin from Disk* 的方式解包那个包。Zed 先从 PATH 启动 `mcppls`，找不到就按 payload 中本平台条目的说明，启动 `--install` 放在 `<user data>/mcppls/payload` 的那个 payload 的服务端：本系统的运行器 `libexec/okrun/<system>-<arch>/okrun` 启动 okb `bin/mcppls.okb`。CLion 的包像 VSIX 一样自带 payload：一个 payload、一个 VSIX 和一个 CLion 包服务所有系统。
+打包需要什么——Node 和 Rust——都写在 `mcpp.toml` 的 `[workspace.xlings.workspace]` 里，工具启动前 `mcpp run` 会先准备好。Gradle 和它要用的 JDK 放在 `clion` feature 后面，只有构建那个插件的人才需要下载它们：`mcpp run --features clion -p devtools -- extension --editor clion`。Zed 和 CLion 都没有装插件的命令行，所以 `--install` 在磁盘上留下的东西和它们自己的 UI 装出来的完全一样：对 Zed，它停在最后一步之前，告诉你在命令面板里执行哪个操作（推荐这样装，加 `--link` 则由它自己完成）；对 CLion，它按 *Install Plugin from Disk* 的方式解包那个包。`--install` 还会把 payload 放在 `<user data>/mcppls/payload`，PATH 上没有 `mcppls` 时 Neovim 按 payload 中本平台条目的说明启动它：本系统的运行器 `libexec/okrun/<system>-<arch>/okrun` 启动 okb `bin/mcppls.okb`。Zed 自己下载它要的那一份（见“Zed”一节）。CLion 的包像 VSIX 一样自带 payload：一个 payload、一个 VSIX 和一个 CLion 包服务所有系统。
 
 ## VS Code
 
@@ -48,7 +48,7 @@ mcpp run -p devtools -- uninstall --editor vscode|zed|clion|all   # 卸载
 
 ## Zed
 
-[`editors/zed/`](../../editors/zed/README.md) 里的扩展启动 Zed 设置里 `lsp.mcppls.binary` 指定的服务端，没有时启动 PATH 上的 `mcppls`，再没有就把本系列的 payload 从 release 下载到自己的工作目录。安装分两步：
+[`editors/zed/`](../../editors/zed/README.md) 里的扩展启动 Zed 设置里 `lsp.mcppls.binary` 指定的服务端，没有时启动 PATH 上的 `mcppls`，再没有就把它写明的那个服务端版本的 payload 从 release 下载到自己的工作目录。安装分两步：
 
 1. 在 Zed 的扩展页（`zed: extensions`）安装 **C++ Modules Language Server**（`mcppls-language-server`）。也可以从本仓库安装：`mcpp run -p devtools -- extension --editor zed --install` 会构建好扩展和服务端，只留一步：命令面板 → "zed: install dev extension" → `editors/zed`。加上 `--link` 可以让工具自己把这一步也做了。
 2. 在 Zed 的设置里（`zed: open settings`）把 mcppls 排在前面，并关掉 clangd：

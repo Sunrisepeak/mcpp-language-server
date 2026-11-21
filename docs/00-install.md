@@ -192,7 +192,7 @@ that same link itself; for CLion it unpacks this system's package as *Install Pl
 does, and the package carries its payload. `--install` also puts the server at `<user data>/mcppls/payload`
 (`$XDG_DATA_HOME` or `~/.local/share` on Linux, `~/Library/Application Support` on macOS,
 `%LOCALAPPDATA%` on Windows), which Neovim starts, and `uninstall` removes it with Zed. Zed starts
-the server `lsp.mcppls.binary` names, else `mcppls` from PATH, else the payload of its series, which
+the server `lsp.mcppls.binary` names, else `mcppls` from PATH, else the payload of the server it names, which
 it downloads into its work directory; to have it start the installed one, name it in
 `lsp.mcppls.binary` ([editors/zed/README.md](../editors/zed/README.md#install)).
 

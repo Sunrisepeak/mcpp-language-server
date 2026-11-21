@@ -3,8 +3,8 @@
 // Everything that makes mcppls worth using happens in the server itself, so this is small on
 // purpose. The one decision it makes is where the server comes from (resolve.rs, which `cargo test`
 // covers on the host): the command the user's settings name, else an `mcppls` on the worktree's PATH,
-// else the payload of this extension's series -- the server, its clangd and its semantic kit --
-// downloaded from the series' release into the work directory Zed gives this extension.
+// else the payload of the server it names (resolve.rs, SERVER) -- the server, its clangd and its
+// semantic kit -- downloaded from that release into the work directory Zed gives this extension.
 mod resolve;
 
 use std::fs;
@@ -30,7 +30,8 @@ impl Mcppls {
         let release = resolve::release();
         let payload = resolve::payload(&release.directory, platform, arch)?;
         let present = |path: &str| fs::metadata(path).is_ok_and(|m| m.is_file());
-        if !(present(&payload.runner) && present(&payload.image)) {
+        let marker = resolve::marker(&release);
+        if !present(&marker) {
             zed::set_language_server_installation_status(id, &LanguageServerInstallationStatus::Downloading);
             let fetched = (|| -> Result<()> {
                 let found = zed::github_release_by_tag_name(resolve::REPOSITORY, &release.tag)?;
@@ -48,14 +49,14 @@ impl Mcppls {
                 if !(present(&payload.runner) && present(&payload.image)) {
                     return Err(format!("the archive holds no {} and {}", payload.runner, payload.image));
                 }
-                Ok(())
+                fs::write(&marker, release.tag.as_bytes()).map_err(|e| format!("{marker}: {e}"))
             })();
             if let Err(reason) = fetched {
                 let message = resolve::download_failed(&release, &reason);
                 zed::set_language_server_installation_status(id, &LanguageServerInstallationStatus::Failed(message.clone()));
                 return Err(message);
             }
-            // The payloads of earlier series are not needed again.
+            // The payloads of earlier servers are not needed again.
             if let Ok(entries) = fs::read_dir(".") {
                 for entry in entries.flatten() {
                     if let Some(name) = entry.file_name().to_str() {

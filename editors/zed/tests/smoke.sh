@@ -168,8 +168,8 @@ has_mcppls_engine() {
 }
 
 # ---------------------------------------------------------------------------------------------
-# The extension, installed the way a release is checked: linked into Zed's data directory, the
-# payload put where the extension looks for it.
+# The extension, installed the way a release is checked: linked into Zed's data directory, and the
+# payload installed, which the `mcppls` script below starts (PATH is the extension's first choice).
 "$devtools" extension --editor zed --install --link --plugin "$extension" --payload "$payload" \
     --server-dir "$root/server" --zed-dir "$zed_data"
 test -x "$server" && test -f "$image" || fail "$server and $image were not installed"

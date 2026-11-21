@@ -38,15 +38,15 @@ void remove_entry(const std::string& path) {
     std::filesystem::remove_all(path, ignored);
 }
 
-// The `id = "..."` line of an extension.toml, which is all this needs to know whether an entry
-// under installed/ is this extension.
-std::optional<std::string> extension_id(const std::string& directory) {
+// A `key = "..."` line of an extension.toml: `id` is all this needs to know whether an entry under
+// installed/ is this extension, `repository` whether one under the former id was.
+std::optional<std::string> manifest_field(const std::string& directory, std::string_view key) {
     auto text = os::fs::read(base::join_path(directory, "extension.toml"));
     if (!text) return std::nullopt;
     for (const auto& line : base::split_lines(*text)) {
         const std::string_view trimmed { base::trim(line) };
-        if (!trimmed.starts_with("id")) continue;
-        const std::string_view value { base::trim(trimmed.substr(2)) };
+        if (!trimmed.starts_with(key)) continue;
+        const std::string_view value { base::trim(trimmed.substr(key.size())) };
         if (!value.starts_with('=')) continue;   // `identity = ...` is some other key
         const std::string_view quoted { base::trim(value.substr(1)) };
         if (quoted.size() < 2 || quoted.front() != '"' || quoted.back() != '"') continue;
@@ -54,6 +54,8 @@ std::optional<std::string> extension_id(const std::string& directory) {
     }
     return std::nullopt;
 }
+
+std::optional<std::string> extension_id(const std::string& directory) { return manifest_field(directory, "id"); }
 
 std::string jetbrains_directory() {
     if (windows()) {
@@ -102,10 +104,12 @@ std::string zed_directory() {
 }
 
 // An install under the former id, when it is a link (a dev extension) or a copy of this extension.
+// Zed names an installed directory by its id, so the id says nothing; the repository does, and an
+// extension someone else publishes under the freed id stays.
 void remove_former_zed(const std::string& zedDirectory) {
     std::error_code ignored;
     const std::string former { base::join_path(zedDirectory, std::format("extensions/installed/{}", ZED_FORMER_EXTENSION_ID)) };
-    if (!is_link(former) && extension_id(former) != std::string { ZED_FORMER_EXTENSION_ID }) return;
+    if (!is_link(former) && manifest_field(former, "repository") != std::string { ZED_REPOSITORY }) return;
     remove_entry(former);
     std::filesystem::remove_all(base::join_path(zedDirectory, std::format("extensions/work/{}", ZED_FORMER_EXTENSION_ID)), ignored);
 }

@@ -29,6 +29,11 @@ pub struct Launch {
 /// two together). The server serves a plugin of its own series only (docs/92-release.md "Versions").
 pub const PLUGIN_VERSION: &str = "0.23.1";
 
+/// The server whose payload the extension downloads: the newest server release of its series when the
+/// extension was released. A server's patch reaches Zed with the extension's next patch, which names
+/// it here, as it reaches VS Code and CLion inside their packages (docs/92-release.md "Versions").
+pub const SERVER: &str = "0.23.0";
+
 /// The repository whose releases carry the payload.
 pub const REPOSITORY: &str = "Sunrisepeak/mcpp-language-server";
 
@@ -67,6 +72,7 @@ pub fn choose(setting: Option<(String, Option<Vec<String>>)>, on_path: Option<St
 }
 
 /// `X.Y` of an `X.Y.Z`.
+#[cfg(test)]
 pub fn series(version: &str) -> &str {
     match version.rmatch_indices('.').next() {
         Some((at, _)) => &version[..at],
@@ -74,8 +80,8 @@ pub fn series(version: &str) -> &str {
     }
 }
 
-/// The release that carries this series' payload: the series' own `vX.Y.0`, the one release of a
-/// series that carries every asset (a component's patch carries only that component's files).
+/// The release that carries `SERVER`'s payload: `vX.Y.0` for a series' first server, `server-vX.Y.Z`
+/// for a server's patch, which carries the payload (packaging/release.manifest.json).
 #[derive(Debug, PartialEq, Eq)]
 pub struct Release {
     pub tag: String,
@@ -85,12 +91,22 @@ pub struct Release {
 }
 
 pub fn release() -> Release {
-    let version = format!("{}.0", series(PLUGIN_VERSION));
+    release_of(SERVER)
+}
+
+pub fn release_of(server: &str) -> Release {
+    let tag = if server.ends_with(".0") { format!("v{server}") } else { format!("server-v{server}") };
     Release {
-        tag: format!("v{version}"),
-        asset: format!("mcppls-payload-{version}.tar.gz"),
-        directory: format!("mcppls-payload-{version}"),
+        tag,
+        asset: format!("mcppls-payload-{server}.tar.gz"),
+        directory: format!("mcppls-payload-{server}"),
     }
+}
+
+/// The file written once a payload is unpacked and checked; a directory without it is downloaded
+/// again (an unpacking cut short can leave a runner that exists but is not whole).
+pub fn marker(release: &Release) -> String {
+    format!("{}/.complete", release.directory)
 }
 
 /// The payload's server for this machine, relative to the work directory: this system's runner,
@@ -180,14 +196,23 @@ mod tests {
     }
 
     #[test]
-    fn the_release_is_the_series_own() {
+    fn the_server_is_of_the_extensions_series() {
         assert_eq!(series("0.23.1"), "0.23");
         assert_eq!(series("1.4.0"), "1.4");
-        let r = release();
-        let v = format!("{}.0", series(PLUGIN_VERSION));
-        assert_eq!(r.tag, format!("v{v}"));
-        assert_eq!(r.asset, format!("mcppls-payload-{v}.tar.gz"));
-        assert_eq!(r.directory, format!("mcppls-payload-{v}"));
+        assert_eq!(series(SERVER), series(PLUGIN_VERSION));
+    }
+
+    #[test]
+    fn a_series_server_and_a_server_patch_have_their_own_tags() {
+        let first = release_of("0.23.0");
+        assert_eq!(first.tag, "v0.23.0");
+        assert_eq!(first.asset, "mcppls-payload-0.23.0.tar.gz");
+        assert_eq!(first.directory, "mcppls-payload-0.23.0");
+        let patch = release_of("0.23.2");
+        assert_eq!(patch.tag, "server-v0.23.2");
+        assert_eq!(patch.asset, "mcppls-payload-0.23.2.tar.gz");
+        assert_eq!(marker(&patch), "mcppls-payload-0.23.2/.complete");
+        assert_eq!(release(), release_of(SERVER));
     }
 
     #[test]
@@ -219,7 +244,7 @@ mod tests {
     }
 
     #[test]
-    fn only_another_series_payload_is_stale() {
+    fn only_another_servers_payload_is_stale() {
         assert!(is_stale("mcppls-payload-0.22.0", "mcppls-payload-0.23.0"));
         assert!(!is_stale("mcppls-payload-0.23.0", "mcppls-payload-0.23.0"));
         assert!(!is_stale("something-else", "mcppls-payload-0.23.0"));

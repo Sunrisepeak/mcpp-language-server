@@ -288,8 +288,9 @@ stays 261. A new plugin is registered manually before automated updates can use 
 
 [zed-industries/extensions](https://github.com/zed-industries/extensions) builds `editors/zed` at the
 commit its `extensions.toml` names and publishes it as `mcppls-language-server`. The extension needs
-nothing from a release of its own: it downloads the payload of the series' release `vX.Y.0`, so that
-release must exist first.
+nothing from a release of its own: it downloads the payload of the server it names (`SERVER` in
+`editors/zed/src/resolve.rs`, from `vX.Y.0` or a server patch's `server-vX.Y.Z`), so that release must
+exist first. A server's patch reaches Zed with the extension's next patch, which names it.
 
 What the registry requires ([prerequisites](https://zed.dev/docs/extensions/publishing/prerequisites),
 [publishing guide](https://zed.dev/docs/extensions/publishing/publishing-guide), and its CI):
@@ -298,9 +299,9 @@ What the registry requires ([prerequisites](https://zed.dev/docs/extensions/publ
 |---|---|
 | An id of lowercase letters, digits and `-`, without `zed` or `extension`; a language server alone ends in `-language-server` or `-lsp`; it never changes once published | `mcppls-language-server` |
 | An accepted license in the extension's own directory (a license at the repository's root does not count) | `editors/zed/LICENSE`, Apache-2.0 |
-| The server is downloaded or found, never bundled; nothing is read or written outside the extension's work directory | the settings, PATH, else the series' payload, downloaded into the work directory |
+| The server is downloaded or found, never bundled; nothing is read or written outside the extension's work directory | the settings, PATH, else the named server's payload, downloaded into the work directory |
 | `version` in `extensions.toml` is `extension.toml`'s at that commit, and only rises | `mcppls-devtools version --bump zed` |
-| It builds with the registry's toolchain: Rust 1.90, `wasm32-wasip2`, its `zed-extension` CLI | the Zed job of `ci.yml` builds the crate for `wasm32-wasip2` |
+| It builds with the registry's toolchain: Rust 1.90, `wasm32-wasip2`, its `zed-extension` CLI | `ci.yml`'s `zed-unit` builds the crate for `wasm32-wasip2` with Rust `ZED_RUST_VERSION` (`.github/versions.env`) |
 | Tested by hand in Zed at the commit submitted; English text | |
 
 The registry's [AI policy](https://github.com/zed-industries/extensions/blob/main/AI_POLICY.md)
@@ -310,7 +311,7 @@ review is closed.
 
 A version reaches Zed in four steps:
 
-1. The release `vX.Y.0` of its series exists, and the commit to publish is on `main` with its
+1. The release of the server it names exists, and the commit to publish is on `main` with its
    `## [zed X.Y.Z]` section in CHANGELOG.md.
 2. Check it as the registry will: install it as a dev extension in Zed at that commit and open a C++
    project, so that the payload is downloaded and the server answers.
