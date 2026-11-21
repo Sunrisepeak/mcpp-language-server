@@ -173,7 +173,7 @@ has_mcppls_engine() {
 "$devtools" extension --editor zed --install --link --plugin "$extension" --payload "$payload" \
     --server-dir "$root/server" --zed-dir "$zed_data"
 test -x "$server" && test -f "$image" || fail "$server and $image were not installed"
-test -e "$zed_data/extensions/installed/mcppls/extension.toml" || fail "the extension is not linked into Zed"
+test -e "$zed_data/extensions/installed/mcppls-language-server/extension.toml" || fail "the extension is not linked into Zed"
 
 {
   echo '#!/usr/bin/env bash'

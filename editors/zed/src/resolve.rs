@@ -14,6 +14,8 @@ pub enum Platform {
 pub enum Arch {
     X86_64,
     Aarch64,
+    /// One the payload has no runner for (32-bit x86).
+    Other,
 }
 
 /// What Zed is asked to run.
@@ -25,7 +27,10 @@ pub struct Launch {
 
 /// This extension's version, as extension.toml states it (`mcppls-devtools version --check` holds the
 /// two together). The server serves a plugin of its own series only (docs/92-release.md "Versions").
-pub const PLUGIN_VERSION: &str = "0.23.0";
+pub const PLUGIN_VERSION: &str = "0.23.1";
+
+/// The repository whose releases carry the payload.
+pub const REPOSITORY: &str = "Sunrisepeak/mcpp-language-server";
 
 /// The initialization options the server receives: the user's (`lsp.mcppls.initialization_options`),
 /// with `plugin` naming this extension and its version, so a server of another series refuses with
@@ -40,64 +45,102 @@ pub fn initialization_options(user: Option<zed_extension_api::serde_json::Value>
     options
 }
 
-pub const NOT_FOUND: &str = "mcppls is not on PATH. Build and install it from a checkout: \
-                             mcpp run -p devtools -- extension --editor zed --install";
+/// Where the server comes from, in order: the command the user's settings name
+/// (`lsp.mcppls.binary.path`, with its `arguments`, else `serve`), an `mcppls` on the worktree's PATH
+/// (the universal package's launcher, a single file, a build of one's own), and otherwise the payload
+/// of this extension's series, which `lib.rs` downloads into the extension's work directory.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Source {
+    Command(Launch),
+    Release,
+}
 
-/// PATH first (`on_path` is what the worktree's `which` found): an `mcppls` the user installed -- the
-/// universal package's launcher, a single file, or a build of their own. Then the payload
-/// `mcpp run -p devtools -- extension --editor zed --install` puts at <user data>/mcppls/payload
-/// (tools/devtools/src/editors.cppm), whose server is an image: one payload for every system, whose
-/// runner of this system and architecture, `libexec/okrun/<system>-<arch>/okrun`, starts
-/// `bin/mcppls.okb`, as its payload.json's entry for this platform says. The sandbox cannot look
-/// outside this extension's work directory, so that layout is taken as written rather than read, and
-/// not checked to exist: when it is missing, starting it fails with its path in the message. Only when
-/// neither can be named is the error the one above.
-pub fn resolve(on_path: Option<String>, platform: Platform, arch: Arch, env: &[(String, String)]) -> Result<Launch, String> {
-    if let Some(command) = on_path {
-        return Ok(Launch { command, args: vec!["serve".to_string()] });
+pub fn choose(setting: Option<(String, Option<Vec<String>>)>, on_path: Option<String>) -> Source {
+    if let Some((command, args)) = setting {
+        return Source::Command(Launch { command, args: args.unwrap_or_else(|| vec!["serve".to_string()]) });
     }
-    let payload = installed_payload(platform, env).ok_or_else(|| NOT_FOUND.to_string())?;
-    let (separator, exe) = if platform == Platform::Windows { ('\\', ".exe") } else { ('/', "") };
-    let system = match platform {
-        Platform::Linux => "linux",
-        Platform::Mac => "macos",
-        Platform::Windows => "windows",
+    if let Some(command) = on_path {
+        return Source::Command(Launch { command, args: vec!["serve".to_string()] });
+    }
+    Source::Release
+}
+
+/// `X.Y` of an `X.Y.Z`.
+pub fn series(version: &str) -> &str {
+    match version.rmatch_indices('.').next() {
+        Some((at, _)) => &version[..at],
+        None => version,
+    }
+}
+
+/// The release that carries this series' payload: the series' own `vX.Y.0`, the one release of a
+/// series that carries every asset (a component's patch carries only that component's files).
+#[derive(Debug, PartialEq, Eq)]
+pub struct Release {
+    pub tag: String,
+    pub asset: String,
+    /// The directory of the work directory the archive is unpacked into; it holds `payload/`.
+    pub directory: String,
+}
+
+pub fn release() -> Release {
+    let version = format!("{}.0", series(PLUGIN_VERSION));
+    Release {
+        tag: format!("v{version}"),
+        asset: format!("mcppls-payload-{version}.tar.gz"),
+        directory: format!("mcppls-payload-{version}"),
+    }
+}
+
+/// The payload's server for this machine, relative to the work directory: this system's runner,
+/// `payload/libexec/okrun/<system>-<arch>/okrun`, starting the server's image `payload/bin/mcppls.okb`.
+/// The payload has a runner for linux-x86_64, linux-aarch64, macos-aarch64 and windows-x86_64.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Payload {
+    pub runner: String,
+    pub image: String,
+}
+
+pub fn payload(directory: &str, platform: Platform, arch: Arch) -> Result<Payload, String> {
+    let system = match (platform, arch) {
+        (Platform::Linux, Arch::X86_64) => "linux-x86_64",
+        (Platform::Linux, Arch::Aarch64) => "linux-aarch64",
+        (Platform::Mac, Arch::Aarch64) => "macos-aarch64",
+        (Platform::Windows, Arch::X86_64) => "windows-x86_64",
+        _ => return Err(unsupported(platform, arch)),
     };
-    let arch = match arch {
-        Arch::X86_64 => "x86_64",
-        Arch::Aarch64 => "aarch64",
-    };
-    Ok(Launch {
-        command: format!("{payload}{separator}libexec{separator}okrun{separator}{system}-{arch}{separator}okrun{exe}"),
-        args: vec![format!("{payload}{separator}bin{separator}mcppls.okb"), "serve".to_string()],
+    let exe = if platform == Platform::Windows { ".exe" } else { "" };
+    Ok(Payload {
+        runner: format!("{directory}/payload/libexec/okrun/{system}/okrun{exe}"),
+        image: format!("{directory}/payload/bin/mcppls.okb"),
     })
 }
 
-// <user data>/mcppls/payload, the same user data directory the installer uses: $XDG_DATA_HOME or
-// ~/.local/share on Linux, ~/Library/Application Support on macOS, %LOCALAPPDATA% on Windows.
-pub fn installed_payload(platform: Platform, env: &[(String, String)]) -> Option<String> {
-    let var = |name: &str| {
-        env.iter()
-            .find(|(key, value)| key.eq_ignore_ascii_case(name) && !value.is_empty())
-            .map(|(_, value)| value.clone())
-    };
-    match platform {
-        Platform::Windows => var("LOCALAPPDATA").map(|data| format!("{data}\\mcppls\\payload")),
-        Platform::Mac => var("HOME").map(|home| format!("{home}/Library/Application Support/mcppls/payload")),
-        Platform::Linux => var("XDG_DATA_HOME")
-            .filter(|data| data.starts_with('/'))
-            .or_else(|| var("HOME").map(|home| format!("{home}/.local/share")))
-            .map(|data| format!("{data}/mcppls/payload")),
-    }
+fn unsupported(platform: Platform, arch: Arch) -> String {
+    format!(
+        "mcppls's release has no server for {platform:?} {arch:?}: it has one for Linux x86_64 and aarch64, \
+         macOS aarch64 and Windows x86_64. Put an mcppls you built on PATH, or name it in \
+         lsp.mcppls.binary.path."
+    )
+}
+
+/// What the user is told when the payload could not be downloaded or unpacked.
+pub fn download_failed(release: &Release, reason: &str) -> String {
+    format!(
+        "mcppls {} could not be downloaded from github.com/{REPOSITORY} ({}): {reason}. Put mcppls on PATH, \
+         or name it in lsp.mcppls.binary.path.",
+        release.tag, release.asset
+    )
+}
+
+/// A work directory's entry that an earlier series left: a payload directory other than `keep`.
+pub fn is_stale(entry: &str, keep: &str) -> bool {
+    entry.starts_with("mcppls-payload-") && entry != keep
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn env(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
-    }
 
     #[test]
     fn the_options_name_this_plugin_beside_the_users_own() {
@@ -117,54 +160,67 @@ mod tests {
     }
 
     #[test]
-    fn path_wins_over_the_installed_payload() {
-        let launch = resolve(Some("/usr/bin/mcppls".into()), Platform::Linux, Arch::X86_64, &env(&[("HOME", "/home/u")])).unwrap();
-        assert_eq!(launch, Launch { command: "/usr/bin/mcppls".into(), args: vec!["serve".into()] });
+    fn the_settings_win_over_path_and_path_over_the_release() {
+        let set = Some(("/opt/mcppls/bin/mcppls".to_string(), None));
+        assert_eq!(
+            choose(set, Some("/usr/bin/mcppls".into())),
+            Source::Command(Launch { command: "/opt/mcppls/bin/mcppls".into(), args: vec!["serve".into()] })
+        );
+        let with_args = Some(("/p/okrun".to_string(), Some(vec!["/p/mcppls.okb".to_string(), "serve".to_string()])));
+        assert_eq!(
+            choose(with_args, None),
+            Source::Command(Launch { command: "/p/okrun".into(), args: vec!["/p/mcppls.okb".into(), "serve".into()] })
+        );
+        assert_eq!(
+            choose(None, Some("/usr/bin/mcppls".into())),
+            Source::Command(Launch { command: "/usr/bin/mcppls".into(), args: vec!["serve".into()] })
+        );
+        assert_eq!(choose(None, None), Source::Release);
     }
 
     #[test]
-    fn the_installed_payload_runs_its_image_through_its_runner() {
-        let launch = resolve(None, Platform::Linux, Arch::X86_64, &env(&[("HOME", "/home/u")])).unwrap();
-        assert_eq!(launch.command, "/home/u/.local/share/mcppls/payload/libexec/okrun/linux-x86_64/okrun");
-        assert_eq!(launch.args, ["/home/u/.local/share/mcppls/payload/bin/mcppls.okb", "serve"]);
+    fn the_release_is_the_series_own() {
+        assert_eq!(series("0.23.1"), "0.23");
+        assert_eq!(series("1.4.0"), "1.4");
+        let r = release();
+        let v = format!("{}.0", series(PLUGIN_VERSION));
+        assert_eq!(r.tag, format!("v{v}"));
+        assert_eq!(r.asset, format!("mcppls-payload-{v}.tar.gz"));
+        assert_eq!(r.directory, format!("mcppls-payload-{v}"));
     }
 
     #[test]
-    fn xdg_data_home_moves_the_payload_when_absolute() {
-        let e = env(&[("HOME", "/home/u"), ("XDG_DATA_HOME", "/data")]);
-        assert_eq!(installed_payload(Platform::Linux, &e).unwrap(), "/data/mcppls/payload");
-        let relative = env(&[("HOME", "/home/u"), ("XDG_DATA_HOME", "data")]);
-        assert_eq!(installed_payload(Platform::Linux, &relative).unwrap(), "/home/u/.local/share/mcppls/payload");
-        let empty = env(&[("HOME", "/home/u"), ("XDG_DATA_HOME", "")]);
-        assert_eq!(installed_payload(Platform::Linux, &empty).unwrap(), "/home/u/.local/share/mcppls/payload");
+    fn each_platform_takes_its_own_runner() {
+        let p = payload("d", Platform::Linux, Arch::X86_64).unwrap();
+        assert_eq!(p.runner, "d/payload/libexec/okrun/linux-x86_64/okrun");
+        assert_eq!(p.image, "d/payload/bin/mcppls.okb");
+        assert_eq!(payload("d", Platform::Linux, Arch::Aarch64).unwrap().runner, "d/payload/libexec/okrun/linux-aarch64/okrun");
+        assert_eq!(payload("d", Platform::Mac, Arch::Aarch64).unwrap().runner, "d/payload/libexec/okrun/macos-aarch64/okrun");
+        assert_eq!(payload("d", Platform::Windows, Arch::X86_64).unwrap().runner, "d/payload/libexec/okrun/windows-x86_64/okrun.exe");
     }
 
     #[test]
-    fn neither_gives_the_error_that_names_the_fix() {
-        let error = resolve(None, Platform::Linux, Arch::X86_64, &[]).unwrap_err();
-        assert_eq!(error, NOT_FOUND);
-        assert!(error.contains("mcppls is not on PATH"));
-        assert!(error.contains("extension --editor zed --install"));
-        assert!(resolve(None, Platform::Windows, Arch::X86_64, &env(&[("HOME", "C:\\Users\\u")])).is_err());
+    fn a_platform_without_a_runner_names_the_ones_there_are() {
+        for (platform, arch) in [(Platform::Mac, Arch::X86_64), (Platform::Windows, Arch::Aarch64), (Platform::Linux, Arch::Other)] {
+            let error = payload("d", platform, arch).unwrap_err();
+            assert!(error.contains("macOS aarch64"), "{error}");
+            assert!(error.contains("lsp.mcppls.binary.path"), "{error}");
+        }
     }
 
     #[test]
-    fn windows_runner_is_an_exe_under_local_app_data() {
-        let launch = resolve(None, Platform::Windows, Arch::X86_64, &env(&[("LocalAppData", "C:\\Users\\u\\AppData\\Local")])).unwrap();
-        assert_eq!(launch.command, "C:\\Users\\u\\AppData\\Local\\mcppls\\payload\\libexec\\okrun\\windows-x86_64\\okrun.exe");
-        assert_eq!(launch.args, ["C:\\Users\\u\\AppData\\Local\\mcppls\\payload\\bin\\mcppls.okb", "serve"]);
+    fn a_failed_download_names_the_release_and_the_remedy() {
+        let message = download_failed(&release(), "timed out");
+        assert!(message.contains(&release().tag));
+        assert!(message.contains(&release().asset));
+        assert!(message.contains("timed out"));
+        assert!(message.contains("PATH"));
     }
 
     #[test]
-    fn linux_arm64_takes_its_own_runner() {
-        let launch = resolve(None, Platform::Linux, Arch::Aarch64, &env(&[("HOME", "/home/u")])).unwrap();
-        assert_eq!(launch.command, "/home/u/.local/share/mcppls/payload/libexec/okrun/linux-aarch64/okrun");
-    }
-
-    #[test]
-    fn mac_payload_is_under_application_support() {
-        let launch = resolve(None, Platform::Mac, Arch::Aarch64, &env(&[("HOME", "/Users/u")])).unwrap();
-        assert_eq!(launch.command, "/Users/u/Library/Application Support/mcppls/payload/libexec/okrun/macos-aarch64/okrun");
-        assert_eq!(launch.args[0], "/Users/u/Library/Application Support/mcppls/payload/bin/mcppls.okb");
+    fn only_another_series_payload_is_stale() {
+        assert!(is_stale("mcppls-payload-0.22.0", "mcppls-payload-0.23.0"));
+        assert!(!is_stale("mcppls-payload-0.23.0", "mcppls-payload-0.23.0"));
+        assert!(!is_stale("something-else", "mcppls-payload-0.23.0"));
     }
 }

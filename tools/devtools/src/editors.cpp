@@ -101,6 +101,15 @@ std::string zed_directory() {
     return base::join_path(user_data_directory(), (windows() || macos()) ? "Zed" : "zed");
 }
 
+// An install under the former id, when it is a link (a dev extension) or a copy of this extension.
+void remove_former_zed(const std::string& zedDirectory) {
+    std::error_code ignored;
+    const std::string former { base::join_path(zedDirectory, std::format("extensions/installed/{}", ZED_FORMER_EXTENSION_ID)) };
+    if (!is_link(former) && extension_id(former) != std::string { ZED_FORMER_EXTENSION_ID }) return;
+    remove_entry(former);
+    std::filesystem::remove_all(base::join_path(zedDirectory, std::format("extensions/work/{}", ZED_FORMER_EXTENSION_ID)), ignored);
+}
+
 base::Result<ZedInstall> install_zed(const std::string& zedDirectory, const std::string& source) {
     std::error_code ignored;
     for (std::string_view file : { "extension.toml", "extension.wasm" }) {
@@ -118,6 +127,7 @@ base::Result<ZedInstall> install_zed(const std::string& zedDirectory, const std:
         }
         remove_entry(target);
     }
+    remove_former_zed(zedDirectory);
 
     std::error_code error;
     std::filesystem::create_directory_symlink(std::filesystem::path { source }, std::filesystem::path { target }, error);
@@ -149,6 +159,7 @@ bool remove_zed(const std::string& zedDirectory) {
     remove_entry(base::join_path(zedDirectory, std::format("extensions/installed/{}", ZED_EXTENSION_ID)));
     // Zed's own uninstall removes the work directory as well; a stale one would outlive us.
     std::filesystem::remove_all(base::join_path(zedDirectory, std::format("extensions/work/{}", ZED_EXTENSION_ID)), ignored);
+    remove_former_zed(zedDirectory);
     return was;
 }
 

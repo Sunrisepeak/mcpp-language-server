@@ -48,9 +48,9 @@ mcpp run -p devtools -- uninstall --editor vscode|zed|clion|all   # 卸载
 
 ## Zed
 
-[`editors/zed/`](../../editors/zed/README.md) 里的扩展会在 PATH 上找到 `mcppls` 并启动它。安装分两步：
+[`editors/zed/`](../../editors/zed/README.md) 里的扩展启动 Zed 设置里 `lsp.mcppls.binary` 指定的服务端，没有时启动 PATH 上的 `mcppls`，再没有就把本系列的 payload 从 release 下载到自己的工作目录。安装分两步：
 
-1. `mcpp run -p devtools -- extension --editor zed --install` 会构建好扩展和服务端，只留一步：命令面板 → "zed: install dev extension" → `editors/zed`。加上 `--link` 可以让工具自己把这一步也做了。
+1. 在 Zed 的扩展页（`zed: extensions`）安装 **C++ Modules Language Server**（`mcppls-language-server`）。也可以从本仓库安装：`mcpp run -p devtools -- extension --editor zed --install` 会构建好扩展和服务端，只留一步：命令面板 → "zed: install dev extension" → `editors/zed`。加上 `--link` 可以让工具自己把这一步也做了。
 2. 在 Zed 的设置里（`zed: open settings`）把 mcppls 排在前面，并关掉 clangd：
 
    ```json

@@ -24,7 +24,7 @@ std::string scratch(std::string_view name) {
 }
 
 // An extension directory as the build leaves it.
-std::string zed_source(const std::string& root, std::string_view id = "mcppls") {
+std::string zed_source(const std::string& root, std::string_view id = editors::ZED_EXTENSION_ID) {
     std::error_code ignored;
     const std::string source { base::join_path(root, "source") };
     (void)std::filesystem::create_directories(source, ignored);
@@ -44,19 +44,19 @@ UTest editors_tests{"editors", [] {
         const std::string root { scratch("zed") };
         const std::string source { zed_source(root) };
         const std::string zed { base::join_path(root, "zed") };
-        (void)std::filesystem::create_directories(base::join_path(zed, "extensions/work/mcppls"), ignored);
+        (void)std::filesystem::create_directories(base::join_path(zed, "extensions/work/mcppls-language-server"), ignored);
 
         auto installed = editors::install_zed(zed, source);
         expect(installed.has_value()) << (installed ? "" : installed.error().message);
         expect(editors::zed_installed(zed));
-        expect(std::filesystem::is_regular_file(base::join_path(zed, "extensions/installed/mcppls/extension.wasm"), ignored));
+        expect(std::filesystem::is_regular_file(base::join_path(zed, "extensions/installed/mcppls-language-server/extension.wasm"), ignored));
 
         // Installing again replaces what the first one left.
         expect(editors::install_zed(zed, source).has_value());
 
         expect(editors::remove_zed(zed));
         expect(!editors::zed_installed(zed));
-        expect(!std::filesystem::exists(base::join_path(zed, "extensions/work/mcppls"), ignored));
+        expect(!std::filesystem::exists(base::join_path(zed, "extensions/work/mcppls-language-server"), ignored));
         // Removing a link must not remove what it pointed at.
         expect(std::filesystem::is_regular_file(base::join_path(source, "extension.toml"), ignored));
         expect(!editors::remove_zed(zed));
@@ -68,7 +68,7 @@ UTest editors_tests{"editors", [] {
         const std::string root { scratch("zed-occupied") };
         const std::string source { zed_source(root) };
         const std::string zed { base::join_path(root, "zed") };
-        const std::string other { base::join_path(zed, "extensions/installed/mcppls") };
+        const std::string other { base::join_path(zed, "extensions/installed/mcppls-language-server") };
         (void)std::filesystem::create_directories(other, ignored);
         (void) os::fs::write(base::join_path(other, "extension.toml"), "id = \"someone-else\"\n");
         auto installed = editors::install_zed(zed, source);
@@ -77,12 +77,32 @@ UTest editors_tests{"editors", [] {
         std::filesystem::remove_all(root);
     };
 
+    "zed: the install under the former id goes, and an unrelated one under that id stays"_test = [&] {
+        std::error_code ignored;
+        const std::string root { scratch("zed-former") };
+        const std::string source { zed_source(root) };
+        const std::string zed { base::join_path(root, "zed") };
+        const std::string former { base::join_path(zed, "extensions/installed/mcppls") };
+        (void)std::filesystem::create_directories(former, ignored);
+        (void) os::fs::write(base::join_path(former, "extension.toml"), "id = \"mcppls\"\n");
+        (void)std::filesystem::create_directories(base::join_path(zed, "extensions/work/mcppls"), ignored);
+        expect(editors::install_zed(zed, source).has_value());
+        expect(!std::filesystem::exists(former, ignored));
+        expect(!std::filesystem::exists(base::join_path(zed, "extensions/work/mcppls"), ignored));
+
+        (void)std::filesystem::create_directories(former, ignored);
+        (void) os::fs::write(base::join_path(former, "extension.toml"), "id = \"someone-else\"\n");
+        expect(editors::remove_zed(zed));
+        expect(std::filesystem::is_regular_file(base::join_path(former, "extension.toml"), ignored));
+        std::filesystem::remove_all(root);
+    };
+
     "zed: a source that was never built is refused"_test = [&] {
         std::error_code ignored;
         const std::string root { scratch("zed-unbuilt") };
         const std::string source { base::join_path(root, "source") };
         (void)std::filesystem::create_directories(source, ignored);
-        (void) os::fs::write(base::join_path(source, "extension.toml"), "id = \"mcppls\"\n");
+        (void) os::fs::write(base::join_path(source, "extension.toml"), "id = \"mcppls-language-server\"\n");
         expect(!editors::install_zed(base::join_path(root, "zed"), source).has_value());
         std::filesystem::remove_all(root);
     };

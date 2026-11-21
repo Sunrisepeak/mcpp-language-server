@@ -27,7 +27,10 @@ std::string server_directory();
 // marked dev because it is a link (extension_host.rs, `add_extension_to_index`). Doing the same
 // here is doing what the palette does, minus the compile, which has already happened.
 
-inline constexpr std::string_view ZED_EXTENSION_ID { "mcppls" };
+inline constexpr std::string_view ZED_EXTENSION_ID { "mcppls-language-server" };
+// The id the extension had before Zed's registry asked for a `-language-server` suffix. An entry under
+// it is this extension's earlier install: left there, Zed would run two extensions with one server.
+inline constexpr std::string_view ZED_FORMER_EXTENSION_ID { "mcppls" };
 
 // Zed's data directory: ~/.local/share/zed, ~/Library/Application Support/Zed or %LOCALAPPDATA%\Zed.
 std::string zed_directory();
@@ -39,7 +42,8 @@ enum class ZedInstall { linked, copied };
 // it is a link or a copy of this extension, and refused otherwise.
 base::Result<ZedInstall> install_zed(const std::string& zedDirectory, const std::string& source);
 
-// Removes the installed entry and the extension's work directory. False when nothing was there.
+// Removes the installed entry and the extension's work directory, and those of its former id when
+// they are this extension's. False when nothing was there under the current id.
 bool remove_zed(const std::string& zedDirectory);
 
 bool zed_installed(const std::string& zedDirectory);

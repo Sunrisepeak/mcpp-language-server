@@ -143,7 +143,7 @@ not run twice for it. Its jobs, each on Linux, macOS and Windows unless noted:
 |---|---|
 | CI | every job of `ci.yml` passes |
 | plugins (Linux) | the Zed extension builds and packages, and the CLion plugin builds one package carrying the payload, with an entry for every platform |
-| install | devtools installs the Zed extension and the CLion package; the server Zed falls back to and the server the CLion package carries each answer the `inferred` fixture through this platform's entry; `uninstall` leaves nothing behind |
+| install | devtools installs the Zed extension and the CLion package; the server devtools installs and the server the CLion package carries each answer the `inferred` fixture through this platform's entry; `uninstall` leaves nothing behind |
 | performance | the median first navigation of five cold starts is under 12 s and of five warm starts under 5 s, with no failed check |
 | performance on a real project (Linux) | the server passes the `self-mcpp` fixture: the mcpp repository at a fixed commit |
 | stability | the fixtures of the project shapes that matter (all-`.cppm`, `.cppm`/`.cpp` split, watched edits, a broken module, a hung build tool, several roots) pass three rounds in a row |
@@ -283,6 +283,57 @@ The plugin `io.github.sunrisepeak.mcppls` (vendor Sunrisepeak) carries one packa
 Version 0.0.19 used a package per system, selected by `com.intellij.modules.os.*` and
 `com.intellij.modules.arch.*` dependencies; the universal package declares neither. `since-build`
 stays 261. A new plugin is registered manually before automated updates can use its XML ID.
+
+## Zed's extension registry
+
+[zed-industries/extensions](https://github.com/zed-industries/extensions) builds `editors/zed` at the
+commit its `extensions.toml` names and publishes it as `mcppls-language-server`. The extension needs
+nothing from a release of its own: it downloads the payload of the series' release `vX.Y.0`, so that
+release must exist first.
+
+What the registry requires ([prerequisites](https://zed.dev/docs/extensions/publishing/prerequisites),
+[publishing guide](https://zed.dev/docs/extensions/publishing/publishing-guide), and its CI):
+
+| Rule | Here |
+|---|---|
+| An id of lowercase letters, digits and `-`, without `zed` or `extension`; a language server alone ends in `-language-server` or `-lsp`; it never changes once published | `mcppls-language-server` |
+| An accepted license in the extension's own directory (a license at the repository's root does not count) | `editors/zed/LICENSE`, Apache-2.0 |
+| The server is downloaded or found, never bundled; nothing is read or written outside the extension's work directory | the settings, PATH, else the series' payload, downloaded into the work directory |
+| `version` in `extensions.toml` is `extension.toml`'s at that commit, and only rises | `mcppls-devtools version --bump zed` |
+| It builds with the registry's toolchain: Rust 1.90, `wasm32-wasip2`, its `zed-extension` CLI | the Zed job of `ci.yml` builds the crate for `wasm32-wasip2` |
+| Tested by hand in Zed at the commit submitted; English text | |
+
+The registry's [AI policy](https://github.com/zed-industries/extensions/blob/main/AI_POLICY.md)
+admits no autonomous agent: a person opens the pull request, writes its description and answers the
+review. One pull request adds or updates one extension; one left three weeks without an answer to a
+review is closed.
+
+A version reaches Zed in four steps:
+
+1. The release `vX.Y.0` of its series exists, and the commit to publish is on `main` with its
+   `## [zed X.Y.Z]` section in CHANGELOG.md.
+2. Check it as the registry will: install it as a dev extension in Zed at that commit and open a C++
+   project, so that the payload is downloaded and the server answers.
+3. From a fork of zed-industries/extensions under a personal account (not an organization):
+
+   ```bash
+   git submodule add https://github.com/Sunrisepeak/mcpp-language-server.git extensions/mcppls-language-server
+   git -C extensions/mcppls-language-server checkout <commit on main>
+   ```
+
+   and in `extensions.toml`:
+
+   ```toml
+   [mcppls-language-server]
+   submodule = "extensions/mcppls-language-server"
+   path = "editors/zed"
+   version = "X.Y.Z"
+   ```
+
+   then `pnpm sort-extensions`, which orders `extensions.toml` and `.gitmodules`.
+4. Open the pull request, titled `Add mcppls-language-server` (later `Update mcppls-language-server
+   to X.Y.Z`), with the registry's checklist confirmed. An update moves the submodule
+   (`git submodule update --remote extensions/mcppls-language-server`) and the version.
 
 ## The xlings index
 

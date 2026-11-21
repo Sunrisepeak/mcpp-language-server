@@ -58,14 +58,15 @@ Two kinds of file on the release page serve every editor but VS Code and CLion:
   `… mcp` MCP; it takes this platform's clangd (`payload/clangd/<platform>/`) and the kit beside it. Unpack it into your user data directory as `mcppls/payload` —
   `~/.local/share/mcppls/payload` on Linux (`$XDG_DATA_HOME` when it is set),
   `~/Library/Application Support/mcppls/payload` on macOS, `%LOCALAPPDATA%\mcppls\payload` on
-  Windows — and the Zed and Neovim plugins start it with nothing else configured.
+  Windows — and the Neovim plugin starts it with nothing else configured. The Zed extension
+  downloads this archive itself, into its own work directory.
 - **The server as a command**, `mcppls`: `mcppls-<version>-openkal.zip` is one package for Linux,
   macOS and Windows on x86_64 and arm64. Unpack it and put its `bin/` on `PATH`: `bin/mcppls` is
   the POSIX launcher and `bin/mcppls.exe` the Windows one; it carries the runner of each of those
   systems, so nothing else is installed (its `mcpp-package.json` lists them as `runs_on`). Or take the single file of your
   system, `mcppls-<version>-<system>-<arch>` (`linux-x86_64`, `linux-aarch64`, `macos-aarch64`,
   `windows-x86_64.exe`), and put it on `PATH` as `mcppls`: one executable, nothing to unpack. The
-  Zed and Neovim plugins start an `mcppls` on `PATH` before an installed payload. Given `--payload <dir>` it uses
+  Zed and Neovim plugins start an `mcppls` on `PATH` before a payload. Given `--payload <dir>` it uses
   that payload's clangd and kit; without one, a clangd on `PATH` and the kits xlings installs.
 
 The Zed extension is a separate archive on the same release page;
@@ -188,10 +189,12 @@ VS Code has a command line for installing and removing an extension; Zed and CLi
 them `--install` leaves on disk exactly what their own UI would, and nothing else: for Zed it stops
 one step short and names the palette action, the recommended route, unless `--link` asks it to make
 that same link itself; for CLion it unpacks this system's package as *Install Plugin from Disk*
-does, and the package carries its payload. Zed starts `mcppls` from PATH, or else the server of the
-payload `--install` puts at `<user data>/mcppls/payload` (`$XDG_DATA_HOME` or `~/.local/share` on
-Linux, `~/Library/Application Support` on macOS, `%LOCALAPPDATA%` on Windows); `uninstall` removes
-that server with Zed.
+does, and the package carries its payload. `--install` also puts the server at `<user data>/mcppls/payload`
+(`$XDG_DATA_HOME` or `~/.local/share` on Linux, `~/Library/Application Support` on macOS,
+`%LOCALAPPDATA%` on Windows), which Neovim starts, and `uninstall` removes it with Zed. Zed starts
+the server `lsp.mcppls.binary` names, else `mcppls` from PATH, else the payload of its series, which
+it downloads into its work directory; to have it start the installed one, name it in
+`lsp.mcppls.binary` ([editors/zed/README.md](../editors/zed/README.md#install)).
 
 The first run downloads the clangd of every platform, cached under `.payload-cache` afterwards; the
 openkal kit is copied from the platform's packages mcpp already has. What the steps actually are,

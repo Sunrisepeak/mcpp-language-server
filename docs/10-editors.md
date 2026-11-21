@@ -103,12 +103,15 @@ for a project rather than running beside it. See
 
 ## Zed
 
-The extension at [`editors/zed/`](../editors/zed/README.md) finds `mcppls` on PATH and starts it.
-Install it in two steps:
+The extension at [`editors/zed/`](../editors/zed/README.md) starts the server `lsp.mcppls.binary`
+names in Zed's settings, else an `mcppls` on PATH, else the payload of its series, which it downloads
+from the release into its own work directory. Install it in two steps:
 
-1. `mcpp run -p devtools -- extension --editor zed --install` builds it and the server, then leaves
-   one step: command palette → "zed: install dev extension" → `editors/zed`. Add `--link` to have
-   the tool make that same link itself.
+1. Zed's extensions page (`zed: extensions`): **C++ Modules Language Server**
+   (`mcppls-language-server`). From this checkout instead, `mcpp run -p devtools -- extension
+   --editor zed --install` builds it and the server, then leaves one step: command palette →
+   "zed: install dev extension" → `editors/zed`. Add `--link` to have the tool make that same link
+   itself.
 2. Put mcppls first and clangd off in Zed's settings (`zed: open settings`):
 
    ```json

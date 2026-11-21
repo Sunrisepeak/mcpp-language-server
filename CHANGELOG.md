@@ -9,6 +9,20 @@ Versions are three-part semantic versions, `X.Y.Z`: `X.Y` is the series of the s
 patch is `## [<component> X.Y.Z]` (`server`, `vscode`, `clion`, `zed`, `claude-code`).
 
 
+## [zed 0.23.1] — unreleased
+
+### Changed
+
+- **The Zed extension can be installed from Zed's extensions page.** Its id is now
+  `mcppls-language-server`, the suffix Zed's registry asks of an extension that provides a language
+  server only, and `editors/zed/` carries the license the registry looks for there. Where neither the
+  settings (`lsp.mcppls.binary`) nor PATH name a server, the extension downloads the payload of its
+  series (`mcppls-payload-X.Y.0.tar.gz` of `vX.Y.0`) into the work directory Zed gives it, once per
+  series, and starts it; before, it started the payload `devtools extension --install` put under the
+  user data directory, a path the extension could not check and an install from the registry does not
+  have. `devtools` links the extension under the new id and removes an install under the former one.
+  docs/92-release.md "Zed's extension registry" has how a version reaches the registry.
+
 ## [0.23.0] — 2026-11-12
 
 ### Fixed
