@@ -46,7 +46,8 @@ pub fn initialization_options(user: Option<zed_extension_api::serde_json::Value>
 }
 
 /// Where the server comes from, in order: the command the user's settings name
-/// (`lsp.mcppls.binary.path`, with its `arguments`, else `serve`), an `mcppls` on the worktree's PATH
+/// (`lsp.mcppls.binary.path`; Zed itself starts that one with its `arguments` alone, and `serve` is the
+/// default only where the extension is asked), an `mcppls` on the worktree's PATH
 /// (the universal package's launcher, a single file, a build of one's own), and otherwise the payload
 /// of this extension's series, which `lib.rs` downloads into the extension's work directory.
 #[derive(Debug, PartialEq, Eq)]

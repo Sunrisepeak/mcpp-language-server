@@ -7,8 +7,8 @@ The extension is deliberately small: it finds the server and starts it. All the 
 server, which drives its own pinned clangd with the module database it built. The server comes from
 the first of these:
 
-1. the command `lsp.mcppls.binary.path` names in Zed's settings, with its `arguments` (`serve` when
-   none are given);
+1. the command `lsp.mcppls.binary.path` names in Zed's settings. Zed itself starts it, with the
+   `arguments` given there and nothing else, so they include `serve`;
 2. an `mcppls` on the worktree's PATH (the release's `mcppls-<version>-openkal.zip` or single file,
    the xlings package, a build of your own);
 3. the payload of this extension's series (`mcppls-payload-X.Y.0.tar.gz` of the release `vX.Y.0`:
