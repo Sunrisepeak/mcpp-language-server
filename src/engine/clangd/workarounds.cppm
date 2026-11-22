@@ -18,6 +18,9 @@ struct Workaround {
     std::string_view id;           // WA-CLANGD-<n>: grep-able, in logs and the report
     std::string_view title;        // what it works around, in one line
     std::string_view fixedIn;      // the first release of KNOWN_LINE that no longer needs it; empty: none yet
+    // The maintained engine (mcppls-clangd, `<line>.<z>-mcppls.<n>`) carries the fix in every release, backported ahead
+    // of the line's own: it never needs the workaround, whatever its LLVM base (issue #97).
+    bool fixedInMaintained { false };
     std::string_view upstream;     // the upstream issue or fix, or "unfiled"
     std::string_view evidence;     // where it was found and measured
     std::string_view added;        // the mcppls version that added it

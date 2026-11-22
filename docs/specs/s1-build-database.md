@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Specification | S1 |
-| Profile version | 0.3.0 |
+| Profile version | 0.4.0 |
 | Status | Draft |
 | Schema | [`schema/s1-build-database.schema.json`](schema/s1-build-database.schema.json) |
 | Examples | [`examples/s1-level3-gcc.json`](examples/s1-level3-gcc.json), [`examples/s1-level2-clang-two-sets.json`](examples/s1-level2-clang-two-sets.json) |
@@ -179,6 +179,7 @@ A build can generate files that the units of a set compile or include: sources a
 | `path` | string | MUST | Absolute path of the file or directory in the configuration this document describes, as the units' `arguments` name it. <a id="S1-7.2-1"></a><sup>S1-7.2-1</sup> |
 | `build-path` | string | SHOULD | Absolute path at which the build of the same configuration writes it. It differs from `path` when the producer plans in a directory of its own, and equals `path` otherwise. It is stated whether or not the file exists. <a id="S1-7.2-2"></a><sup>S1-7.2-2</sup> |
 | `kind` | enum | MUST | `source` (a unit of the set is compiled from it), `header` (units of the set include it) or `directory` (an include directory whose contents are generated). <a id="S1-7.2-3"></a><sup>S1-7.2-3</sup> |
+| `origin` | string | MAY | For `source` only: the absolute path of the authored file the generated unit is a transformed copy of (the file a person edits to change the unit), one of the generator's `inputs`, as the step that writes the unit states it. A producer **MUST NOT** infer it from `inputs`. <a id="S1-7.2-14"></a><sup>S1-7.2-14</sup> (0.4.0) |
 | `generator` | object | conditional MUST | REQUIRED for `source` and `header`, absent for `directory`. It has `id` (string, MUST), the producer's name for the step that writes the file; `inputs` (string[], SHOULD), the absolute paths of the files the step reads; `arguments` (string[], SHOULD), the step's command, program first; and `work-directory` (string, MAY). <a id="S1-7.2-4"></a><a id="S1-7.2-5"></a><a id="S1-7.2-6"></a><a id="S1-7.2-7"></a><a id="S1-7.2-8"></a><sup>S1-7.2-4, S1-7.2-5, S1-7.2-6, S1-7.2-7, S1-7.2-8</sup> |
 
 A producer **SHOULD** list every generated file that a unit's `arguments` name, and every generated file in an include directory that the `arguments` name, whenever it knows the step that writes the file. <a id="S1-7.2-9"></a><sup>S1-7.2-9</sup> A translation unit whose `source` is the `path` of a `source` entry is a generated unit: before a build its source may be absent or empty.
@@ -188,6 +189,8 @@ A consumer:
 - **MUST NOT** report a unit's reference to a generated file that does not exist as an error in that unit's source, and **SHOULD** tell the user that the file is generated, by which step, and that a build writes it; <a id="S1-7.2-10"></a><a id="S1-7.2-11"></a><sup>S1-7.2-10, S1-7.2-11</sup>
 - **MAY** read the file at `build-path` when it exists, read-only (section 14), and **MUST** then treat it as possibly stale relative to the step's inputs; <a id="S1-7.2-12"></a><sup>S1-7.2-12</sup>
 - **MUST NOT** run a step's `arguments` unless the user has allowed it for the workspace (section 14). <a id="S1-7.2-13"></a><sup>S1-7.2-13</sup>
+- **SHOULD**, for a `source` entry with `origin`, treat the authored file as the source of the generated unit for navigation and diagnostics; <a id="S1-7.2-15"></a><sup>S1-7.2-15</sup> (0.4.0)
+- **MUST NOT** treat a `source` entry's `origin` as a second provider of the module the generated unit provides. <a id="S1-7.2-16"></a><sup>S1-7.2-16</sup> (0.4.0)
 
 Rationale: a producer that does not build (for example mcpp's `emit build-database`, which writes nothing into the project and runs no build step) plans in a directory of its own, so a generated header named by the units' `-I` arguments is absent there. Without this object a consumer reports a missing header in every source that includes it and loses the semantics of that source. The object states which files are generated and where the build writes them; running the generators remains a decision of the consumer and its user.
 

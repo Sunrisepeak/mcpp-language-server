@@ -257,6 +257,9 @@
             "directory"
           ]
         },
+        "origin": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
         "generator": {
           "type": "object",
           "required": [
