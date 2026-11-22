@@ -41,6 +41,7 @@ Fixture mcpp_llvm{"mcpp-llvm", on{"linux-x64", "darwin-arm64"}};
 Fixture mcpp_llvm_linked{"mcpp-llvm@linked", on{"linux-x64"}};
 Fixture mcpp_llvm_msvc{"mcpp-llvm-msvc", on{"win32-x64"}};
 Fixture mcpp_msvc{"mcpp-msvc", on{"win32-x64"}};
+Fixture mcpp_msvc_aligned_new{"mcpp-msvc-aligned-new", on{"win32-x64"}};
 Fixture mcpp_partition_definition{"mcpp-partition-definition", on{"linux-x64", "darwin-arm64", "win32-x64"}};
 Fixture mcpp_polling_watch_inputs_polling{"mcpp-polling-watch-inputs@polling", on{"linux-x64", "linux-arm64", "darwin-arm64", "win32-x64"}};
 Fixture mcpp_producer_file_identity{"mcpp-producer-file-identity", on{"linux-x64", "linux-arm64", "darwin-arm64", "win32-x64"}};

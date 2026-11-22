@@ -39,6 +39,12 @@ UTest workarounds_tests{"workarounds", [] {
         expect(cld::needs(cld::MSVC_STL_ALIGNED_ALLOCATION, "22.1.8")) << "another line gets every workaround";
         expect(cld::needs(cld::MSVC_STL_ALIGNED_ALLOCATION, "23.10.0")) << "23.10 is not the 23.1 line";
         expect(cld::needs(cld::MSVC_STL_ALIGNED_ALLOCATION, "")) << "an unknown version gets every workaround";
+        // Issue #97: the maintained engine carries the fix (mcppls-clangd patch 0001-UP-05) whatever its LLVM base.
+        expect(!cld::needs(cld::MSVC_STL_ALIGNED_ALLOCATION, "23.1.0-mcppls.12"));
+        expect(!cld::needs(cld::MSVC_STL_ALIGNED_ALLOCATION, "23.1.0-mcppls.1"));
+        expect(cld::needs(cld::MSVC_STL_ALIGNED_ALLOCATION, "23.10.0-mcppls.1")) << "only the line's own maintained builds";
+        expect(cld::needs(cld::MSVC_STL_ALIGNED_ALLOCATION, "x-mcppls.1"));
+        expect(cld::needs(cld::TRAILING_DOT_MODULE_NAME, "23.1.0-mcppls.12")) << "a workaround without the mark is decided as before";
         for (const auto version : { "23.1.0", "23.1.2", "22.1.8", "24.0.0" }) expect(cld::needs(cld::TRAILING_DOT_MODULE_NAME, version)) << version;
         expect(!cld::needs("WA-CLANGD-999", "23.1.0"));
         const auto active = cld::active_workarounds("23.1.1");
@@ -54,6 +60,7 @@ UTest workarounds_tests{"workarounds", [] {
         expect(!cld::traits_for_version("23.1.0-mcppls.8").tested) << "another maintained build is not";
         expect(pinned.needsModulePreparation && pinned.needsModuleHints && pinned.msvcStlNeedsNoAlignedAllocation);
         expect(!cld::traits_for_version("23.1.1").msvcStlNeedsNoAlignedAllocation);
+        expect(!bundled.msvcStlNeedsNoAlignedAllocation) << "issue #97: the bundled engine has the fix, the MSVC STL keeps aligned new";
         expect(cld::traits_for_version("23.1.1").hangsOnTrailingDotModuleName);
     };
 

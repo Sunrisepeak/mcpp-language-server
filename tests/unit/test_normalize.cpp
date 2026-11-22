@@ -196,7 +196,12 @@ UTest normalize_tests{"normalize", [] {
         expect(contains(out, "-Xmicrosoft-visualc-tools-root") && contains(out, "C:/VS/VC/Tools/MSVC/14.44.35207"));
         expect(contains(out, "-Xmicrosoft-windows-sdk-root") && contains(out, "-Xmicrosoft-windows-sdk-version") && contains(out, "10.0.26100.0"));
         expect(contains(out, "-fno-aligned-allocation"));
+        // Issue #97: beside it, the macro that keeps vcruntime_new.h's std::align_val_t and aligned operator new.
+        expect(contains(out, "-D__cpp_aligned_new=201606L"));
         expect(out.size() >= 2 && out[out.size() - 2] == "-x" && out.back() == "c++-module");
+        // Without the workaround (the maintained engine), neither.
+        const auto plain = n::translate_msvc(n::MsvcInput { arguments, "C:/p/src/greet.ixx", "C:/p/build", &facts, true, false });
+        expect(!contains(plain, "-fno-aligned-allocation") && !contains_prefix(plain, "-D__cpp_aligned_new")) << std::format("{}", plain);
     };
 
     "P7: an mcpp cl.exe command"_test = [] {
@@ -221,6 +226,7 @@ UTest normalize_tests{"normalize", [] {
         expect(contains(out, "-Wno-unused") && contains(out, "-mavx2") && contains(out, "-fms-runtime-lib=static"));
         expect(!contains_prefix(out, "-fmodule-output") && !contains_prefix(out, "-fmodule-file"));
         expect(std::ranges::count(out, std::string { "-fno-aligned-allocation" }) == 1);
+        expect(!contains_prefix(out, "-D__cpp_aligned_new")) << "the build turned aligned new off itself (/Zc:alignedNew-)";
         expect(contains(out, "-fms-compatibility-version=19.44"));
     };
 
@@ -1084,6 +1090,7 @@ UTest normalize_tests{"normalize", [] {
             if (entry.file.ends_with("std.ixx")) {
                 ++stdEntries;
                 expect(contains(entry.arguments, "-Wno-include-angled-in-module-purview") && contains(entry.arguments, "-fno-aligned-allocation"));
+                expect(contains(entry.arguments, "-D__cpp_aligned_new=201606L")) << "std keeps what its importers are read with (issue #97)";
                 expect(!contains(entry.arguments, "-interface"));
                 expect(entry.arguments[entry.arguments.size() - 3] == "-x" && entry.arguments[entry.arguments.size() - 2] == "c++-module");
             }

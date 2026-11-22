@@ -1,0 +1,12 @@
+{
+  "name": "mcpp-msvc-aligned-new",
+  "description": "Issue #97: a header that uses std::align_val_t and the aligned operator new/delete unconditionally, as Slint 1.19's vtable.h does, included by a module unit and by main.cpp, both importing std, built with llvm@23.1.3 against the MSVC STL. mcppls 0.24.0 gave every unit -fno-aligned-allocation (WA-CLANGD-005), which hides vcruntime_new.h's declarations: \"no type named 'align_val_t' in namespace 'std'\" and the module did not compile. The maintained engine carries the fix of the defect the workaround was for, so no unit gets the flag, std builds, and neither file has a diagnostic.",
+  "checks": [
+    { "id": "S1", "kind": "status", "source": "mcpp", "state": "ready" },
+    { "id": "C1-the-module-unit-compiles", "kind": "diagnostics-empty", "file": "src/shapes.cppm" },
+    { "id": "C2-main-compiles", "kind": "diagnostics-empty", "file": "src/main.cpp" },
+    { "id": "E1-no-aligned-allocation-switch", "kind": "engine-command", "file": "src/main.cpp", "absent": ["-fno-aligned-allocation"], "timeout": 30 },
+    { "id": "D1-the-module-resolves", "kind": "definition", "file": "src/main.cpp", "at": [6, 32], "expect": "src/shapes.cppm" },
+    { "id": "W1", "kind": "workspace-unchanged" }
+  ]
+}

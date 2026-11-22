@@ -9,6 +9,30 @@ Versions are three-part semantic versions, `X.Y.Z`: `X.Y` is the series of the s
 patch is `## [<component> X.Y.Z]` (`server`, `vscode`, `clion`, `zed`, `claude-code`).
 
 
+## [vscode 0.24.1] — 2026-11-23
+
+### Fixed
+
+- Carries server 0.24.1: no false "no type named 'align_val_t' in namespace 'std'" with the MSVC STL (#97).
+
+## [server 0.24.1] — 2026-11-23
+
+### Fixed
+
+- **"no type named 'align_val_t' in namespace 'std'", and modules that "did not compile", in projects on the MSVC
+  STL whose headers use aligned allocation** ([#97](https://github.com/Sunrisepeak/mcpp-language-server/issues/97)).
+  Slint 1.19 is one: its `vtable.h` calls `::operator new(size, std::align_val_t)` as C++17 allows, and the project
+  builds. mcppls gave every MSVC STL unit `-fno-aligned-allocation` (`WA-CLANGD-005`), a workaround for a clang 23.1.0
+  defect that made `align_val_t` ambiguous in the MSVC STL's `std` module (llvm-project#218152). The flag also takes
+  `__cpp_aligned_new` away, and `vcruntime_new.h` then declares no `std::align_val_t` and no aligned
+  `operator new`/`delete`. The bundled engine has carried the upstream fix of that defect (llvm-project#219151, in
+  clang 23.1.1) in every release; the workaround was kept only because it was retired by the LLVM base version, which
+  the maintained engine (`23.1.0-mcppls.<n>`) does not change. It is retired for the maintained engine now, and MSVC
+  STL units keep aligned allocation, as the build does. With a clangd of the line that lacks the fix (an upstream
+  23.1.0 named with `mcppls.clangd`), the workaround stays and also defines `__cpp_aligned_new`, so the standard
+  library still declares what such headers use. The first session after the upgrade builds `std` and the modules of
+  an MSVC STL project once more, since their commands change.
+
 ## [0.24.0] — 2026-11-22
 
 ### Fixed

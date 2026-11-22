@@ -56,10 +56,12 @@ constexpr std::array<Workaround, 14> REGISTRY { {
         .id = MSVC_STL_ALIGNED_ALLOCATION,
         .title = "clangd rejects the MSVC STL's aligned allocation; units using the MSVC STL turn it off",
         .fixedIn = "23.1.1",
-        .upstream = "llvm-project#218152, fixed in 23.1.1",
-        .evidence = ".agents/docs/design.md §7; conformance fixtures cmake-msvc-std, mcpp-msvc",
+        // mcppls-clangd patch 0001-UP-05 is the fix (llvm-project#219151), in every engine release since v0.0.2.
+        .fixedInMaintained = true,
+        .upstream = "llvm-project#218152, fixed in 23.1.1 (#219151); backported in mcppls-clangd",
+        .evidence = ".agents/docs/design.md §7; .agents/docs/2026-11-23-issue-97-msvc-aligned-allocation-design.md; conformance fixtures cmake-msvc-std, mcpp-msvc, mcpp-msvc-aligned-new",
         .added = "0.0.1",
-        .removeWhen = "the bundled clangd is 23.1.1 or later",
+        .removeWhen = "no supported clangd is upstream 23.1.0: the maintained engine never needs it (issue #97)",
         .canary = "",
         .premise = "the unit is compiled against the MSVC STL",
     },
@@ -231,7 +233,13 @@ const Workaround* find_workaround(std::string_view id) {
     return found == REGISTRY.end() ? nullptr : &*found;
 }
 
+bool maintained_engine(std::string_view version) {
+    const std::size_t fork { version.find("-mcppls.") };
+    return fork != std::string_view::npos && in_known_line(version.substr(0, fork)) && parse_version(version.substr(0, fork)).has_value();
+}
+
 bool needs(const Workaround& workaround, std::string_view version) {
+    if (workaround.fixedInMaintained && maintained_engine(version)) return false;
     if (!in_known_line(version)) return true;
     if (workaround.fixedIn.empty()) return true;
     const auto have { parse_version(version) };

@@ -285,7 +285,10 @@ bool standard_library_macro(std::string_view name) {
     name = name.substr(0, name.find('='));
     // Explicit names: a prefix such as _GLIBCXX_ or _LIBCPP_ would also match those libraries' own header
     // guards (_GLIBCXX_RANGES, _LIBCPP_RANGES), which is exactly what must not reach std.
-    static constexpr std::array<std::string_view, 24> NAMES {
+    static constexpr std::array<std::string_view, 25> NAMES {
+        // The compiler's own (issue #97): defined for the MSVC STL beside WA-CLANGD-005, so that std declares what its
+        // importers' headers use.
+        "__cpp_aligned_new",
         // MSVC STL and the MSVC runtime
         "_ITERATOR_DEBUG_LEVEL", "_CONTAINER_DEBUG_LEVEL", "_DEBUG", "_DLL", "_MT", "_MSVC_STL_HARDENING",
         "_MSVC_STL_DESTRUCTOR_TOMBSTONES", "_STL_CALL_ABORT_INSTEAD_OF_INVALID_PARAMETER",

@@ -317,6 +317,12 @@ a file nothing generates from: a stale copy, or a source no `sources` pattern co
 clangd or kept it busy is not formatted until it is given back, and nothing is formatted while clangd is starting
 or restarting.
 
+**"no type named 'align_val_t' in namespace 'std'" with the MSVC STL (0.24.0 and earlier), the project builds.**
+A header that uses aligned allocation as C++17 allows (Slint 1.19's `vtable.h`) failed in the editor only: mcppls gave
+MSVC STL units `-fno-aligned-allocation` (`WA-CLANGD-005`), which hides `std::align_val_t` in `vcruntime_new.h`. From
+server 0.24.1 the bundled engine is read with aligned allocation on, as the build is (#97). On 0.24.0,
+`"mcppls.disableWorkaround": ["WA-CLANGD-005"]` does the same: the bundled engine has the fix the workaround was for.
+
 **"clangd crashed while building NormalJsonTranslator.Core.cpp".** clangd names the file it crashed
 on (its crash context), and that file is set aside: answered by mcppls's own engine while clangd is
 restarted without it. A clangd that ends without saying anything -- the bundled clangd traps where a

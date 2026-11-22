@@ -121,6 +121,11 @@ std::vector<std::string> windows_msvc_arguments(const toolchain::ToolchainFacts&
     }
     if (noAlignedAllocation && facts.toolchain.stdlib && facts.toolchain.stdlib->name == "msvc-stl" && !has("-fno-aligned-allocation") && !has("-faligned-allocation")) {
         out.emplace_back("-fno-aligned-allocation");
+        // Issue #97: with aligned allocation off clang declares no implicit std::align_val_t (the ambiguity of
+        // WA-CLANGD-005) and no __cpp_aligned_new either, and the MSVC STL's vcruntime_new.h then leaves out its own
+        // std::align_val_t and the aligned operator new/delete, which conforming code (Slint 1.19's vtable.h) uses. The
+        // macro keeps the library's declarations. Not when the build itself turns aligned new off (has() above).
+        out.emplace_back("-D__cpp_aligned_new=201606L");
     }
     return out;
 }
