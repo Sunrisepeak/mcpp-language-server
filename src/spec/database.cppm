@@ -84,6 +84,20 @@ struct TranslationUnit {
     bool optionsDerived { false };   // `options` restate `arguments` (spec::complete_options); the producer stated none
 };
 
+// A file the build generates (S1 §7.2): a source a unit is compiled from, a header units include, or a directory of
+// them. `origin` is the authored source the file is a transformed copy of, when the producer states it
+// (mcpp-community/mcpp#1004, S1 0.4.0); empty otherwise.
+struct GeneratedFile {
+    std::string path;
+    std::string buildPath;
+    std::string kind;                         // source | header | directory
+    std::string generatorId;
+    std::vector<std::string> inputs;
+    std::vector<std::string> arguments;
+    std::string workDirectory;
+    std::string origin;
+};
+
 struct Set {
     std::string name;
     std::string familyName;
@@ -96,6 +110,7 @@ struct Set {
     std::optional<SemanticOptions> options;
     bool optionsDerived { false };   // `options` restate the units' arguments (spec::complete_options); the producer stated none
     std::vector<std::string> moduleMetadata;
+    std::vector<GeneratedFile> generated;     // ide.generated
     std::vector<TranslationUnit> units;
 };
 
@@ -135,6 +150,17 @@ inline constexpr std::string_view BUILD_PROGRAM_CONFIGURATION { "build-program" 
 inline constexpr std::string_view ENGINE_INTERFACE_SET { "mcpp:core" };
 bool is_build_program_set(const Set& set);
 std::string absolute_source(const TranslationUnit& unit);
+// The entry of `set`'s generated files a unit's source is, matched by `path` or by `build-path` (the project's build
+// output may have replaced the producer's planning directory, project::use_project_build_output); nullptr if none.
+const GeneratedFile* generated_source(const Set& set, std::string_view source);
+// The authored source a generated source was made from (issue #95): its `origin` when the producer states it, else the
+// one input of its step that is a C++ source -- an inference, said to be one by `stated` false. Nothing when the step
+// reads no C++ source or several.
+struct AuthoredSource {
+    std::string path;
+    bool stated { false };
+};
+std::optional<AuthoredSource> authored_source(const GeneratedFile& file);
 std::string absolute_path_in_unit(const TranslationUnit& unit, std::string_view path);
 
 // compile_commands.json entries for one set, or for every set (first occurrence of a source wins).

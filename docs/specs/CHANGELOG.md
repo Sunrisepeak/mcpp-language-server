@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-22 — S3: a shadowed source, and a file not formatted
+
+Two notice codes are named (mcpp-language-server#95). `shadowed-source`: an open file that is not compiled as it is,
+because a unit of the build provides the module it declares -- `kind` `generated-from` when the build database's
+`ide.generated` says the build generates that unit from the file (a build rule's transformed copy), `outside-build`
+otherwise; the notice carries the `file`. `not-formatted`: a formatting request answered with no edits, and why.
+Neither makes the state `degraded`. Additive: a client that knows neither shows the message as it does for any notice,
+and protocol version stays 1.
+
 ## 2026-11-12 — S3: an engine that ends, and a session's engine starts
 
 Three issue codes are named. `file-ended-engine`: files that made the engine end (a fault, not an end from outside) are

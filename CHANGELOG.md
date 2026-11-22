@@ -9,6 +9,44 @@ Versions are three-part semantic versions, `X.Y.Z`: `X.Y` is the series of the s
 patch is `## [<component> X.Y.Z]` (`server`, `vscode`, `clion`, `zed`, `claude-code`).
 
 
+## [0.24.0] — 2026-11-22
+
+### Fixed
+
+- **clangd restarted, and every module was prepared again, when `import std` came into a file or left it**
+  ([#95](https://github.com/Sunrisepeak/mcpp-language-server/issues/95)). The standard library's units are built
+  with the arguments of one unit of the project, its representative: the first unit that imported `std` and was no
+  module interface, read from the edit buffer as well. In a package whose `build.mcpp` imports `std` beside the
+  targets (HuxerUI's, with a host toolchain the targets share), typing `import std;` into `main.cpp` made it the
+  representative at once, and saving it without the import moved `std` back to a build program's unit; the two
+  commands differ (`-I`, `-g`, warnings), so each move restarted clangd ("units are compiled with other arguments
+  (std.compat.cppm)"), freed the other command's BMIs and prepared all modules again -- four times in six minutes in
+  the report, and into the restart backoff. Now the representative is chosen by set, then by unit, from what the
+  build describes: a set of the targets before a set of build programs, a set in which some unit imports `std` as
+  the build database states it before one in which none does, then the database's order; in the set, its first unit
+  that is no interface, whatever it imports. An edit buffer never moves it, and it leaves a set only when the set's
+  last importer of `std` does. The report names it (`plan.stdFollows`), and the log says when it moves (`std follows
+  … now (was …)`). The first session after the upgrade can build `std` once more, where the unit it follows is
+  another one. A new conformance case drives the reported shape with mcpp's own build database: 0.23.0 restarts
+  clangd at each save, 0.24.0 never.
+- **An open file a build rule transforms was a second provider of its module: `ambiguous-module`, the workspace
+  `degraded`, and Format Document did nothing** (#95). With `[build] sources = []` and a rule that generates the
+  compiled unit from the file you edit (HuxerUI's `hcg`), mcpp's build database describes only the generated copy;
+  the open original declares the same module. It is now a *shadowed source*: not an issue, the state stays `ready`,
+  the file carries an information diagnostic and the status a `shadowed-source` notice that names the unit standing
+  for it and, when the build database's `ide.generated` (S1 §7.2) names the file as the step's input, the step
+  (`generated-from`; `outside-build` for a stale copy or a file no `sources` pattern covers). It stays out of
+  clangd's database as before (two files declaring one module make clangd choose one); mcppls's own engine answers
+  it. The server now reads `ide.generated`, and a stated `origin` (S1 0.4.0, proposed in
+  mcpp-community/mcpp#1004) is taken over the step's inputs once a producer writes it.
+- **Format Document formats a file clangd is not given.** Formatting depends on the text, the file's name and the
+  `.clang-format` above it, not on the file's semantic state. A file left out of clangd's database (a shadowed
+  source, a second provider, a file another context reads) is formatted by clangd under a scratch name in the same
+  directory (`<name>.mcppls-format.<ext>`, never written to disk), opened for the one request and closed after it;
+  nothing clangd says about that name reaches the editor. A file set aside because it ended clangd or kept it busy
+  is still not given to clangd in any form; when formatting answers nothing, the log and a `not-formatted` notice say
+  why, once per file.
+
 ## [0.23.0] — 2026-11-12
 
 ### Fixed

@@ -1,0 +1,21 @@
+{
+  "name": "shadowed-source",
+  "description": "Issue #95: a build rule (HuxerUI's hcg) transforms src/app.cppm into target/.build-mcpp/out/hcg/src_app.cppm, which mcpp's build database describes as the unit of module app; [build] sources = [] lists no source, so src/app.cppm is in no set, and ide.generated names it as the step's input. Opened in the editor, the authored file is a shadowed source: not a second provider of app (no ambiguous-module), the root stays ready, the file says which unit stands for it, and Format Document formats it -- clangd formats its text under a scratch name beside it, and nothing clangd says of that name reaches the editor.",
+  "server-arguments": ["--mcpp", "{runner-dir}/mcppls-mock-mcpp{exe}"],
+  "checks": [
+    { "id": "O1-the-authored-file-is-open", "kind": "open", "file": "src/app.cppm" },
+    { "id": "S1-the-root-is-ready", "kind": "status", "source": "mcpp", "state": "ready" },
+    { "id": "P1-a-shadowed-source-generated-from", "kind": "report", "expect": [
+      { "path": "/roots/0/plan/shadowed/*/kind", "equals": "generated-from" },
+      { "path": "/roots/0/plan/shadowed/*/step", "equals": "hcg:app" },
+      { "path": "/roots/0/plan/issues/*/code", "equals": "ambiguous-module", "max-matches": 0 },
+      { "path": "/roots/0/plan/leftOutCount", "equals": 0 }
+    ] },
+    { "id": "D1-the-file-says-what-stands-for-it", "kind": "diagnostic-code", "file": "src/app.cppm", "expect": "shadowed-source", "timeout": 60 },
+    { "id": "F1-format-document-formats-it", "kind": "formatting-equals", "file": "src/app.cppm", "expected-file": "expected-app.txt" },
+    { "id": "F2-formatted-under-a-scratch-name", "kind": "report", "expect": [
+      { "path": "/roots/0/engines/*/details/formattedAside", "at-least": 1 }
+    ] },
+    { "id": "W1", "kind": "workspace-unchanged" }
+  ]
+}

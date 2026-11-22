@@ -1,0 +1,9 @@
+import std;
+import mcpp;
+import gen;
+import both;
+
+int main() {
+    mcpp::cxxflag(generated_flag().c_str());
+    mcpp::cxxflag(std::format("-DBOTH={}", both_value()).c_str());
+}
