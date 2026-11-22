@@ -53,7 +53,7 @@ namespace = "compat"
 version = "0.8.3"
 source  = "index+compat@0.8.3"
 hash    = "fnv1a:34ff2cfbc5643020"
-targets = ["aarch64-macos-musl", "x86_64-linux-gnu", "x86_64-linux-musl", "x86_64-openkal", "x86_64-windows-gnu"]
+targets = ["aarch64-macos-musl", "x86_64-linux-gnu", "x86_64-openkal", "x86_64-windows-gnu"]
 
 [package."compat.xz"]
 namespace = "compat"
@@ -197,7 +197,7 @@ namespace = "mcpplibs.mwrap"
 version = "0.8.3"
 source  = "index+mcpplibs.mwrap@0.8.3"
 hash    = "fnv1a:5a13ce23bb4119de"
-targets = ["aarch64-macos-musl", "x86_64-linux-gnu", "x86_64-linux-musl", "x86_64-openkal", "x86_64-windows-gnu"]
+targets = ["aarch64-macos-musl", "x86_64-linux-gnu", "x86_64-openkal", "x86_64-windows-gnu"]
 
 [package."nlohmann.json"]
 namespace = "nlohmann"
