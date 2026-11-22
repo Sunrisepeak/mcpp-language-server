@@ -1562,6 +1562,15 @@ UTest normalize_tests{"normalize", [] {
         expect(std::ranges::none_of(opened.entries, [](const n::EngineEntry& entry) { return entry.file == "/p/src/app.cppm"; }));
         expect(std_arguments(opened) == std_arguments(quiet)) << "an open file is never std's representative";
 
+        // What the authored file imports and the build's copy does not (a transform removed it) asks for nothing.
+        {
+            sources["/p/src/app.cppm"] = "export module app;\nimport std;\nimport hcg.markup;\n";
+            const auto plan = plan_of(database_with({ "app" }), {}, { "/p/src/app.cppm" });
+            sources["/p/src/app.cppm"] = "export module app;\nimport std;\n";
+            expect(std::ranges::none_of(plan.issues, [](const n::PlanIssue& issue) { return issue.file == "/p/src/app.cppm"; }));
+            expect(plan.stubModules.empty()) << std::format("{}", plan.stubModules);
+        }
+
         // ... and without ide.generated, a file outside the build.
         {
             s::Database database { database_with({ "app" }) };

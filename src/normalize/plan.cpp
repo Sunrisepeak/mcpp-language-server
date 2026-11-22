@@ -638,6 +638,8 @@ EnginePlan plan_engine(const PlanInput& input) {
     bool anyStd { false };
     std::set<std::string> reported;
     for (std::size_t i { 0 }; i < candidates.size(); ++i) {
+        // A shadowed source is read by no engine database: what it imports asks for no stand-in and is no issue (issue #95).
+        if (shadowed[i]) continue;
         for (const auto& name : candidates[i].required) {
             if (is_std_module(name)) anyStd = true;
             if (sdkBlocksStd && candidates[i].usesKit && is_std_module(name)) {
