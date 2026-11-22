@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-23 — S1 0.4.0: a generated unit names the file it copies
+
+S1 §7.2: a `source` entry of `ide.generated` may carry `origin`, the absolute path of the authored file the generated
+unit is a transformed copy of, one of its generator's `inputs`, as the step that writes the unit states it; a producer
+does not infer it from `inputs` (S1-7.2-14). A consumer treats that file as the unit's source for navigation and
+diagnostics, and not as a second provider of the unit's module (S1-7.2-15). mcpp writes it from the build rule's
+`mcpp::action::origin` (mcpp-community/mcpp#1004). Additive: a MINOR version of the profile; a consumer of 0.3.0 reads
+a 0.4.0 document as before.
+
 ## 2026-11-22 — S3: a shadowed source, and a file not formatted
 
 Two notice codes are named (mcpp-language-server#95). `shadowed-source`: an open file that is not compiled as it is,
