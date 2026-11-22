@@ -1,0 +1,124 @@
+{
+  "database": {
+    "version": 1,
+    "revision": 0,
+    "ide": {
+      "profile-version": "0.3.0",
+      "generator": {
+        "name": "mcpp",
+        "version": "2026.11.20.1"
+      },
+      "toolchains": {
+        "llvm-23.1.3-x86_64-unknown-linux-gnu": {
+          "family": "clang",
+          "version": "23.1.3",
+          "driver": "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/23.1.3/bin/clang++",
+          "target": "x86_64-unknown-linux-gnu",
+          "stdlib": {
+            "name": "libc++",
+            "version": "23.1.3"
+          },
+          "config-files": []
+        }
+      }
+    },
+    "sets": [
+      {
+        "name": "hui",
+        "family-name": "hui",
+        "ide": {
+          "toolchain": "llvm-23.1.3-x86_64-unknown-linux-gnu",
+          "configuration": "dev",
+          "kind": "executable",
+          "generated": [
+            {
+              "kind": "source",
+              "path": "${root}/target/.build-mcpp/out/hcg/src_app.cppm",
+              "build-path": "${root}/target/.build-mcpp/out/hcg/src_app.cppm",
+              "generator": {
+                "id": "hcg:app",
+                "inputs": [
+                  "${root}/src/app.cppm",
+                  "${root}/tools/hcg"
+                ],
+                "arguments": [
+                  "${root}/tools/hcg",
+                  "--input",
+                  "${root}/src/app.cppm",
+                  "--output",
+                  "${root}/target/.build-mcpp/out/hcg/src_app.cppm"
+                ],
+                "work-directory": "${root}"
+              }
+            }
+          ]
+        },
+        "baseline-arguments": [
+          "-std=c++23",
+          "-O0",
+          "-g",
+          "-Wno-unknown-attributes"
+        ],
+        "visible-sets": [],
+        "translation-units": [
+          {
+            "source": "${root}/target/.build-mcpp/out/hcg/src_app.cppm",
+            "work-directory": "${root}",
+            "arguments": [
+              "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/23.1.3/bin/clang++",
+              "-std=c++23",
+              "-O0",
+              "-g",
+              "-Wno-unknown-attributes",
+              "-c",
+              "${root}/target/.build-mcpp/out/hcg/src_app.cppm",
+              "-o",
+              "${root}/target/.build-mcpp/cache/obj/src_app.o"
+            ],
+            "local-arguments": [],
+            "object": "${root}/target/.build-mcpp/cache/obj/src_app.o",
+            "provides": {
+              "app": ""
+            },
+            "requires": [],
+            "private": false,
+            "ide": {
+              "role": "module-interface"
+            }
+          },
+          {
+            "source": "${root}/src/main.cpp",
+            "work-directory": "${root}",
+            "arguments": [
+              "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/23.1.3/bin/clang++",
+              "-std=c++23",
+              "-O0",
+              "-g",
+              "-Wno-unknown-attributes",
+              "-c",
+              "${root}/src/main.cpp",
+              "-o",
+              "${root}/target/.build-mcpp/cache/obj/main.o"
+            ],
+            "local-arguments": [],
+            "object": "${root}/target/.build-mcpp/cache/obj/main.o",
+            "provides": {},
+            "requires": [
+              "app"
+            ],
+            "private": false,
+            "ide": {
+              "role": "non-module"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "watch": [
+    "mcpp.toml",
+    "src/**/*.cppm",
+    "src/**/*.cpp"
+  ],
+  "requireOffline": true
+}

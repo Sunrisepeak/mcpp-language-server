@@ -375,6 +375,8 @@ private:
     std::shared_ptr<BuildTimesLog> buildTimes_ { std::make_shared<BuildTimesLog>() };   // C-4 (plan 0.0.8 part 2)
     std::map<std::string, std::deque<std::pair<std::string, std::string>>, std::less<>> statusTimeline_;   // client URI -> (UTC time, state)
     Json lastPlanDiff_ = nullptr;
+    std::string stdRepresentative_;   // the unit std was built like in the last plan (issue #95)
+    std::size_t formattedAside_ { 0 };  // G2b: formatting requests answered under a scratch name
     std::map<std::string, Clock::time_point, std::less<>> lastIncidentAt_;
     static constexpr std::chrono::seconds INCIDENT_SPACING { 60 };
     // Fix plan F16: files whose text ON DISK would stall clangd now, and why. clangd reads a file's imports from disk to
@@ -737,6 +739,8 @@ public:
             { "restartBudget", restart_budget_json_() },
             { "filesUnsafeOnDisk", disk_hazards_json_() },
             { "lastPlanDiff", lastPlanDiff_ },
+            { "stdFollows", stdRepresentative_ },
+            { "formattedAside", formattedAside_ },
             { "logRingLines", logRing_->size() },
             { "buildTimes", build_times_json_() },
         };
@@ -901,6 +905,9 @@ public:
         // one no set describes. clangd would read them with a command of its own guessing.
         for (const auto& [file, set] : plan->otherContextSources) newExcluded.insert(base::path_key(file));
         for (const auto& file : plan->unreadSources) newExcluded.insert(base::path_key(file));
+        // Issue #95: an open file a unit of the build stands for (the authored form of a generated unit) is not given to
+        // clangd as itself either: two files declaring one module make clangd choose one of them.
+        for (const auto& shadow : plan->shadowedSources) newExcluded.insert(base::path_key(shadow.source));
         std::map<std::string, std::string, std::less<>> newModuleSources;
         std::map<std::string, std::string, std::less<>> newModuleCommands;
         for (const auto& entry : plan->entries) {
@@ -1314,7 +1321,53 @@ public:
         // held_path_ is not checked here, the same as !accepting_ is not: both are transient, and
         // request() below waits them out rather than refusing on this engine's behalf, so a method
         // with no other answerer still gets clangd's answer once the file is given to it.
-        return !unavailable_ && !excluded_path_(request.path) && !quarantined_(request.path) && !doomed_path_(request.path);
+        if (unavailable_) return false;
+        if (formats_aside_(request.method, request.path)) return true;
+        return !excluded_path_(request.path) && !quarantined_(request.path) && !doomed_path_(request.path);
+    }
+
+    // Issue #95, G2b: formatting is a function of the text, the file's name and the .clang-format above it, not of the
+    // file's semantic state. A file the database leaves out (a second provider, a shadowed source, a file another context
+    // reads) is formatted by clangd under a scratch name beside it -- same directory, so the same .clang-format; same
+    // extension, so the same language -- opened for the one request and closed after it. Not a file set aside because it
+    // ended clangd or kept it busy (its text under another name is the same text), and not one whose module cannot be
+    // built.
+    static constexpr std::string_view FORMAT_SCRATCH { ".mcppls-format" };
+    static bool formatting_method_(std::string_view method) {
+        return method == "textDocument/formatting" || method == "textDocument/rangeFormatting" || method == "textDocument/rangesFormatting"
+               || method == "textDocument/onTypeFormatting";
+    }
+    static bool format_scratch_uri_(std::string_view uri) { return uri.find(std::format("{}.", FORMAT_SCRATCH)) != std::string_view::npos; }
+    bool formats_aside_(std::string_view method, std::string_view path) const {
+        return formatting_method_(method) && excluded_path_(path) && !quarantined_(path) && !doomed_path_(path);
+    }
+
+    void format_aside_(const RequestView& view, const Json& message, Reply reply, Clock::time_point limit) {
+        // Not accepting (starting, restarting, in backoff): the workspace says why the file was not formatted.
+        if (!accepting_ || view.path.empty()) {
+            reply(Answer {});
+            return;
+        }
+        const std::string path { view.path };
+        const std::string_view extension { base::extension(path) };
+        const std::string_view name { base::file_name(path) };
+        const std::string scratchPath { base::join_path(base::parent_path(path),
+                                                        std::format("{}{}{}", name.substr(0, name.size() - extension.size()), FORMAT_SCRATCH, extension)) };
+        const std::string scratchUri { base::path_to_uri(scratchPath) };
+        const bool c { base::iequals_ascii(extension, ".c") };
+        Json open { { "textDocument", Json { { "uri", scratchUri }, { "languageId", c ? "c" : "cpp" }, { "version", 1 }, { "text", std::string { view.text } } } } };
+        if (!send_(lsp::make_notification("textDocument/didOpen", std::move(open)))) {
+            reply(Answer {});
+            return;
+        }
+        ++formattedAside_;
+        Json forwarded = message;
+        forwarded["params"]["textDocument"]["uri"] = scratchUri;
+        request_now_(forwarded, [this, scratchUri, reply = std::move(reply)](Answer answer) mutable {
+            (void)send_(lsp::make_notification("textDocument/didClose", Json { { "textDocument", Json { { "uri", scratchUri } } } }));
+            spin_.forget(scratchUri);
+            reply(std::move(answer));
+        }, limit, false);
     }
 
     void request(const RequestView& view, const Json& message, Reply reply) override {
@@ -1324,6 +1377,10 @@ public:
         }
         const std::string method { message.value("method", std::string {}) };
         const auto limit = wait_limit(method, options_.requestTimeout, Clock::now());
+        if (formats_aside_(method, view.path)) {
+            format_aside_(view, message, std::move(reply), limit);
+            return;
+        }
         if (is_interactive(method)) lastActiveAt_ = Clock::now();
         if (!accepting_) {
             deferred_.push_back(Waiting { message, std::move(reply), limit });
@@ -1906,10 +1963,13 @@ private:
             writtenDatabase_ = database;
             writtenStructure_ = normalize::to_compile_commands(plan, false).dump(1);
             forget_scan_failures_();
-            log::info("engine database ({}): {} entries ({} standard library units, {} stand-ins), {} left out, {} issues", host_->root_directory(),
-                      plan.entries.size(), plan.stdUnits, plan.stubModules.size(), plan.excludedFiles.size(), plan.issues.size());
+            log::info("engine database ({}): {} entries ({} standard library units{}, {} stand-ins), {} left out, {} shadowed, {} issues", host_->root_directory(),
+                      plan.entries.size(), plan.stdUnits,
+                      plan.stdRepresentative.empty() ? std::string {} : std::format(" built like {}", base::file_name(plan.stdRepresentative)),
+                      plan.stubModules.size(), plan.excludedFiles.size(), plan.shadowedSources.size(), plan.issues.size());
             host_->record_event("engine-database", Json { { "entries", plan.entries.size() }, { "standIns", plan.stubModules.size() },
-                                                          { "leftOut", plan.excludedFiles.size() } });
+                                                          { "leftOut", plan.excludedFiles.size() }, { "shadowed", plan.shadowedSources.size() },
+                                                          { "stdFollows", plan.stdRepresentative } });
         }
         std::erase_if(issues_, [](const Issue& issue) { return issue.code == "engine-database-write-failed"; });
         return true;
@@ -2954,6 +3014,10 @@ private:
 
     void handle_notification_(const Json& message) {
         const std::string method { message.value("method", std::string {}) };
+        // G2b: what clangd says of a document opened only to be formatted is said of no file the person has.
+        if (const Json* uri { lsp::find_path(message, { "params", "uri" }) }; uri != nullptr && uri->is_string() && format_scratch_uri_(uri->get<std::string>())) {
+            return;
+        }
         if (method == "$/progress") {
             const Json* token { lsp::find_path(message, { "params", "token" }) };
             const Json* value { lsp::find_path(message, { "params", "value" }) };
@@ -4333,7 +4397,11 @@ private:
     // and which modules' providers moved. A plan that restarts clangd says exactly why.
     void note_plan_diff_(const std::map<std::string, std::string, std::less<>>& newArguments, const std::map<std::string, std::string, std::less<>>& newSources,
                          const std::vector<std::string>& providersMoved, const std::vector<std::string>& restartingFor, const normalize::EnginePlan& plan) {
+        const std::string previousStd { std::exchange(stdRepresentative_, plan.stdRepresentative) };
         if (writtenArguments_.empty()) return;   // the first plan of this engine: nothing to compare with
+        // Issue #95: std is built with the arguments of one unit; when that unit is another one, std's command can change
+        // with it, and every module is prepared again. The diff says which unit it follows.
+        const bool stdMoved { !previousStd.empty() && !plan.stdRepresentative.empty() && !base::same_path(previousStd, plan.stdRepresentative) };
         std::vector<std::string> added;
         std::vector<std::string> removed;
         Json changed = Json::array();
@@ -4371,19 +4439,21 @@ private:
             moved.push_back(Json { { "module", name }, { "from", source }, { "to", now == newSources.end() ? std::string {} : now->second },
                                    { "restarts", std::ranges::find(providersMoved, name) != providersMoved.end() } });
         }
-        if (added.empty() && removed.empty() && changed.empty() && moved.empty()) return;
+        if (added.empty() && removed.empty() && changed.empty() && moved.empty() && !stdMoved) return;
         lastPlanDiff_ = Json { { "entries", plan.entries.size() }, { "added", added }, { "removed", removed }, { "otherArguments", changed },
                                { "providersMoved", moved }, { "standIns", plan.stubModules } };
+        if (stdMoved) lastPlanDiff_["stdFollows"] = Json { { "from", previousStd }, { "to", plan.stdRepresentative } };
         const auto names = [](const std::vector<std::string>& files) {
             std::string text;
             for (std::size_t i { 0 }; i < files.size() && i < 3; ++i) text += std::format("{}{}", i == 0 ? "" : ", ", base::file_name(files[i]));
             if (files.size() > 3) text += std::format(" and {} more", files.size() - 3);
             return text;
         };
-        log::info("engine database changed ({}): {} added{}{}, {} removed{}{}, {} compiled otherwise{}, {} providers moved", host_->root_directory(),
+        log::info("engine database changed ({}): {} added{}{}, {} removed{}{}, {} compiled otherwise{}, {} providers moved{}", host_->root_directory(),
                   added.size(), added.empty() ? "" : " ", names(added), removed.size(), removed.empty() ? "" : " ", names(removed), changed.size(),
                   changed.empty() ? std::string {} : std::format(" ({}: {})", base::file_name(changed[0].value("file", std::string {})), changed[0].value("firstDifference", std::string {})),
-                  moved.size());
+                  moved.size(),
+                  stdMoved ? std::format("; std follows {} now (was {})", plan.stdRepresentative, previousStd) : std::string {});
         host_->record_event("engine-plan-diff", lastPlanDiff_);
     }
 

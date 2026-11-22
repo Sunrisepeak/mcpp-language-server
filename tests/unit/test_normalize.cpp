@@ -1416,4 +1416,179 @@ UTest normalize_tests{"normalize", [] {
                && !n::standard_library_macro("_GLIBCXX_VECTOR") && !n::standard_library_macro("_RANGES_"));
     };
 
+    // Issue #95: std's representative is chosen by set, then by unit, from what the build describes. The shape of the
+    // report: a target set whose generated interface imports std and whose main.cpp may or may not, and a build program
+    // set whose .cpp imports std. Before, an `import std` typed into main.cpp made it the representative and removing it
+    // moved std to the build program's unit -- another command, a restart of clangd, every module prepared again.
+    "std's representative is chosen by set, then by unit, and an edit buffer does not move it (issue 95)"_test = [] {
+        const std::string target { "gcc-16.1.0-x86_64-linux-gnu" };
+        // One toolchain for both configurations, as in the report: the default context then reads the build programs too.
+        const std::string host { target };
+        const auto unit = [](std::string source, std::vector<std::string> flags, std::vector<std::string> requires_, std::optional<s::Role> role) {
+            s::TranslationUnit each;
+            each.source = source;
+            each.workDirectory = "/p";
+            each.arguments = { "/opt/gcc/bin/g++", "-std=c++23" };
+            each.arguments.insert(each.arguments.end(), flags.begin(), flags.end());
+            each.arguments.insert(each.arguments.end(), { "-c", source });
+            each.requiredModules = std::move(requires_);
+            each.role = role;
+            return each;
+        };
+        const auto database_with = [&](std::vector<std::string> mainRequires) {
+            s::Database database;
+            database.hasIde = true;
+            s::Set hui;
+            hui.name = "hui";
+            hui.hasIde = true;
+            hui.toolchain = target;
+            hui.units.push_back(unit("/p/target/hcg/src_app.cppm", { "-I/p/huxerui/include", "-g", "-Wno-unknown-attributes" }, { "std" }, s::Role::unknown));
+            hui.units.back().providedModules.emplace_back("app", "");
+            hui.units.push_back(unit("/p/src/main.cpp", { "-I/p/huxerui/include", "-g", "-Wno-unknown-attributes" }, mainRequires, s::Role::non_module));
+            hui.generated.push_back(s::GeneratedFile { "/cache/hcg/src_app.cppm", "/p/target/hcg/src_app.cppm", "source", "hcg:app",
+                                                       { "/p/src/app.cppm", "/tools/hcg" }, {}, {}, {} });
+            s::Set programs;
+            programs.name = "hui:build";
+            programs.hasIde = true;
+            programs.configuration = std::string { s::BUILD_PROGRAM_CONFIGURATION };
+            programs.toolchain = host;
+            programs.units.push_back(unit("/p/deps/openkal/src/x.cpp", { "-I/p/deps/openkal/include" }, { "std" }, s::Role::non_module));
+            database.sets.push_back(std::move(programs));   // first in the database: the order alone must not decide
+            database.sets.push_back(std::move(hui));
+            return database;
+        };
+        std::map<std::string, ToolchainFacts, std::less<>> facts { { target, gcc_facts() }, { host, gcc_facts() } };
+        std::map<std::string, std::string> sources {
+            { "/p/target/hcg/src_app.cppm", "export module app;\nimport std;\n" },
+            { "/p/src/main.cpp", "import app;\nint main() {}\n" },
+            { "/p/deps/openkal/src/x.cpp", "import std;\n" },
+            { "/p/src/app.cppm", "export module app;\nimport std;\n" },
+        };
+        const auto plan_of = [&](const s::Database& database, std::vector<std::string> editing, std::vector<std::string> open = {}) {
+            n::PlanInput input;
+            input.database = &database;
+            input.facts = &facts;
+            input.engineDriverDirectory = "/payload/clangd/bin";
+            input.scanner = [&](std::string_view path) {
+                const auto it = sources.find(std::string { path });
+                return it == sources.end() ? p::ScanResult {} : p::scan_source(it->second);
+            };
+            input.metadataReader = [](std::string_view) {
+                return std::vector<s::ModuleEntry> { { "std", "/opt/gcc/include/c++/16/bits/std.cc", true, {}, {} } };
+            };
+            input.editingSources = std::move(editing);
+            input.openSources = std::move(open);
+            return n::plan_engine(input);
+        };
+        const auto std_arguments = [](const n::EnginePlan& plan) {
+            const auto entry = std::ranges::find_if(plan.entries, [](const n::EngineEntry& each) { return each.provides == "std"; });
+            return entry == plan.entries.end() ? std::vector<std::string> {} : entry->arguments;
+        };
+
+        // S1a: the targets' set before the build programs', and in it the first unit that is no interface.
+        const auto quiet = plan_of(database_with({ "app" }), {});
+        expect(quiet.stdRepresentative == "/p/src/main.cpp") << quiet.stdRepresentative;
+        expect(fatal(!std_arguments(quiet).empty()));
+        expect(contains(std_arguments(quiet), "-I/p/huxerui/include") && !contains(std_arguments(quiet), "-I/p/deps/openkal/include"))
+            << std::format("{}", std_arguments(quiet));
+
+        // S1b: `import std` typed into main.cpp (the buffer, within the edit window), and main.cpp's model listing std:
+        // std's command is the same argument for argument.
+        sources["/p/src/main.cpp"] = "import std;\nimport app;\nint main() {}\n";
+        const auto typed = plan_of(database_with({ "app" }), { "/p/src/main.cpp" });
+        sources["/p/src/main.cpp"] = "import app;\nint main() {}\n";
+        const auto saved = plan_of(database_with({ "std", "app" }), {});
+        expect(std_arguments(typed) == std_arguments(quiet)) << std::format("{}\n{}", std_arguments(typed), std_arguments(quiet));
+        expect(std_arguments(saved) == std_arguments(quiet)) << std::format("{}\n{}", std_arguments(saved), std_arguments(quiet));
+        expect(typed.stdRepresentative == quiet.stdRepresentative && saved.stdRepresentative == quiet.stdRepresentative);
+        // The same with the targets first in the database, the reporter's order: there the typed import moved std from the
+        // build program's unit to main.cpp and back.
+        {
+            const auto targets_first = [&](std::vector<std::string> mainRequires) {
+                s::Database database { database_with(std::move(mainRequires)) };
+                std::ranges::rotate(database.sets, database.sets.begin() + 1);
+                return database;
+            };
+            const auto before = plan_of(targets_first({ "app" }), {});
+            sources["/p/src/main.cpp"] = "import std;\nimport app;\nint main() {}\n";
+            const auto during = plan_of(targets_first({ "app" }), { "/p/src/main.cpp" });
+            sources["/p/src/main.cpp"] = "import app;\nint main() {}\n";
+            expect(std_arguments(during) == std_arguments(before)) << std::format("{}\n{}", std_arguments(during), std_arguments(before));
+            expect(std_arguments(before) == std_arguments(quiet));
+        }
+
+        // S1d: two target sets, only the second with an importer of std: the representative is in the second.
+        {
+            s::Database database { database_with({ "app" }) };
+            s::Set plain;
+            plain.name = "plain";
+            plain.hasIde = true;
+            plain.toolchain = target;
+            plain.units.push_back(unit("/p/plain/plain.cpp", { "-I/p/plain/include" }, { "app" }, s::Role::non_module));
+            database.sets.insert(database.sets.begin(), std::move(plain));
+            sources["/p/plain/plain.cpp"] = "import app;\n";
+            const auto plan = plan_of(database, {});
+            expect(plan.stdRepresentative == "/p/src/main.cpp") << plan.stdRepresentative;
+        }
+
+        // S1c: a context of build programs only keeps its own set.
+        {
+            const s::Database database { database_with({ "app" }) };
+            n::PlanInput input;
+            input.database = &database;
+            input.contextSet = "hui:build";
+            input.facts = &facts;
+            input.engineDriverDirectory = "/payload/clangd/bin";
+            input.scanner = [&](std::string_view path) {
+                const auto it = sources.find(std::string { path });
+                return it == sources.end() ? p::ScanResult {} : p::scan_source(it->second);
+            };
+            input.metadataReader = [](std::string_view) {
+                return std::vector<s::ModuleEntry> { { "std", "/opt/gcc/include/c++/16/bits/std.cc", true, {}, {} } };
+            };
+            const auto plan = n::plan_engine(input);
+            expect(plan.stdRepresentative == "/p/deps/openkal/src/x.cpp") << plan.stdRepresentative;
+        }
+
+        // G1a: the authored file of the generated unit, open in the editor, is a shadowed source: no ambiguous-module, not
+        // in the database, not left out; ide.generated names it, so it is generated-from the step.
+        const auto opened = plan_of(database_with({ "app" }), {}, { "/p/src/app.cppm" });
+        expect(std::ranges::none_of(opened.issues, [](const n::PlanIssue& issue) { return issue.code == "ambiguous-module"; }));
+        expect(fatal(opened.shadowedSources.size() == 1u));
+        const auto& shadow = opened.shadowedSources.front();
+        expect(shadow.source == "/p/src/app.cppm" && shadow.module == "app" && shadow.provider == "/p/target/hcg/src_app.cppm");
+        expect(shadow.kind == "generated-from" && shadow.step == "hcg:app" && !shadow.stated) << shadow.kind << " " << shadow.step;
+        expect(!contains(opened.excludedFiles, "/p/src/app.cppm"));
+        expect(std::ranges::none_of(opened.entries, [](const n::EngineEntry& entry) { return entry.file == "/p/src/app.cppm"; }));
+        expect(std_arguments(opened) == std_arguments(quiet)) << "an open file is never std's representative";
+
+        // What the authored file imports and the build's copy does not (a transform removed it) asks for nothing.
+        {
+            sources["/p/src/app.cppm"] = "export module app;\nimport std;\nimport hcg.markup;\n";
+            const auto plan = plan_of(database_with({ "app" }), {}, { "/p/src/app.cppm" });
+            sources["/p/src/app.cppm"] = "export module app;\nimport std;\n";
+            expect(std::ranges::none_of(plan.issues, [](const n::PlanIssue& issue) { return issue.file == "/p/src/app.cppm"; }));
+            expect(plan.stubModules.empty()) << std::format("{}", plan.stubModules);
+        }
+
+        // ... and without ide.generated, a file outside the build.
+        {
+            s::Database database { database_with({ "app" }) };
+            database.sets.back().generated.clear();
+            const auto plan = plan_of(database, {}, { "/p/src/app.cppm" });
+            expect(fatal(plan.shadowedSources.size() == 1u));
+            expect(plan.shadowedSources.front().kind == "outside-build");
+        }
+
+        // G1b: two units of the build providing one module stay an ambiguity.
+        {
+            s::Database database { database_with({ "app" }) };
+            database.sets.back().units.push_back(unit("/p/src/app.cppm", {}, { "std" }, s::Role::module_interface));
+            database.sets.back().units.back().providedModules.emplace_back("app", "");
+            const auto plan = plan_of(database, {});
+            expect(std::ranges::any_of(plan.issues, [](const n::PlanIssue& issue) { return issue.code == "ambiguous-module"; }));
+            expect(plan.shadowedSources.empty());
+        }
+    };
+
 }};

@@ -291,6 +291,32 @@ either, and a module that does not compile is never a reason to restart. Every c
 database is logged with what it changed (`engine database changed: … compiled otherwise (main.cpp:
 argument 3: -O0 -> -O2)`), so a burst names its cause.
 
+**clangd restarted each time `import std` came into a file or left it (0.23.0 and earlier).** The standard
+library's units are built with the arguments of one unit of the project, its representative. Until 0.24.0 that was
+the first unit that imported `std` and was no module interface, read from the edit buffer as well: in a package
+whose `build.mcpp` and whose `main.cpp` both import `std`, typing or removing that import moved `std` between the
+two, `std`'s command changed with it, and every module was prepared again (#95). Now the representative is chosen
+by set -- the targets' before the build programs', a set that imports `std` as the build describes it before one
+that does not -- and then the set's first unit that is no interface, whatever it imports; an edit buffer never
+moves it. The plan names it (`plan.stdFollows` in the report) and the log says when it moves: `engine database
+changed: … ; std follows src/main.cpp now (was build.mcpp)`. On the first session after the upgrade some projects
+build `std` once more, since the unit it follows is another one.
+
+**"app.cppm is not compiled as it is: the build generates src_app.cppm from it".** A build rule (HuxerUI's `hcg`,
+for instance) transforms the file you edit into the unit the build compiles, and the build database describes only
+the copy (`[build] sources = []`). The file you have open declares the module the copy provides; it is a
+*shadowed source*, not a second provider: the state stays `ready` (0.23.0 reported `ambiguous-module` and
+`degraded`), the file carries one information diagnostic and the status a `shadowed-source` notice, mcppls's own
+engine answers it, and **Format Document** formats it -- clangd formats its text under a scratch name beside it
+(`app.mcppls-format.cppm`, never written to disk), so the `.clang-format` above it applies. Hover, diagnostics and
+navigation from clangd are for the generated unit; for the authored file they are a later step
+(mcpp-community/mcpp#1004). "… is not part of the build: no build target compiles it" is the same situation for
+a file nothing generates from: a stale copy, or a source no `sources` pattern covers.
+
+**Format Document does nothing.** The log and the status say why once per file (`not-formatted`): a file that ended
+clangd or kept it busy is not formatted until it is given back, and nothing is formatted while clangd is starting
+or restarting.
+
 **"clangd crashed while building NormalJsonTranslator.Core.cpp".** clangd names the file it crashed
 on (its crash context), and that file is set aside: answered by mcppls's own engine while clangd is
 restarted without it. A clangd that ends without saying anything -- the bundled clangd traps where a

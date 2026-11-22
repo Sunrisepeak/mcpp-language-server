@@ -5574,7 +5574,9 @@ public:
         }
         if (kind == "report") {
             // robustness design O3: cxxModules/report, held to "expect" like a tool's result, retried within the check's time
-            // (a plan or an engine may still be on its way).
+            // (a plan or an engine may still be on its way). "settle": seconds the session runs first, for an expectation
+            // that something did NOT happen (a restart a plan would schedule after its own settle time).
+            if (const int observe = check.value("settle", 0); observe > 0) client_.pump_for(std::chrono::seconds { observe });
             const auto deadline = Clock::now() + timeout_;
             std::string why { "no answer" };
             do {

@@ -1,0 +1,35 @@
+{
+  "name": "mcpp-std-representative",
+  "description": "Issue #95: std is built with the arguments of one unit, its representative. In this package (the shape of mcpp-build-programs, described by mcpp's own emit build-database) the targets' only importer of std is src/main.cpp, and the build programs import it too (build.mcpp, gen). Removing `import std;` from main.cpp (the targets' last importer of std) and saving it, then putting it back, must not move std to a build program's unit and back: each move changes std's command, restarts clangd and prepares every module again. The representative is chosen by set (the targets' before the build programs'), then by unit, from what mcpp describes, never from whether that unit imports std this minute.",
+  "requires-mcpp": {
+    "executable": "{env:MCPPLS_REAL_MCPP|mcpp}",
+    "at-least": "2026.10.11.1"
+  },
+  "server-arguments": [
+    "--mcpp",
+    "{env:MCPPLS_REAL_MCPP|}"
+  ],
+  "checks": [
+    { "id": "S1", "kind": "status", "source": "mcpp", "state": "ready" },
+    { "id": "T1", "kind": "diagnostics-empty", "file": "src/main.cpp" },
+    { "id": "P1-std-follows-main", "kind": "report", "expect": [
+      { "path": "/roots/0/plan/stdFollows", "contains": "main.cpp" }
+    ] },
+    { "id": "E1-import-std-removed-and-saved", "kind": "write-file", "file": "src/main.cpp",
+      "replace": { "from": "import std;", "with": "" }, "notify": true, "expect-reload": true },
+    { "id": "P2-std-stays-with-the-targets", "kind": "report", "settle": 15,
+      "$comment": "main.cpp was the targets' last importer of std: std may follow another target's unit now, never a build program's, and its command does not change",
+      "expect": [
+      { "path": "/roots/0/plan/stdFollows", "contains": "build.mcpp", "max-matches": 0 },
+      { "path": "/roots/0/plan/stdFollows", "contains": "/deps/gen/", "max-matches": 0 },
+      { "path": "/roots/0/plan/stdFollows", "contains": "\\deps\\gen\\", "max-matches": 0 },
+      { "path": "/roots/0/engines/*/details/restarts/*/reason", "contains": "compiled with other arguments", "max-matches": 0 }
+    ] },
+    { "id": "E2-import-std-back", "kind": "write-file", "file": "src/main.cpp", "restore": true, "notify": true, "expect-reload": true },
+    { "id": "P3-no-restart-for-std", "kind": "report", "settle": 15, "expect": [
+      { "path": "/roots/0/plan/stdFollows", "contains": "main.cpp" },
+      { "path": "/roots/0/engines/*/details/restarts/*/reason", "contains": "compiled with other arguments", "max-matches": 0 }
+    ] },
+    { "id": "W1", "kind": "workspace-unchanged" }
+  ]
+}

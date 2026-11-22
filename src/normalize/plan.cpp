@@ -48,6 +48,10 @@ struct Candidate {
     bool usesKit { false };
     bool c { false };                        // a C source
     const toolchain::ToolchainFacts* facts { nullptr };
+    // Whether the unit imports std or std.compat as the model states it, or, where the model lists no imports, as its
+    // text on disk does -- never as an editor's buffer (issue #95): this is what chooses std's representative.
+    bool importsStdDeclared { false };
+    bool fromOpenSource { false };           // step 1b: an open file no set describes
 };
 
 // A unit the build compiles as C: its arguments say so (-x c, /TC), or its source is a .c file.
@@ -385,6 +389,12 @@ EnginePlan plan_engine(const PlanInput& input) {
             }
             candidate.required = unit.requiredModules;
             if (candidate.required.empty()) candidate.required = project::required_names(scan());
+            if (!unit.requiredModules.empty()) {
+                candidate.importsStdDeclared = std::ranges::any_of(unit.requiredModules, is_std_module);
+            } else {
+                const std::optional<project::ScanResult> disk { input.diskScanner ? input.diskScanner(candidate.source) : std::nullopt };
+                candidate.importsStdDeclared = std::ranges::any_of(project::required_names(disk ? *disk : scan()), is_std_module);
+            }
             // A file being edited imports what its buffer and, after an autosave, its text on disk import, whatever the
             // model said when it was loaded (fix plan F13): clangd builds with what is on disk, and a module it cannot
             // find there stalls it unless the plan gives it a stand-in (UP-02). Only such files: the model's own list
@@ -504,6 +514,8 @@ EnginePlan plan_engine(const PlanInput& input) {
         candidate.module = scanned.declaration ? scanned.declaration->module : std::string {};
         candidate.arguments = without_module_mode(std::move(candidate.arguments));
         state_language(candidate.arguments, candidate.source, spec::is_importable(candidate.role));
+        candidate.fromOpenSource = true;
+        candidate.importsStdDeclared = false;
         candidates.push_back(std::move(candidate));
         plan.openSources.push_back(source);
     }
@@ -513,25 +525,46 @@ EnginePlan plan_engine(const PlanInput& input) {
     for (std::size_t i { 0 }; i < candidates.size(); ++i) {
         if (!candidates[i].provided.empty() && spec::is_importable(candidates[i].role)) providers[candidates[i].provided].push_back(i);
     }
-    // The unit whose arguments the standard library's units take, and so the manifest they come from: a
-    // C++ unit that imports the standard library (the arguments its BMI must agree with), one that is not a
-    // module interface before one that is, the first of the best. Never a C unit: in a workspace whose first
-    // set is a C library, std was built as C (-std=c11) and every unit importing std was then left out.
+    // The unit whose arguments the standard library's units take, and so the manifest they come from (issue #95). It is
+    // chosen by set, then by unit, from what the build describes: std's command is a property of the toolchain and the
+    // context, and must not move because a file gained or lost `import std` in an editor (each move restarts clangd and
+    // builds every module again).
+    //   The set: a set of the targets before a set of build programs; then a set in which some unit imports std as the
+    //   model states it (`importsStdDeclared`, never the edit buffer); then the database's order.
+    //   The unit in it: the first C++ unit that is not a module interface, else the first C++ unit. Whether it imports
+    //   std itself is not asked.
+    // Never a C unit: in a workspace whose first set is a C library, std was built as C (-std=c11) and every unit
+    // importing std was then left out. Never an open file no set describes: it belongs to no set.
     auto manifest_of = [&](const Candidate& candidate) -> std::string {
         if (candidate.usesKit) return input.kit->moduleMetadata;
         return candidate.facts && candidate.facts->toolchain.stdlib ? candidate.facts->toolchain.stdlib->moduleMetadata : std::string {};
     };
     std::optional<std::size_t> templateIndex;
-    int templateRank { 0 };
-    for (std::size_t i { 0 }; i < candidates.size(); ++i) {
-        const auto& candidate = candidates[i];
-        if (candidate.c || manifest_of(candidate).empty()) continue;
-        const int rank { 1 + (spec::is_importable(candidate.role) ? 0 : 1) + (std::ranges::any_of(candidate.required, is_std_module) ? 2 : 0) };
-        if (rank > templateRank) {
-            templateRank = rank;
-            templateIndex = i;
-            if (rank == 4) break;
+    {
+        struct SetChoice {
+            const spec::Set* set { nullptr };
+            bool targets { false };
+            bool importsStd { false };
+            std::optional<std::size_t> nonInterface;
+            std::size_t first { 0 };
+        };
+        std::vector<SetChoice> choices;
+        for (std::size_t i { 0 }; i < candidates.size(); ++i) {
+            const auto& candidate = candidates[i];
+            if (candidate.fromOpenSource || candidate.c || manifest_of(candidate).empty()) continue;
+            auto choice = std::ranges::find(choices, candidate.set, &SetChoice::set);
+            if (choice == choices.end()) {
+                choices.push_back(SetChoice { candidate.set, !spec::is_build_program_set(*candidate.set), false, std::nullopt, i });
+                choice = choices.end() - 1;
+            }
+            choice->importsStd = choice->importsStd || candidate.importsStdDeclared;
+            if (!choice->nonInterface && !spec::is_importable(candidate.role)) choice->nonInterface = i;
         }
+        const SetChoice* best { nullptr };
+        for (const auto& choice : choices) {
+            if (best == nullptr || std::pair { choice.targets, choice.importsStd } > std::pair { best->targets, best->importsStd }) best = &choice;
+        }
+        if (best != nullptr) templateIndex = best->nonInterface.value_or(best->first);
     }
     const std::string stdlibManifest { templateIndex ? manifest_of(candidates[*templateIndex]) : std::string {} };
     std::vector<spec::ModuleEntry> stdEntries;
@@ -560,6 +593,7 @@ EnginePlan plan_engine(const PlanInput& input) {
     std::set<std::string, std::less<>> unusableProviders;    // modules whose planned providers clangd cannot find
     std::vector<bool> excluded(candidates.size(), false);
     std::vector<bool> elsewhere(candidates.size(), false);   // read in the context of its own configuration
+    std::vector<bool> shadowed(candidates.size(), false);    // an open file a unit of the build stands for (issue #95)
     const auto builds_programs = [&](std::size_t i) { return spec::is_build_program_set(*candidates[i].set); };
     for (auto& [name, indices] : providers) {
         if (indices.size() < 2) continue;
@@ -569,8 +603,28 @@ EnginePlan plan_engine(const PlanInput& input) {
         std::vector<std::size_t> rivals;
         for (std::size_t k { 1 }; k < indices.size(); ++k) {
             excluded[indices[k]] = true;
-            if (!builds_programs(indices.front()) && builds_programs(indices[k])) elsewhere[indices[k]] = true;
-            else rivals.push_back(indices[k]);
+            if (!builds_programs(indices.front()) && builds_programs(indices[k])) {
+                elsewhere[indices[k]] = true;
+            } else if (candidates[indices[k]].fromOpenSource && !candidates[indices.front()].fromOpenSource) {
+                // Issue #95: an open file no set describes, providing a module a unit of the build provides, is not a
+                // second provider -- the build does not compile it. Most often it is the authored form of a generated
+                // unit (a rule transformed it, and the build compiles the copy); else a file outside the build. It stays
+                // out of clangd's database (two files declaring one module make clangd pick one), as a notice.
+                const Candidate& provider { candidates[indices.front()] };
+                ShadowedSource shadow { candidates[indices[k]].source, name, provider.source, "outside-build", {} };
+                if (const spec::GeneratedFile* generated { spec::generated_source(*provider.set, provider.source) }) {
+                    const auto authored = spec::authored_source(*generated);
+                    if (authored && base::same_path(authored->path, shadow.source)) {
+                        shadow.kind = "generated-from";
+                        shadow.step = generated->generatorId;
+                        shadow.stated = authored->stated;
+                    }
+                }
+                shadowed[indices[k]] = true;
+                plan.shadowedSources.push_back(std::move(shadow));
+            } else {
+                rivals.push_back(indices[k]);
+            }
         }
         if (rivals.empty()) continue;
         plan.issues.push_back(PlanIssue { "ambiguous-module", std::format("module {} has {} providers; using {}", name, rivals.size() + 1,
@@ -584,6 +638,8 @@ EnginePlan plan_engine(const PlanInput& input) {
     bool anyStd { false };
     std::set<std::string> reported;
     for (std::size_t i { 0 }; i < candidates.size(); ++i) {
+        // A shadowed source is read by no engine database: what it imports asks for no stand-in and is no issue (issue #95).
+        if (shadowed[i]) continue;
         for (const auto& name : candidates[i].required) {
             if (is_std_module(name)) anyStd = true;
             if (sdkBlocksStd && candidates[i].usesKit && is_std_module(name)) {
@@ -696,6 +752,7 @@ EnginePlan plan_engine(const PlanInput& input) {
             plan.otherContextSources.emplace_back(candidate.source, candidate.set->name);
             continue;
         }
+        if (shadowed[i]) continue;   // in plan.shadowedSources
         if (excluded[i]) {
             plan.excludedFiles.push_back(candidate.source);
             continue;
@@ -783,6 +840,7 @@ EnginePlan plan_engine(const PlanInput& input) {
             entry.imports = requires_;
             plan.entries.push_back(std::move(entry));
             ++plan.stdUnits;
+            plan.stdRepresentative = representative.source;
             add_module(module.logicalName, std::move(requires_), templateIndex, representative.unit->workDirectory);
         }
     } else if (anyStd && stdEntries.empty()) {

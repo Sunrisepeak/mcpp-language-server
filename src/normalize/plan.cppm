@@ -56,6 +56,19 @@ struct PlannedModule {
     std::string primeFile;                // the `import M;` unit in the engine database; empty for partitions
 };
 
+// An open file no set describes that provides a module a unit of the build provides (issue #95): the build does not
+// compile it, so it is no second provider. Left out of clangd's database, and said as a notice, not as an issue.
+struct ShadowedSource {
+    std::string source;
+    std::string module;
+    std::string provider;                 // the unit of the build that provides `module`
+    // generated-from: the build generates `provider` from this file (S1 ide.generated); outside-build: anything else
+    // (a stale copy, a file no `sources` pattern covers).
+    std::string kind;
+    std::string step;                     // generated-from: the generator's id
+    bool stated { false };                // generated-from: the producer stated the origin (S1 0.4.0), not inferred from inputs
+};
+
 struct EnginePlan {
     std::vector<EngineEntry> entries;
     std::vector<PlannedModule> modules;
@@ -67,6 +80,7 @@ struct EnginePlan {
     bool standInsDeferred { false };          // a stand-in was held back for a file being edited: plan again once it is not
     std::vector<PlanIssue> issues;
     std::vector<std::string> excludedFiles;   // providers left out because they cannot be built
+    std::vector<ShadowedSource> shadowedSources;   // open files a unit of the build stands for; not in excludedFiles
     // Units the context leaves to the context of their own configuration, with the set that reads them
     // (mcpp-community/mcpp#797): a build program the context does not read, and a build program's instance of a module
     // the targets also provide, which a context reading both configurations reads as the targets build it.
@@ -76,6 +90,9 @@ struct EnginePlan {
     std::vector<std::string> unreadSources;
     std::string contextSet;                   // empty: every set
     std::size_t stdUnits { 0 };
+    // The unit whose arguments std and std.compat are built with (issue #95); empty when no standard library unit is
+    // planned.
+    std::string stdRepresentative;
     // Set by the workspace, not by plan_engine (fix plan F4, F14): what the model's toolchain, profile and
     // context are, and where the model came from. A restart for a plan whose toolchain key changed is
     // the person's doing (they switched the toolchain or the context) and is never counted against clangd.
@@ -106,6 +123,9 @@ struct PlanInput {
     std::string engineDriverDirectory;                               // where synthetic driver names are placed
     std::string macosSdk;                                            // for kits that require it
     std::function<project::ScanResult(std::string_view path)> scanner;
+    // The scan of a file's text on disk where `scanner` reads an editor's buffer (an open file): what chooses std's
+    // representative for a unit the model lists no imports of (issue #95). nullopt, or absent: `scanner`'s is the disk's.
+    std::function<std::optional<project::ScanResult>(std::string_view path)> diskScanner;
     spec::MetadataReader metadataReader;
     // Modules the engine reported it cannot find, with the reason: providers importing one cannot be
     // built and are left out like providers of an unresolvable import. A module that was found and did

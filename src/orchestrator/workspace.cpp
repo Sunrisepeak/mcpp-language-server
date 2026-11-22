@@ -620,6 +620,9 @@ struct Workspace::Impl final : engine::Host {
     // and not while clangd says it does not compile; `buildProgramHeld` says why it waits.
     std::string buildProgramPending;
     std::string buildProgramHeld;
+    // Issue #95, G2a: the files a formatting request was answered empty for, with why (path key -> reason). Said once
+    // in the log and as a notice while the file is open; gone when clangd formats it.
+    std::map<std::string, std::string, std::less<>> unformatted_;
     std::optional<Clock::time_point> buildProgramChangedAt;
     std::optional<Clock::time_point> buildProgramCheckAt;
     std::string modelAdoptedAtUtc;   // when the model in hand was taken, for that notice
@@ -816,7 +819,8 @@ struct Workspace::Impl final : engine::Host {
                                       { "profile", profile_json() }, { "stale", staleModelReason } }
                              : Json(nullptr) },
             { "plan", Json { { "entries", plan.entries.size() }, { "standIns", plan.stubModules }, { "openSources", plan.openSources },
-                             { "leftOut", plan.excludedFiles.size() }, { "issues", plan.issues.size() } } },
+                             { "leftOut", plan.excludedFiles.size() }, { "shadowed", plan.shadowedSources.size() },
+                             { "stdFollows", plan.stdRepresentative }, { "issues", plan.issues.size() } } },
             { "detail", std::move(detail) },
             { "events", journal.recent(60) },
         };
@@ -1207,6 +1211,7 @@ struct Workspace::Impl final : engine::Host {
             if (!(coreWaits && engine.get() == coreEngine)) candidates.push_back(engine.get());
         }
         Selection selection { select_engines(candidates, job.view) };
+        note_formatting_(job.method, job.path, job.view);
         if (!selection.mergers.empty()) {
             job.merging = true;
             job.awaiting = selection.mergers.size();
@@ -1251,6 +1256,35 @@ struct Workspace::Impl final : engine::Host {
     }
 
     // ---- semantic tokens (mcpp design 2026-10-28 §11.1) -------------------------------------------------------------
+
+    // G2a (issue #95): a formatting request clangd will not answer is answered with no edits -- an error would show as a
+    // failure on every save -- and the reason is said once in the log and as a notice.
+    void note_formatting_(std::string_view method, std::string_view path, const engine::RequestView& view) {
+        if (path.empty() || coreEngine == nullptr) return;
+        if (method != "textDocument/formatting" && method != "textDocument/rangeFormatting" && method != "textDocument/rangesFormatting"
+            && method != "textDocument/onTypeFormatting") {
+            return;
+        }
+        const std::string key { base::path_key(path) };
+        std::string reason;
+        if (!coreEngine->claims(view)) {
+            // A file the plan leaves out is formatted under a scratch name (G2b); what is left is a file clangd set aside.
+            const auto issue = std::ranges::find_if(plan.issues, [&](const auto& each) { return base::same_path(each.file, path); });
+            if (issue != plan.issues.end()) reason = std::format("clangd does not have it: {}", issue->message);
+            else reason = "clangd does not have it: it ended clangd or kept it busy, or a module it imports cannot be built (mcppls status says which)";
+        } else if (!coreEngine->status().accepting) {
+            reason = "clangd is starting or restarting; formatting is answered when it accepts requests again";
+        }
+        if (reason.empty()) {
+            if (unformatted_.erase(key) > 0) update_status();
+            return;
+        }
+        if (const auto known = unformatted_.find(key); known != unformatted_.end() && known->second == reason) return;
+        unformatted_.insert_or_assign(key, reason);
+        log::info("{} is not formatted ({}): {}", path, root, reason);
+        journal.add("not-formatted", Json { { "file", std::string { path } }, { "reason", reason } });
+        update_status();
+    }
 
     static bool is_tokens_method(std::string_view method) {
         return method == lsp::method::TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL || method == lsp::method::TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL_DELTA
@@ -3461,6 +3495,16 @@ struct Workspace::Impl final : engine::Host {
             auto text = os::fs::read(path);
             return text ? project::scan_source(*text) : project::ScanResult {};
         };
+        // Issue #95: what chooses std's representative is the build's word, or the text on disk, never a buffer.
+        std::set<std::string, std::less<>> openKeys;
+        for (const Document* document : documents_.all()) {
+            if (!document->path.empty()) openKeys.insert(base::path_key(document->path));
+        }
+        input.diskScanner = [openKeys = std::move(openKeys)](std::string_view path) -> std::optional<project::ScanResult> {
+            if (!openKeys.contains(base::path_key(path))) return std::nullopt;   // the index's scan is the disk's
+            auto text = os::fs::read(path);
+            return text ? project::scan_source(*text) : project::ScanResult {};
+        };
         input.metadataReader = metadataReader;
         std::set<std::string> openSources;
         for (const auto& path : openedOutsideModel) {
@@ -3522,6 +3566,7 @@ struct Workspace::Impl final : engine::Host {
             if (kept->known && kept->givenVersion) request_tokens_refresh(TOKENS_REFRESH_SOON);
         }
         for (const auto& file : plan.excludedFiles) plannedFiles.insert(base::path_key(file));
+        for (const auto& shadow : plan.shadowedSources) plannedFiles.insert(base::path_key(shadow.source));
         structures.clear();
         for (const auto& path : index.files()) {
             if (const auto* scan = index.scan_of(path)) structures[base::path_key(path)] = structure_of(*scan);
@@ -3532,8 +3577,8 @@ struct Workspace::Impl final : engine::Host {
         plan.modelOrigin = modelOrigin;
         plan.provisional = model_is_provisional();
         journal.add("plan", Json { { "context", contextSet.empty() ? std::string { "default" } : contextSet }, { "entries", plan.entries.size() },
-                                   { "stdUnits", plan.stdUnits }, { "standIns", plan.stubModules }, { "openSources", plan.openSources },
-                                   { "leftOut", plan.excludedFiles.size() },
+                                   { "stdUnits", plan.stdUnits }, { "stdFollows", plan.stdRepresentative }, { "standIns", plan.stubModules },
+                                   { "openSources", plan.openSources }, { "leftOut", plan.excludedFiles.size() }, { "shadowed", plan.shadowedSources.size() },
                                    { "issues", plan.issues.size() }, { "languageStandard", plan.languageStandard },
                                    { "standardsRaised", plan.standardsRaised }, { "standardAssumed", plan.standardAssumed } });
         if (plan.standardAssumed && !loggedStandardAssumed) {
@@ -3687,10 +3732,31 @@ struct Workspace::Impl final : engine::Host {
 
     // ---- diagnostics and status -------------------------------------------------------
 
+    // Issue #95: what a shadowed source is, in the words of the notice, the diagnostic and the formatting reason.
+    static std::string shadowed_message(const normalize::ShadowedSource& shadow) {
+        if (shadow.kind == "generated-from") {
+            return std::format("{} is not compiled as it is: the build generates {} from it{}{}, and that is the unit of module {}; clangd reads the "
+                               "generated unit, mcppls's own engine answers this file",
+                               base::file_name(shadow.source), base::file_name(shadow.provider),
+                               shadow.step.empty() ? std::string {} : std::format(" (step {})", shadow.step),
+                               shadow.stated ? std::string {} : std::string { ", as the step's inputs say" }, shadow.module);
+        }
+        return std::format("{} is not part of the build: no build target compiles it, and module {} is provided by {}, which the build compiles "
+                           "instead; clangd does not read this file",
+                           base::file_name(shadow.source), shadow.module, shadow.provider);
+    }
+
     // mcpp-community/mcpp#797: a build program, or a unit only build programs compile, that the context does not read
     // says which context does; a `.mcpp` file mcpp's build database does not describe says which mcpp describes one.
     std::optional<Json> configuration_diagnostic(std::string_view path) const {
-        if (path.empty() || !model || plannedFiles.contains(base::path_key(path))) return std::nullopt;
+        if (path.empty() || !model) return std::nullopt;
+        // Issue #95: an open file a unit of the build stands for says which unit, and why clangd does not read it.
+        if (const auto shadow = std::ranges::find_if(plan.shadowedSources, [&](const auto& each) { return base::same_path(each.source, path); });
+            shadow != plan.shadowedSources.end()) {
+            return Json { { "range", index::to_json(base::Range {}) }, { "severity", 3 }, { "code", "shadowed-source" },
+                          { "source", "mcppls" }, { "message", shadowed_message(*shadow) } };
+        }
+        if (plannedFiles.contains(base::path_key(path))) return std::nullopt;
         const auto said = [](std::string message) {
             return Json { { "range", index::to_json(base::Range {}) }, { "severity", 3 }, { "code", "build-program-context" },
                           { "source", "mcppls" }, { "message", std::move(message) } };
@@ -4261,6 +4327,16 @@ struct Workspace::Impl final : engine::Host {
         if (const std::string mismatch { version_mismatch() }; !mismatch.empty()) notices.push_back(Json { { "code", "version-mismatch" }, { "message", mismatch } });
         if (!keptModelNotice.empty()) notices.push_back(Json { { "code", std::string { spec::BUILD_PROGRAM_FAILED_ISSUE } }, { "message", keptModelNotice } });
         if (!buildProgramHeld.empty()) notices.push_back(Json { { "code", "build-program-held" }, { "message", buildProgramHeld } });
+        for (const auto& shadow : plan.shadowedSources) {
+            notices.push_back(Json { { "code", "shadowed-source" }, { "kind", shadow.kind }, { "file", shadow.source }, { "message", shadowed_message(shadow) } });
+        }
+        for (const Document* document : documents_.all()) {
+            if (document->path.empty()) continue;
+            if (const auto reason = unformatted_.find(base::path_key(document->path)); reason != unformatted_.end()) {
+                notices.push_back(Json { { "code", "not-formatted" }, { "file", document->path },
+                                         { "message", std::format("{} is not formatted: {}", base::file_name(document->path), reason->second) } });
+            }
+        }
         if (lease && lease->shared()) {
             notices.push_back(Json { { "code", "shared-workspace" },
                                      { "message", "another mcppls instance serves this workspace; this one keeps a private cache and starts cold" } });
@@ -5125,6 +5201,12 @@ Json Workspace::report() const {
         if (leftOut.size() >= 100) break;
         leftOut.push_back(file);
     }
+    Json shadowed = Json::array();
+    for (const auto& shadow : impl.plan.shadowedSources) {
+        if (shadowed.size() >= 100) break;
+        shadowed.push_back(Json { { "file", shadow.source }, { "module", shadow.module }, { "provider", shadow.provider }, { "kind", shadow.kind },
+                                  { "step", shadow.step }, { "stated", shadow.stated } });
+    }
     Json planIssues = Json::array();
     for (const auto& issue : impl.plan.issues) {
         if (planIssues.size() >= 100) break;
@@ -5133,9 +5215,9 @@ Json Workspace::report() const {
     Json plan { { "context", impl.contextSet.empty() ? std::string { "default" } : impl.contextSet }, { "entries", impl.plan.entries.size() },
                 { "languageStandard", impl.plan.languageStandard }, { "standardsSeen", impl.plan.standardsSeen }, { "standardsRaised", impl.plan.standardsRaised },
                 { "standardAssumed", impl.plan.standardAssumed },
-                { "stdUnits", impl.plan.stdUnits }, { "standIns", impl.plan.stubModules }, { "openSources", impl.plan.openSources },
-                { "leftOutCount", impl.plan.excludedFiles.size() },
-                { "leftOut", std::move(leftOut) }, { "issueCount", impl.plan.issues.size() }, { "issues", std::move(planIssues) } };
+                { "stdUnits", impl.plan.stdUnits }, { "stdFollows", impl.plan.stdRepresentative }, { "standIns", impl.plan.stubModules },
+                { "openSources", impl.plan.openSources }, { "leftOutCount", impl.plan.excludedFiles.size() },
+                { "leftOut", std::move(leftOut) }, { "shadowed", std::move(shadowed) }, { "issueCount", impl.plan.issues.size() }, { "issues", std::move(planIssues) } };
     Json engines = Json::array();
     for (const auto& engine : impl.engines) {
         const engine::EngineStatus status { engine->status() };

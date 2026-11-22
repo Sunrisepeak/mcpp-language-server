@@ -97,6 +97,54 @@ UTest spec_tests{"spec", [] {
         expect(mcppls::spec::absolute_source(set.units[0]) == "/home/u/hello/src/greet/detail.cppm") << mcppls::spec::absolute_source(set.units[0]);
     };
 
+    // Issue #95, G0: a set's ide.generated (S1 §7.2) is read, written back (the model cache keeps it), and says which
+    // authored source a generated unit was made from: the stated `origin` (S1 0.4.0, mcpp-community/mcpp#1004), else the
+    // one C++ input of its step.
+    "ide.generated is read, written back, and names the authored source of a generated unit"_test = [&] {
+        const Json document = Json::parse(R"({
+          "version": 1, "revision": 0, "ide": { "profile-version": "0.3.0" },
+          "sets": [ { "name": "hui", "family-name": "hui", "visible-sets": [], "baseline-arguments": [],
+            "ide": { "toolchain": "t", "generated": [
+              { "kind": "source", "path": "/cache/hcg/src_app.cppm", "build-path": "/p/target/hcg/src_app.cppm",
+                "generator": { "id": "hcg:app", "inputs": ["/p/src/app.cppm", "/tools/hcg"],
+                               "arguments": ["/tools/hcg", "--input", "/p/src/app.cppm"], "work-directory": "/p" } },
+              { "kind": "source", "path": "/cache/tpl/view.cpp",
+                "generator": { "id": "tpl:view", "inputs": ["/p/src/view.cpp", "/p/templates/base.cpp"] } },
+              { "kind": "source", "path": "/cache/tpl/stated.cpp", "origin": "/p/src/stated.cpp",
+                "generator": { "id": "tpl:stated", "inputs": ["/p/src/stated.cpp", "/p/templates/base.cpp"] } },
+              { "kind": "directory", "path": "/cache/hrc" } ] },
+            "translation-units": [] } ] })");
+        auto database = mcppls::spec::from_json(document);
+        expect(fatal(database.has_value())) << (database ? "" : database.error().message);
+        const auto& set = database->sets.front();
+        expect(fatal(set.generated.size() == 4u));
+        expect(set.generated[0].generatorId == "hcg:app" && set.generated[0].inputs.size() == 2u && set.generated[0].workDirectory == "/p");
+
+        auto again = mcppls::spec::from_json(Json::parse(mcppls::spec::to_json(*database).dump()));
+        expect(fatal(again.has_value()));
+        const auto& kept = again->sets.front().generated;
+        expect(fatal(kept.size() == 4u));
+        for (std::size_t i { 0 }; i < kept.size(); ++i) {
+            expect(kept[i].path == set.generated[i].path && kept[i].buildPath == set.generated[i].buildPath && kept[i].kind == set.generated[i].kind
+                   && kept[i].generatorId == set.generated[i].generatorId && kept[i].inputs == set.generated[i].inputs
+                   && kept[i].arguments == set.generated[i].arguments && kept[i].origin == set.generated[i].origin) << kept[i].path;
+        }
+
+        const auto* byPath = mcppls::spec::generated_source(set, "/cache/hcg/src_app.cppm");
+        const auto* byBuildPath = mcppls::spec::generated_source(set, "/p/target/hcg/src_app.cppm");
+        expect(fatal(byPath != nullptr && byPath == byBuildPath));
+        const auto authored = mcppls::spec::authored_source(*byPath);
+        expect(authored.has_value() && authored->path == "/p/src/app.cppm" && !authored->stated);
+        expect(mcppls::spec::generated_source(set, "/cache/hrc") == nullptr) << "a directory is no unit's source";
+        const auto* two = mcppls::spec::generated_source(set, "/cache/tpl/view.cpp");
+        expect(fatal(two != nullptr));
+        expect(!mcppls::spec::authored_source(*two).has_value()) << "two C++ inputs: no answer";
+        const auto* stated = mcppls::spec::generated_source(set, "/cache/tpl/stated.cpp");
+        expect(fatal(stated != nullptr));
+        const auto origin = mcppls::spec::authored_source(*stated);
+        expect(origin.has_value() && origin->path == "/p/src/stated.cpp" && origin->stated) << "a stated origin wins over the inputs";
+    };
+
     "a database round-trips through JSON"_test = [&] {
         auto first = mcppls::spec::load_database(base::join_path(root, "docs/specs/examples/s1-level2-clang-two-sets.json"));
         expect(fatal(first.has_value()));

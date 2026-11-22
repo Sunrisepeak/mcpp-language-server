@@ -4,6 +4,7 @@ import std;
 import nlohmann.json;
 import mcppls.base.error;
 import mcppls.base.path;
+import mcppls.base.text;
 import mcppls.spec.metadata;
 import mcpplibs.os;
 
@@ -234,6 +235,24 @@ base::Result<Database> from_json(const Json& document, std::string_view database
             set.kind = string_or(*ide, "kind");
             if (auto options = ide->find("options"); options != ide->end() && options->is_object()) set.options = read_options(*options);
             for (auto path : strings(*ide, "module-metadata")) set.moduleMetadata.push_back(resolve_in(databaseDirectory, std::move(path)));
+            if (auto generated = ide->find("generated"); generated != ide->end() && generated->is_array()) {
+                for (const auto& entry : *generated) {
+                    if (!entry.is_object()) continue;
+                    GeneratedFile file;
+                    file.path = string_or(entry, "path");
+                    if (file.path.empty()) continue;
+                    file.buildPath = string_or(entry, "build-path");
+                    file.kind = string_or(entry, "kind");
+                    file.origin = string_or(entry, "origin");
+                    if (auto generator = entry.find("generator"); generator != entry.end() && generator->is_object()) {
+                        file.generatorId = string_or(*generator, "id");
+                        file.inputs = strings(*generator, "inputs");
+                        file.arguments = strings(*generator, "arguments");
+                        file.workDirectory = string_or(*generator, "work-directory");
+                    }
+                    set.generated.push_back(std::move(file));
+                }
+            }
         }
         const auto units = setValue.find("translation-units");
         if (units != setValue.end() && units->is_array()) {
@@ -313,6 +332,26 @@ OrderedJson to_json(const Database& database) {
             if (!set.kind.empty()) ide["kind"] = set.kind;
             if (set.options) ide["options"] = write_options(*set.options);
             if (!set.moduleMetadata.empty()) ide["module-metadata"] = set.moduleMetadata;
+            if (!set.generated.empty()) {
+                OrderedJson generated = OrderedJson::array();
+                for (const auto& file : set.generated) {
+                    OrderedJson entry = OrderedJson::object();
+                    entry["path"] = file.path;
+                    if (!file.buildPath.empty()) entry["build-path"] = file.buildPath;
+                    entry["kind"] = file.kind;
+                    if (!file.origin.empty()) entry["origin"] = file.origin;
+                    if (file.kind != "directory" || !file.generatorId.empty()) {
+                        OrderedJson generator = OrderedJson::object();
+                        generator["id"] = file.generatorId;
+                        generator["inputs"] = file.inputs;
+                        generator["arguments"] = file.arguments;
+                        if (!file.workDirectory.empty()) generator["work-directory"] = file.workDirectory;
+                        entry["generator"] = std::move(generator);
+                    }
+                    generated.push_back(std::move(entry));
+                }
+                ide["generated"] = std::move(generated);
+            }
             setValue["ide"] = std::move(ide);
         }
         OrderedJson units = OrderedJson::array();
@@ -392,6 +431,32 @@ std::string absolute_path_in_unit(const TranslationUnit& unit, std::string_view 
 }
 
 std::string absolute_source(const TranslationUnit& unit) { return absolute_path_in_unit(unit, unit.source); }
+
+const GeneratedFile* generated_source(const Set& set, std::string_view source) {
+    for (const auto& file : set.generated) {
+        if (file.kind != "source") continue;
+        if (base::same_path(file.path, source) || (!file.buildPath.empty() && base::same_path(file.buildPath, source))) return &file;
+    }
+    return nullptr;
+}
+
+std::optional<AuthoredSource> authored_source(const GeneratedFile& file) {
+    if (!file.origin.empty()) return AuthoredSource { base::normalize_path(file.origin), true };
+    // The extensions of a C++ source (project::is_cxx_source_name; spec does not depend on the project layer). A step's
+    // tool, a table or an interface definition is no candidate; a template beside the source makes two, and no answer.
+    static constexpr std::array<std::string_view, 12> EXTENSIONS {
+        ".cpp", ".cc", ".cxx", ".c++", ".cppm", ".ccm", ".cxxm", ".c++m", ".ixx", ".mpp", ".mxx", ".cp",
+    };
+    std::optional<AuthoredSource> found;
+    for (const auto& input : file.inputs) {
+        const std::string_view extension { base::extension(input) };
+        if (!std::ranges::any_of(EXTENSIONS, [&](std::string_view each) { return base::iequals_ascii(each, extension); })) continue;
+        if (base::same_path(input, file.path) || (!file.buildPath.empty() && base::same_path(input, file.buildPath))) continue;
+        if (found) return std::nullopt;
+        found = AuthoredSource { base::normalize_path(input), false };
+    }
+    return found;
+}
 
 OrderedJson to_compile_commands(const Database& database, std::string_view setName) {
     OrderedJson entries = OrderedJson::array();
