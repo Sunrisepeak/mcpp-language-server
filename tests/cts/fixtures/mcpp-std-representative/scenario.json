@@ -16,7 +16,7 @@
       { "path": "/roots/0/plan/stdFollows", "contains": "main.cpp" }
     ] },
     { "id": "E1-import-std-removed-and-saved", "kind": "write-file", "file": "src/main.cpp",
-      "replace": { "from": "import std;\n", "with": "" }, "notify": true, "expect-reload": true },
+      "replace": { "from": "import std;", "with": "" }, "notify": true, "expect-reload": true },
     { "id": "P2-std-stays-with-the-targets", "kind": "report", "settle": 15,
       "$comment": "main.cpp was the targets' last importer of std: std may follow another target's unit now, never a build program's, and its command does not change",
       "expect": [
