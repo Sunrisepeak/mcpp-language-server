@@ -189,7 +189,8 @@ A consumer:
 - **MUST NOT** report a unit's reference to a generated file that does not exist as an error in that unit's source, and **SHOULD** tell the user that the file is generated, by which step, and that a build writes it; <a id="S1-7.2-10"></a><a id="S1-7.2-11"></a><sup>S1-7.2-10, S1-7.2-11</sup>
 - **MAY** read the file at `build-path` when it exists, read-only (section 14), and **MUST** then treat it as possibly stale relative to the step's inputs; <a id="S1-7.2-12"></a><sup>S1-7.2-12</sup>
 - **MUST NOT** run a step's `arguments` unless the user has allowed it for the workspace (section 14). <a id="S1-7.2-13"></a><sup>S1-7.2-13</sup>
-- **SHOULD**, for a `source` entry with `origin`, treat the authored file as the source of the generated unit for navigation and diagnostics, and **MUST NOT** treat it as a second provider of the module the unit provides. <a id="S1-7.2-15"></a><sup>S1-7.2-15</sup> (0.4.0)
+- **SHOULD**, for a `source` entry with `origin`, treat the authored file as the source of the generated unit for navigation and diagnostics; <a id="S1-7.2-15"></a><sup>S1-7.2-15</sup> (0.4.0)
+- **MUST NOT** treat a `source` entry's `origin` as a second provider of the module the generated unit provides. <a id="S1-7.2-16"></a><sup>S1-7.2-16</sup> (0.4.0)
 
 Rationale: a producer that does not build (for example mcpp's `emit build-database`, which writes nothing into the project and runs no build step) plans in a directory of its own, so a generated header named by the units' `-I` arguments is absent there. Without this object a consumer reports a missing header in every source that includes it and loses the semantics of that source. The object states which files are generated and where the build writes them; running the generators remains a decision of the consumer and its user.
 

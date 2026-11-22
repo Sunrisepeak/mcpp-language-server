@@ -1578,6 +1578,17 @@ UTest normalize_tests{"normalize", [] {
             expect(plan.stubModules.empty()) << std::format("{}", plan.stubModules);
         }
 
+        // A stated origin (S1 0.4.0, S1-7.2-16) names the file without asking the step's inputs: still no second provider.
+        {
+            s::Database database { database_with({ "app" }) };
+            database.sets.back().generated.front().inputs = { "/p/src/app.cppm", "/p/templates/base.cppm" };   // two: no inference
+            database.sets.back().generated.front().origin = "/p/src/app.cppm";
+            const auto plan = plan_of(database, {}, { "/p/src/app.cppm" });
+            expect(std::ranges::none_of(plan.issues, [](const n::PlanIssue& issue) { return issue.code == "ambiguous-module"; }));
+            expect(fatal(plan.shadowedSources.size() == 1u));
+            expect(plan.shadowedSources.front().kind == "generated-from" && plan.shadowedSources.front().stated);
+        }
+
         // ... and without ide.generated, a file outside the build.
         {
             s::Database database { database_with({ "app" }) };

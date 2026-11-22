@@ -4,7 +4,8 @@
     "S1-7.2-10": "the server reads `generated` only to tell a shadowed source (#95), not yet for the files a build has not written",
     "S1-7.2-11": "the server reads `generated` only to tell a shadowed source (#95), not yet for the files a build has not written",
     "S1-7.2-12": "the server reads `generated` only to tell a shadowed source (#95), not yet for the files a build has not written",
-    "S1-7.2-13": "the server reads `generated` only to tell a shadowed source (#95), not yet for the files a build has not written"
+    "S1-7.2-13": "the server reads `generated` only to tell a shadowed source (#95), not yet for the files a build has not written",
+    "S1-7.2-15": "mcppls answers the authored file with its own engine; clangd's results for the generated unit are not mapped to it yet (design 2026-11-22 issue 95, G3)"
   },
   "S1-3-1": [
     {
@@ -2751,6 +2752,19 @@
     {
       "script": "src/engine/clangd.cpp",
       "contains": "\"payload-corrupt\", \"the extension's payload is corrupt or was modified; reinstall the extension\""
+    }
+  ],
+  "S1-7.2-14": [
+    {
+      "manual": "A producer rule. mcpp-community/mcpp writes the field from a build rule's declaration (mcpp-community/mcpp#1006); this repository contains no producer that could be tested."
+    }
+  ],
+  "S1-7.2-16": [
+    {
+      "test": "tests/unit/test_normalize.cpp: std's representative is chosen by set, then by unit, and an edit buffer does not move it (issue 95)"
+    },
+    {
+      "check": "shadowed-source/P1-a-shadowed-source-generated-from"
     }
   ]
 }

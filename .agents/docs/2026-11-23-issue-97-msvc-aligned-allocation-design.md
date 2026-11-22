@@ -96,3 +96,12 @@ upgrade builds `std` and the modules once more ("command" rebuild reason).
 Server 0.24.1 and VS Code 0.24.1 (`version --bump server`, `--bump vscode`), released as `vscode-v0.24.1`: a
 plugin's patch carries the newest server patch of its series (docs/92-release.md "Versions"), so the VSIX carries
 server 0.24.1. CLion and Zed get the server patch with their next patch.
+
+## 6. Carried with it
+
+The same change carries S1 0.4.0 (formerly PR #98, one CI run for both): `origin` on a `source` entry of
+`ide.generated` (S1-7.2-14, a producer rule; mcpp-community/mcpp#1004, #1006). Its consumer rule is split in two:
+S1-7.2-15 (the authored file as the unit's source for navigation and diagnostics) is pending, G3 of the issue 95
+design; S1-7.2-16 (an `origin` is no second provider) is what issue 95's G1 already does, with a stated origin now
+tested.
+
