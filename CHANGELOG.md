@@ -31,7 +31,10 @@ patch is `## [<component> X.Y.Z]` (`server`, `vscode`, `clion`, `zed`, `claude-c
   `compdb-i686-asm` (a module with an `__asm` block for `i686-pc-windows-msvc`, on Linux) and
   `compdb-clangxx-msvc-i686-windows-h` (the report's `<Windows.h>` module, built by clang++ first, on Windows).
   A mistake inside an `__asm` block can now be reported in the editor as the compiler reports it; before, the
-  whole block was accepted. `mcppls.buildDiscovery.mcppTarget` was not at fault and the target handling is unchanged.
+  whole block was accepted. **Not on an arm64 host** (Apple silicon, Linux arm64): the engine's image for it ended by
+  SIGBUS at startup with the libraries linked (found by this repository's CI on the first candidate: the server's
+  `report`, the VS Code suite and the proot job), whose cause is not found, so the arm64 engine is as before and a
+  module with an `__asm` block for a 32-bit Windows target still does not build there. `mcppls.buildDiscovery.mcppTarget` was not at fault and the target handling is unchanged.
   Design: `.agents/docs/2026-11-26-issue-100-engine-batch-design.md`.
 
 ## [vscode 0.24.1] — 2026-11-23

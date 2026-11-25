@@ -325,3 +325,27 @@ openkal's own process-start API (and a Windows `CreateProcess` with handles), no
 file-size bound polled by the supervisor does not bound the 8 MiB stand-in, which a writer finishes within one poll.
 So the three image systems keep the regular-file transport, as the decision of §9.2 foresaw; the note is in the
 `WorkerDiagnostics` comment (T2 touches that file), the ledger, and a comment on mcppls-clangd#19.
+
+## 12. What implementation found (2026-11-26)
+
+1. **B did not work, as §2 says**: the engine's error flag is set before any consumer sees the diagnostic.
+2. **The first candidate of the fix broke the arm64 images.** The product's CI (server PR 101, run 45676721862) ended
+   `clangd` by SIGBUS on `linux-arm64` and `darwin-arm64` in the VS Code end-to-end suite (twice), the proot job and the
+   server's `report`; the engine's own acceptance, which passed, does not start that thread the same way. A control
+   (the unmodified 0.0.23 image through the same job, rerun the same day) passed, so it was the change, not the
+   runner. The crash is deterministic: the same fault address in every run (`0x6c632f3436609e`), in
+   `clangdMain -> startModuleMemoStore -> pthread_create -> __clone`, where openkal-musl walks its thread list: the
+   list's head, `okm_done` at the start of `.bss`, holds the tail of `x86_64/clangd.oke`'s name (`6_64/cl`), not
+   zero. A probe workflow on the arm runner (a temporary branch, removed) reproduced it with `mcppls report` in about
+   40 s and showed the image does not crash under qemu, under gdb, or when driven directly with the same flags: it needs
+   the server's start. okrun keeps a sealed copy of an image's segments and a boot snapshot of it
+   (`.okseg`, `.oksnap` under `$XDG_RUNTIME_DIR/okrun`), a different pair for the new image; whether the defect is in
+   that, in openkal-musl or in the image's link was not found. The same libraries in an x86_64 image run.
+3. **Decision:** the libraries are linked where the processor is not arm64 (`CMAKE_SYSTEM_PROCESSOR`), so arm64 images
+   are the unmodified ones. The report's case (a Windows x64 host) is fixed; an arm64 host is not, and the limit is in
+   the changelogs, the troubleshooting entry and the ledger. A follow-up should find the cause in openkal (the probe's
+   method is in the memory of this work: a probe workflow that runs on `push` of a temporary branch, since a
+   `workflow_dispatch` needs the file on the default branch).
+4. **Not carried**, as §3 and §6 say: mcppls-clangd#19 and #66.
+5. The engine's Windows comparison run needed a fix of its own: vcpkg's zlib 1.4 names its static library `libzs.lib`,
+   which the workflow did not look for (and the shell step did not stop on a missing one).

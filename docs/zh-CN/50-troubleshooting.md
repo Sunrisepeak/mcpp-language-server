@@ -127,7 +127,7 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 
 **clangd 反复重启。** 看 `engines[].restarts`、`engines[].details.restartBudget` 和 `events` 日志。每种原因各有十分钟三次的重启额度：引擎数据库变化（`plan`）、恢复停止应答或空转的 clangd（`recovery`）、clangd 退出（`crash`）。用完之后，同类的下一次重启依次等待一、二、四、八分钟——是退避而不是拒绝，所以卡住的 clangd 总能恢复——状态会说明（`engine-restart-capped`）并提供 **Restart clangd** 按钮（其他编辑器用 `workspace/executeCommand` `mcppls.restartEngine`），它立即重启且从不计入额度。切换工具链、profile 或 context 也从不计入，模块编译不过从来不是重启的理由。引擎数据库的每次变化都会记入日志并写明改了什么（`engine database changed: … compiled otherwise (main.cpp: argument 3: -O0 -> -O2)`），重启密集时能直接看到原因。
 
-**32 位 Windows 目标报 "MS-style inline assembly is not available: target MC unavailable"，包含 `<Windows.h>` 的模块构建不了（0.24.1 及更早），`mcpp build` 正常。** `winnt.h` 在 `_M_IX86` 下使用 `__asm` 块，内置引擎没有注册解析它们所需的 x86 MC 与汇编解析器，于是该模块和所有导入它的模块都构建失败（#100）。原因不是缺少 X86 target（引擎一直带着它）。从 server 0.24.2 起，引擎（mcppls-clangd 0.0.24）会注册它们，升级扩展即可。`x86_64-windows-msvc` 从未受影响。
+**32 位 Windows 目标报 "MS-style inline assembly is not available: target MC unavailable"，包含 `<Windows.h>` 的模块构建不了（0.24.1 及更早），`mcpp build` 正常。** `winnt.h` 在 `_M_IX86` 下使用 `__asm` 块，内置引擎没有注册解析它们所需的 x86 MC 与汇编解析器，于是该模块和所有导入它的模块都构建失败（#100）。原因不是缺少 X86 target（引擎一直带着它）。从 server 0.24.2 起，引擎（mcppls-clangd 0.0.24）会注册它们，升级扩展即可。`x86_64-windows-msvc` 从未受影响。arm64 主机（Apple silicon、Linux arm64）上的引擎没有变化，该模块仍然构建不了。
 
 **MSVC STL 下报 "no type named 'align_val_t' in namespace 'std'"（0.24.0 及更早），而项目能构建。** 按 C++17 使用对齐分配的头文件（例如 Slint 1.19 的 `vtable.h`）只在编辑器里报错：mcppls 给 MSVC STL 的单元加了 `-fno-aligned-allocation`（`WA-CLANGD-005`），它让 `vcruntime_new.h` 不再声明 `std::align_val_t`。从 server 0.24.1 起，bundled 引擎按构建本身的方式开启对齐分配（#97）。在 0.24.0 上，`"mcppls.disableWorkaround": ["WA-CLANGD-005"]` 效果相同：bundled 引擎已经带有这个 workaround 所针对缺陷的修复。
 

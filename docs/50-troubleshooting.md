@@ -321,7 +321,8 @@ or restarting.
 `winnt.h` uses `__asm` blocks under `_M_IX86`, and the bundled engine did not register the x86 MC and assembly parser
 they are parsed with, so the module and every module that imports it failed (#100). It was not a missing X86 target:
 the engine has always had one. From server 0.24.2 the engine (mcppls-clangd 0.0.24) registers them; update the
-extension. `x86_64-windows-msvc` was never affected.
+extension. `x86_64-windows-msvc` was never affected. On an arm64 host (Apple silicon, Linux arm64) the engine is
+unchanged and the module still does not build; build with an x64 host or target `x86_64-windows-msvc`.
 
 **"no type named 'align_val_t' in namespace 'std'" with the MSVC STL (0.24.0 and earlier), the project builds.**
 A header that uses aligned allocation as C++17 allows (Slint 1.19's `vtable.h`) failed in the editor only: mcppls gave
