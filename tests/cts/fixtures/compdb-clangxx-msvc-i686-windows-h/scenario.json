@@ -1,0 +1,46 @@
+{
+  "name": "compdb-clangxx-msvc-i686-windows-h",
+  "description": "Issue #100, the report's own shape: a module whose global module fragment includes <Windows.h>, compiled for i686-pc-windows-msvc (--target=i686-pc-windows-msvc), where winnt.h's Int64ShllMod32 family uses __asm blocks under _M_IX86. The fixture first builds the module with the machine's clang++ as the project does (the report's CLI build), then the server reads the compile_commands.json it wrote. With the engine of 0.24.1 the module did not build (\"MS-style inline assembly is not available: target MC unavailable\") and its importer lost it.",
+  "prepare-environment": "msvc",
+  "prepare": [
+    [
+      "{conformance}",
+      "prepare",
+      "compdb-clangxx-msvc-i686-windows-h"
+    ]
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "compile-commands",
+      "state": "ready"
+    },
+    {
+      "id": "D1-the-windows-module",
+      "kind": "diagnostics-empty",
+      "file": "src/win_demo.cppm",
+      "timeout": 120
+    },
+    {
+      "id": "D2-its-importer",
+      "kind": "diagnostics-empty",
+      "file": "src/main.cpp",
+      "timeout": 120
+    },
+    {
+      "id": "D3-the-module-resolves",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        2,
+        38
+      ],
+      "expect": "src/win_demo.cppm"
+    },
+    {
+      "id": "W1",
+      "kind": "workspace-unchanged"
+    }
+  ]
+}

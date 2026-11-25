@@ -9,6 +9,31 @@ Versions are three-part semantic versions, `X.Y.Z`: `X.Y` is the series of the s
 patch is `## [<component> X.Y.Z]` (`server`, `vscode`, `clion`, `zed`, `claude-code`).
 
 
+## [vscode 0.24.2] — 2026-11-26
+
+### Fixed
+
+- Carries server 0.24.2: modules that include `<Windows.h>` build for 32-bit Windows targets (#100).
+
+## [server 0.24.2] — 2026-11-26
+
+### Fixed
+
+- **A module that includes `<Windows.h>` for a 32-bit Windows target (`i686-windows-msvc`) did not build, and neither
+  did anything that imports it** ([#100](https://github.com/Sunrisepeak/mcpp-language-server/issues/100)). The module
+  worker failed with "MS-style inline assembly is not available: target MC unavailable" in `winnt.h`
+  (`Int64ShllMod32` and its siblings use `__asm` blocks under `_M_IX86`), and every module downstream of it
+  failed with it, while `mcpp build --target i686-windows-msvc` built the same code. The report took it for an engine
+  built without the X86 target; it has always had one. clang parses `__asm` with the target's MC and assembly
+  parser, which clangd did not register: the editor hid the error, but a module build cannot, because clang writes no
+  module interface once an error was reported. Fixed in the engine (mcppls-clangd 0.0.24, `23.1.0-mcppls.13`, patch
+  0049), which the payload now carries; the product only gained its tests: the conformance fixtures
+  `compdb-i686-asm` (a module with an `__asm` block for `i686-pc-windows-msvc`, on Linux) and
+  `compdb-clangxx-msvc-i686-windows-h` (the report's `<Windows.h>` module, built by clang++ first, on Windows).
+  A mistake inside an `__asm` block can now be reported in the editor as the compiler reports it; before, the
+  whole block was accepted. `mcppls.buildDiscovery.mcppTarget` was not at fault and the target handling is unchanged.
+  Design: `.agents/docs/2026-11-26-issue-100-engine-batch-design.md`.
+
 ## [vscode 0.24.1] — 2026-11-23
 
 ### Fixed

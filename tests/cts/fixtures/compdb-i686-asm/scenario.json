@@ -1,0 +1,45 @@
+{
+  "name": "compdb-i686-asm",
+  "description": "Issue #100: a module with an MS-style __asm block for i686-pc-windows-msvc (what winnt.h has under _M_IX86), in a compile_commands.json (the runner's `prepare compdb-i686-asm`). clangd registered no MC for the target, so the compile of the module reported \"MS-style inline assembly is not available: target MC unavailable\", wrote no module interface, and its importer lost the module (\"module 'asm_demo' not found\"). The engine (mcppls-clangd 0.0.24) registers the x86 MC and assembly parser. Runs where a host can state the triple without the Windows SDK.",
+  "prepare": [
+    [
+      "{conformance}",
+      "prepare",
+      "compdb-i686-asm",
+      "{env:CONFORMANCE_CLANGXX|clang++}"
+    ]
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "compile-commands"
+    },
+    {
+      "id": "D1-the-asm-module",
+      "kind": "diagnostics-empty",
+      "file": "src/asm_demo.cppm",
+      "timeout": 90
+    },
+    {
+      "id": "D2-its-importer",
+      "kind": "diagnostics-empty",
+      "file": "src/main.cpp",
+      "timeout": 90
+    },
+    {
+      "id": "D3-the-module-resolves",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        2,
+        38
+      ],
+      "expect": "src/asm_demo.cppm"
+    },
+    {
+      "id": "W1",
+      "kind": "workspace-unchanged"
+    }
+  ]
+}

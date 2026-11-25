@@ -20,6 +20,8 @@ Fixture cmake_msvc_bdb{"cmake-msvc-bdb", on{"win32-x64"}};
 Fixture cmake_msvc_std{"cmake-msvc-std", on{"win32-x64"}, tag{"cmake-3.31-import-std"}};
 Fixture compdb_clang_cl_std{"compdb-clang-cl-std", on{"win32-x64"}};
 Fixture compdb_clangxx_msvc_std{"compdb-clangxx-msvc-std", on{"win32-x64"}};
+Fixture compdb_clangxx_msvc_i686_windows_h{"compdb-clangxx-msvc-i686-windows-h", on{"win32-x64"}};
+Fixture compdb_i686_asm{"compdb-i686-asm", on{"linux-x64"}};
 Fixture compdb_lto_msvc{"compdb-lto-msvc", on{"linux-x64"}};
 Fixture compdb_midwrite{"compdb-midwrite", on{"linux-x64"}};
 Fixture compdb_mixed_standards{"compdb-mixed-standards", on{"linux-x64"}};

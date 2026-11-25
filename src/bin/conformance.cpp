@@ -6410,6 +6410,75 @@ int prepare_marked_compdb(std::string_view fixture, const std::string& compiler,
     return 0;
 }
 
+// Issue #100: a compile_commands.json for a module with an MS-style __asm block, as the targets a 32-bit Windows
+// build names it (--target=i686-pc-windows-msvc, -fms-extensions), and its importer. Nothing is compiled here: the
+// triple is all the engine needs, which is what lets a Linux host run it.
+int prepare_compdb_i686_asm(const std::string& compiler) {
+    const std::string root { base::current_directory() };
+    auto clangxx = on_path(compiler.empty() ? std::string { "clang++" } : compiler);
+    if (!clangxx) {
+        say("compdb-i686-asm: {} is not on PATH", compiler);
+        return 1;
+    }
+    Json database = Json::array();
+    for (const char* relative : { "src/asm_demo.cppm", "src/main.cpp" }) {
+        const std::string source { native(base::join_path(root, relative)) };
+        database.push_back(Json { { "directory", native(root) }, { "file", source },
+                                  { "arguments", Json::array({ *clangxx, "--target=i686-pc-windows-msvc", "-fms-extensions", "-std=c++23", "-c",
+                                                               source, "-o", source + ".obj" }) } });
+    }
+    if (auto written = os::fs::write(base::join_path(root, "compile_commands.json"), database.dump(2)); !written) {
+        say("compdb-i686-asm: {}", written.error().message());
+        return 1;
+    }
+    return 0;
+}
+
+// Issue #100 as reported: <Windows.h> in a module's global module fragment for i686-pc-windows-msvc. The module is
+// built first with the machine's clang++ (the report's CLI build), in the developer environment the fixture runs in;
+// the compile_commands.json then names the same commands, with the module's interface for its importer.
+int prepare_compdb_msvc_i686_windows_h() {
+    std::error_code ignored;
+    const std::string root { base::current_directory() };
+    const std::string build { base::join_path(root, "build") };
+    (void)std::filesystem::create_directories(build, ignored);
+    auto driver = toolrun::find_program("clang++");
+    if (!driver) {
+        say("prepare: clang++ is not on PATH");
+        return 1;
+    }
+    auto at = [&](std::string_view directory, std::string_view name) { return native(base::join_path(directory, name)); };
+    const std::string module { at(root, "src/win_demo.cppm") };
+    const std::string main { at(root, "src/main.cpp") };
+    const std::vector<std::string> common { *driver, "--target=i686-pc-windows-msvc", "-std=c++23", "-c" };
+    auto with = [&](std::vector<std::string> more) { auto all = common; all.insert(all.end(), more.begin(), more.end()); return all; };
+    const std::vector<std::pair<std::string, std::vector<std::string>>> steps {
+        { module, with({ module, "-fmodule-output=" + at(build, "win_demo.pcm"), "-o", at(build, "win_demo.obj") }) },
+        { main, with({ main, "-fmodule-file=win_demo=" + at(build, "win_demo.pcm"), "-o", at(build, "main.obj") }) },
+    };
+    Json database = Json::array();
+    for (const auto& [source, argv] : steps) {
+        say("+ {}", base::join(argv, " "));
+        os::process::spawn_options options;
+        options.bound_lifetime = true;
+        options.program = argv.front();
+        options.args.assign(argv.begin() + 1, argv.end());
+        options.cwd = root;
+        auto result = os::process::run(std::move(options), os::process::bounds { .hard = std::chrono::minutes { 10 } });
+        if (!result || !result->status.success() || result->timed_out) {
+            if (result) say("{}\n{}", result->out, result->err);
+            say("prepare: the step above failed");
+            return 1;
+        }
+        database.push_back({ { "directory", native(root) }, { "file", source }, { "arguments", argv } });
+    }
+    if (auto written = os::fs::write(base::join_path(root, "compile_commands.json"), database.dump(2)); !written) {
+        say("prepare: {}", written.error().message());
+        return 1;
+    }
+    return 0;
+}
+
 // C++26 alignment (fix plan 2026-09-26 §9): a compile_commands.json whose units name two standards -- a module and an
 // importer of std at C++23, an application at C++26 importing both. One std BMI cannot serve both standards.
 int prepare_compdb_mixed_standards(const std::string& compiler) {
@@ -6884,10 +6953,12 @@ int prepare(const std::string& kind, const std::string& argument) {
     if (kind == "clangd-trap") return prepare_trapping_clangd(kind, argument, "src/trap.cppm");
     if (kind == "compdb-rejected-command") return prepare_compdb_rejected_command(argument);
     if (kind == "compdb-mixed-standards") return prepare_compdb_mixed_standards(argument);
+    if (kind == "compdb-i686-asm") return prepare_compdb_i686_asm(argument);
+    if (kind == "compdb-clangxx-msvc-i686-windows-h") return prepare_compdb_msvc_i686_windows_h();
     if (kind == "xmake-stale-compdb") return prepare_marked_compdb(kind, argument.empty() ? std::string { "g++" } : argument, "-DSTALE_COMPDB", "-std=c++17");
     if (kind == "compdb-midwrite") return prepare_marked_compdb(kind, argument.empty() ? std::string { "clang++" } : argument, "-DVERSION_ONE", "-std=c++23");
     if (kind == "compdb-lto-msvc") return prepare_compdb_lto_msvc(argument);
-    say("prepare: unknown fixture kind {} (heavy-headers, large-module-file, s1-two-sets, payload-corrupt, producer-candidate, delayed-producer, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp, clangd-cannot-load, compdb-lto-msvc, clangd-crash-context, clangd-crash-closure, clangd-exit-strike, clangd-trap, compdb-rejected-command, compdb-mixed-standards, xmake-stale-compdb, compdb-midwrite)", kind);
+    say("prepare: unknown fixture kind {} (heavy-headers, large-module-file, s1-two-sets, payload-corrupt, producer-candidate, delayed-producer, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp, clangd-cannot-load, compdb-lto-msvc, clangd-crash-context, clangd-crash-closure, clangd-exit-strike, clangd-trap, compdb-rejected-command, compdb-mixed-standards, compdb-i686-asm, compdb-clangxx-msvc-i686-windows-h, xmake-stale-compdb, compdb-midwrite)", kind);
     return 2;
 }
 
