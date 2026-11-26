@@ -5,17 +5,17 @@ Notable changes to mcpp-language-server. The format follows
 release's notes are that section.
 
 Versions are three-part semantic versions, `X.Y.Z`: `X.Y` is the series of the server and every editor plugin,
-`Z` each component's own patch (docs/92-release.md "Versions"). A series release is `## [X.Y.0]`; a component's
-patch is `## [<component> X.Y.Z]` (`server`, `vscode`, `clion`, `zed`, `claude-code`).
+`Z` the patch of a plugin alone (docs/92-release.md "Versions"). Any change to the server is a series release,
+`## [X.Y.0]`; a change confined to one plugin is that plugin's patch, `## [<plugin> X.Y.Z]` (`vscode`, `clion`,
+`zed`, `claude-code`).
 
 
-## [vscode 0.24.2] — 2026-11-26
+## [0.25.0] — 2026-11-26
 
-### Fixed
-
-- Carries server 0.24.2: modules that include `<Windows.h>` build for 32-bit Windows targets (#100).
-
-## [server 0.24.2] — 2026-11-26
+A new series, because the server changed: its payload carries a new engine (mcppls-clangd 0.0.24,
+`23.1.0-mcppls.13`), and a change to the server is a series release (docs/92-release.md "Versions"). Every component
+is `0.25.0`. The plan was a patch of the server and of VS Code, `0.24.2`; it was never published and the number is
+not used.
 
 ### Fixed
 

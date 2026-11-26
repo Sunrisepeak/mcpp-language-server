@@ -84,8 +84,14 @@ edited by hand:
 
 ```bash
 mcpp run -p devtools -- version --check       # CI runs this (as part of `check all`)
-mcpp run -p devtools -- version --set 0.0.2
+mcpp run -p devtools -- version --series 0.25 # a series: every component 0.25.0
+mcpp run -p devtools -- version --bump vscode # one plugin's patch (never the server)
 ```
+
+**Which release a change needs** (docs/92-release.md "Which release a change needs"): any change to the server
+(code, payload and engine, specifications) is a **series**, `X.(Y+1).0`, every component with it, and there is no
+server patch; a change confined to one plugin's own files is **that plugin's patch**, `X.Y.(Z+1)`. A change that
+needs both is a series. Decide it before opening the PR and put the bump in the same PR.
 
 ## Code shape
 

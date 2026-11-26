@@ -418,6 +418,11 @@ base::Result<std::string> set_series(const std::string& root, std::string_view s
 }
 
 base::Result<std::string> bump(const std::string& root, std::string_view component) {
+    // The server has no patch of its own: any change to it is a series, which every plugin follows
+    // (docs/92-release.md "Which release a change needs").
+    if (component == "server")
+        return base::fail("version-bump-server", "the server has no patch: any change to it is a series; run `version --series X.(Y+1)` "
+                                                  "(docs/92-release.md \"Which release a change needs\")");
     auto current = component_version(root, component);
     if (!current) return std::unexpected { current.error() };
     auto shaped = extension_version(*current);

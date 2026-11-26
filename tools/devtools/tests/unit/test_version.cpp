@@ -155,6 +155,15 @@ UTest version_tests{"version", [] {
         std::filesystem::remove_all(root);
     };
 
+    "the server has no patch: a change to it is a series, so bumping it is refused and nothing is written"_test = [&] {
+        const std::string root { make_consistent_root() };
+        auto next = version::bump(root, "server");
+        expect(!next.has_value());
+        expect(version::manifest_version(root).value_or("") == "0.0.1") << "the server's version is untouched";
+        expect(version::extension_manifest_version(root).value_or("") == "0.0.1");
+        std::filesystem::remove_all(root);
+    };
+
     "a series sets every component to X.Y.0, the Zed constant with its manifest"_test = [&] {
         const std::string root { make_consistent_root() };
         expect(version::set_series(root, "0.22").has_value());

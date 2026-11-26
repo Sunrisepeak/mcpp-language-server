@@ -9,7 +9,8 @@
 ## Versions
 
 A version is `X.Y.Z`. `X.Y`, the **series**, is shared by the server and every editor plugin (VS Code,
-CLion, Zed, the Claude Code plugin); `Z` is each component's own patch. A plugin works with any server of
+CLion, Zed, the Claude Code plugin); `Z` is the patch of **one plugin alone** (the server has none: see "Which
+release a change needs"). A plugin works with any server of
 its series and refuses another, naming both versions and the install that matches: a plugin states its
 version in `initializationOptions.plugin`, and the server refuses `initialize` when the series differ;
 the VS Code extension and the CLion plugin also check the server they are about to start. The Neovim
@@ -22,7 +23,7 @@ each plugin's lives in its manifest. One command writes or checks every site:
 mcpp run -p devtools -- version --check                  # the server's sites agree, every plugin is of its series
 mcpp run -p devtools -- version --print --component all  # one `name=version` line per component
 mcpp run -p devtools -- version --series 0.22            # a new series: every component 0.22.0
-mcpp run -p devtools -- version --bump vscode            # the VS Code extension's next patch
+mcpp run -p devtools -- version --bump vscode            # the VS Code extension's next patch (never `server`: a server change is a series)
 ```
 
 `--check` also compares the clangd and kit versions the server states with the ones the payload is built
@@ -33,12 +34,36 @@ sees its versions rise, and a version, once published anywhere, is never used ag
 | Release | Tag | Carries | CHANGELOG section |
 |---|---|---|---|
 | a series | `vX.Y.0` | every component at `X.Y.0` | `## [X.Y.0]` |
-| a component's patch | `<component>-vX.Y.Z` (`server-`, `vscode-`, `clion-`, `zed-`, `claude-code-`) | that component's files | `## [<component> X.Y.Z]` |
+| a plugin's patch | `<plugin>-vX.Y.Z` (`vscode-`, `clion-`, `zed-`, `claude-code-`) | that plugin's files | `## [<plugin> X.Y.Z]` |
+
+### Which release a change needs
+
+The rule is one question: **does the change touch the server?**
+
+| The change | The release | Version |
+|---|---|---|
+| **Anything in the server**: its code (`src/`, `modules/`, `tools/`), its payload (the engine, the kits, the runners: whatever changes `packaging/payload.lock.json`), the protocol and specifications it speaks (`docs/specs/`), the server's own version | **a series**, always, whatever its size | `X.(Y+1).0`: every component moves with it, tag `vX.(Y+1).0`, section `## [X.(Y+1).0]` |
+| **A change confined to one plugin**: its own files under `editors/<plugin>/` and its manifest, with the server untouched | **that plugin's patch** | `X.Y.(Z+1)` of that plugin only, tag `<plugin>-vX.Y.(Z+1)`, section `## [<plugin> X.Y.(Z+1)]`; it carries the series' server, `X.Y.0`, unchanged |
+| A change that needs both a plugin and the server | **a series** | as the first row |
+
+Why: a plugin carries the server (its payload), and refuses a server of another series, so a server that differs
+from the series' `X.Y.0` is a different series; there is no way to ship a server fix without moving the series.
+Consequences:
+
+- **There is no server patch.** `server-vX.Y.Z` is not a release (the Release workflow refuses it, and
+  `version --bump server` is refused): a new engine, a changed payload lock, a server bug fix, all are `X.(Y+1).0`.
+- A plugin's `Z` is never raised for a server change, and a server change is never shipped inside one plugin's
+  patch: the other plugins and the single-file downloads would stay on a server without the fix.
+- `X` is the maintainer's decision (a major change); until then `Y` rises by one for each series.
+- A version that was planned and never published (a draft is not published) is not used: the next release takes
+  the number the rule gives, and its changelog says so.
+
+Before releasing, read `git diff <last tag>..main --stat`: any path of the first row means a series.
 
 Every release is tested as a whole: the candidate is the whole product, and a component's release publishes
 its files out of it, with a MANIFEST.md and SHA256SUMS of their own. Open VSX receives a release that carries
 the extension (`v*`, `vscode-v*`), JetBrains one that carries the CLion plugin (`v*`, `clion-v*`). A plugin's
-patch carries the newest server patch of its series. The series numbering continues the earlier versions:
+patch carries the series' server, `X.Y.0`, which is never patched. The series numbering continues the earlier versions:
 0.0.*N* became series 0.*N*, so 0.0.21 was released as 0.21.0.
 
 The versions CI *builds with* are a different thing and live in `.github/versions.env`.
@@ -104,7 +129,7 @@ Everything is one manual run. **Actions → Release → Run workflow**, and give
 Before pressing it:
 
 1. Everything is on `main` and CI is green.
-2. `mcpp run -p devtools -- version --series X.Y` (a series) or `--bump <component>` (a patch) is committed. The run checks this first and
+2. `mcpp run -p devtools -- version --series X.Y` (a series) or `--bump <plugin>` (a plugin's patch; never `server`) is committed, as "Which release a change needs" decides. The run checks this first and
    stops before building anything if the manifests disagree — an hour is a long time to wait to
    learn one line is wrong.
 3. `CHANGELOG.md` has the entry for it.
