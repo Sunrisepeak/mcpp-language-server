@@ -6,7 +6,7 @@
 
 ## 版本号
 
-版本号是 `X.Y.Z`。`X.Y` 是**系列**，由服务端与全部编辑器插件（VS Code、CLion、Zed、Claude Code 插件）共享；`Z` 是各组件自己的补丁号。插件接受同一系列的任何服务端，拒绝其他系列，并在提示中给出两个版本与匹配的安装命令：插件在 `initializationOptions.plugin` 中说明自己的版本，系列不同时服务端拒绝 `initialize`；VS Code 扩展与 CLion 插件在启动服务端之前也做同样的检查。Neovim 插件与 Copilot CLI 的配置片段没有自己的版本，随系列发布。
+版本号是 `X.Y.Z`。`X.Y` 是**系列**，由服务端与全部编辑器插件（VS Code、CLion、Zed、Claude Code 插件）共享；`Z` 是**某一个插件自己**的补丁号（服务端没有补丁号，见"改动需要哪种发布"）。插件接受同一系列的任何服务端，拒绝其他系列，并在提示中给出两个版本与匹配的安装命令：插件在 `initializationOptions.plugin` 中说明自己的版本，系列不同时服务端拒绝 `initialize`；VS Code 扩展与 CLion 插件在启动服务端之前也做同样的检查。Neovim 插件与 Copilot CLI 的配置片段没有自己的版本，随系列发布。
 
 服务端的版本写在 `mcpp.toml` 里，并由二进制报出（`modules/base/src/version.cppm`）；每个插件的版本写在它自己的清单里。一条命令写入或核对全部位置：
 
@@ -14,7 +14,7 @@
 mcpp run -p devtools -- version --check                  # 服务端各处一致，每个插件属于它的系列
 mcpp run -p devtools -- version --print --component all  # 每个组件一行 `name=version`
 mcpp run -p devtools -- version --series 0.22            # 新的系列：每个组件为 0.22.0
-mcpp run -p devtools -- version --bump vscode            # VS Code 扩展的下一个补丁
+mcpp run -p devtools -- version --bump vscode            # VS Code 扩展的下一个补丁（不能是 `server`：服务端的改动是一个系列）
 ```
 
 `--check` 也核对服务端声明的 clangd 与 kit 版本与 payload 实际构建所用的版本。三段式是 VS Code Marketplace、Open VSX、Zed 和 JetBrains 都接受的唯一格式，其他格式（包括四段式的日期版本）一律拒绝。每个组件的 `Z` 只增不减，所以每个应用市场看到的版本都只升不降；一个版本号只要在任何地方发布过，就不再重复使用。
@@ -22,9 +22,29 @@ mcpp run -p devtools -- version --bump vscode            # VS Code 扩展的下�
 | 发布 | 标签 | 内容 | CHANGELOG 小节 |
 |---|---|---|---|
 | 一个系列 | `vX.Y.0` | 全部组件，均为 `X.Y.0` | `## [X.Y.0]` |
-| 一个组件的补丁 | `<组件>-vX.Y.Z`（`server-`、`vscode-`、`clion-`、`zed-`、`claude-code-`） | 该组件的文件 | `## [<组件> X.Y.Z]` |
+| 一个插件的补丁 | `<插件>-vX.Y.Z`（`vscode-`、`clion-`、`zed-`、`claude-code-`） | 该插件的文件 | `## [<插件> X.Y.Z]` |
 
-每次发布都作为整体测试：候选物是整个产品，组件的发布从中取出自己的文件，并带自己的 MANIFEST.md 与 SHA256SUMS。Open VSX 接收含扩展的发布（`v*`、`vscode-v*`），JetBrains 接收含 CLion 插件的发布（`v*`、`clion-v*`）。插件的补丁内带其系列中最新的服务端补丁。系列的编号延续此前的版本：0.0.*N* 成为系列 0.*N*，所以 0.0.21 以 0.21.0 发布。
+### 改动需要哪种发布
+
+只问一个问题：**这次改动动到服务端了吗？**
+
+| 改动 | 发布 | 版本 |
+|---|---|---|
+| **服务端的任何改动**：它的代码（`src/`、`modules/`、`tools/`），它的 payload（引擎、kit、runner：凡是改了 `packaging/payload.lock.json` 的），它实现的协议与规范（`docs/specs/`），服务端自己的版本 | **一个系列**，不论大小 | `X.(Y+1).0`：每个组件一起升，tag `vX.(Y+1).0`，CHANGELOG 小节 `## [X.(Y+1).0]` |
+| **只动某一个插件**：它自己在 `editors/<插件>/` 下的文件与清单，服务端未动 | **该插件的补丁** | 只有该插件升到 `X.Y.(Z+1)`，tag `<插件>-vX.Y.(Z+1)`，小节 `## [<插件> X.Y.(Z+1)]`；它带的服务端仍是该系列的 `X.Y.0`，不变 |
+| 一个改动既要动插件又要动服务端 | **一个系列** | 同第一行 |
+
+原因：插件带着服务端（它的 payload），并拒绝其他系列的服务端，所以和该系列 `X.Y.0` 不同的服务端就是另一个系列；不升系列，就没有办法发布服务端的修复。由此：
+
+- **没有服务端补丁。** `server-vX.Y.Z` 不是一种发布（Release 工作流会拒绝它，`version --bump server` 也会被拒绝）：新引擎、变了的 payload lock、服务端的 bug 修复，一律是 `X.(Y+1).0`。
+- 服务端有改动时，不能只升某个插件的 `Z`，也不能把服务端改动塞进某一个插件的补丁里：其他插件和单文件下载仍然停在没有修复的服务端上。
+- `X` 由维护者决定（重大变更）；在那之前，每个系列把 `Y` 加一。
+- 计划过但没有发布过的版本号（草稿不算发布）不再使用：下一次发布取规则给出的号，并在它的 CHANGELOG 中说明。
+
+发布之前先看 `git diff <上一个 tag>..main --stat`：只要有第一行里的路径，就是系列发布。
+
+
+每次发布都作为整体测试：候选物是整个产品，组件的发布从中取出自己的文件，并带自己的 MANIFEST.md 与 SHA256SUMS。Open VSX 接收含扩展的发布（`v*`、`vscode-v*`），JetBrains 接收含 CLion 插件的发布（`v*`、`clion-v*`）。插件的补丁带的是该系列的服务端 `X.Y.0`，它不会有补丁。系列的编号延续此前的版本：0.0.*N* 成为系列 0.*N*，所以 0.0.21 以 0.21.0 发布。
 
 CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里。
 
@@ -73,7 +93,7 @@ CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里
 运行之前：
 
 1. 一切都在 `main` 上，CI 是绿的。
-2. `mcpp run -p devtools -- version --series X.Y`（系列）或 `--bump <组件>`（补丁）的结果已经提交。这次运行会先检查这一点，各处版本不一致时会在构建前停止，避免花一个小时才发现一行写错。
+2. `mcpp run -p devtools -- version --series X.Y`（系列）或 `--bump <插件>`（插件的补丁，永远不是 `server`；取决于上表）的结果已经提交。这次运行会先检查这一点，各处版本不一致时会在构建前停止，避免花一个小时才发现一行写错。
 3. `CHANGELOG.md` 里有这次发布的条目。
 
 接下来这次运行会执行下面的 pre-release 测试：重新运行完整的 CI，构建 Zed 和 CLion 插件并安装，测性能和稳定性，把所有东西暂存好，对着发布清单检查，写出 `SHA256SUMS` 和 `MANIFEST.md`。只有全部通过，才会创建标签，把暂存好的候选版本逐个文件发布出去。

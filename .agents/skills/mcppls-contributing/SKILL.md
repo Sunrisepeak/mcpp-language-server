@@ -54,7 +54,13 @@ Conformance needs a payload; `CONTRIBUTING.md` has the exact command and how to 
   `mcppls.platform.toolrun`: own process unit, bounded reads, a deadline that ends the unit.
 - **Runs the server starts are offline by default.** A fixture asserts it rather than trusting it.
 - **The version lives in `mcpp.toml`** and is written everywhere else by
-  `mcpp run -p devtools -- version --set`, never by hand.
+  `mcpp run -p devtools -- version --series X.Y` / `--bump <plugin>`, never by hand.
+- **Which release a change needs** (docs/92-release.md "Which release a change needs"): *any* change to the
+  server -- code, payload, a new engine, specs -- is a **series** `X.(Y+1).0` with every component; there is no
+  server patch (`--bump server` and a `server-v*` tag are refused). Only a change confined to one plugin's own
+  files (`editors/<plugin>/`) is that plugin's patch `X.Y.(Z+1)`. A change that needs both is a series. Put the
+  bump and the CHANGELOG section in the PR; release with the Release workflow *after* merge, `component: all`
+  for a series.
 
 ## Upstream defects (clangd, mcpp, …)
 

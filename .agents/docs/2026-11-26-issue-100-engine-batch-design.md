@@ -349,3 +349,17 @@ So the three image systems keep the regular-file transport, as the decision of �
 4. **Not carried**, as §3 and §6 say: mcppls-clangd#19 and #66.
 5. The engine's Windows comparison run needed a fix of its own: vcpkg's zlib 1.4 names its static library `libzs.lib`,
    which the workflow did not look for (and the shell step did not stop on a missing one).
+
+## 13. The release scope was decided wrongly, and the rule is now written (2026-11-26)
+
+The batch was first released as `vscode-v0.24.2` (a draft; a plugin patch, on the precedent of 0.24.1). That was wrong:
+the change is in the server (a new engine in its payload), and **any change to the server is a series** -- here
+`0.25.0`, every component with it -- while only a change confined to one plugin's own files is that plugin's patch.
+`docs/92-release.md` ("Versions", "Which release a change needs", English and Chinese) did not say so, which is how
+the precedent was followed. Now:
+
+- the rule is stated once in `docs/92-release.md` and `docs/zh-CN/92-release.md` and referenced from `CONTRIBUTING.md`
+  and the `mcppls-contributing` skill (`.agents/skills`);
+- it is enforced: `mcpp run -p devtools -- version --bump server` is refused (unit test), and the Release workflow
+  refuses `component: server` and a `server-v*` tag;
+- the draft `vscode-v0.24.2` is deleted and its number is not used; this work is released as `0.25.0`.

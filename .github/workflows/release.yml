@@ -6,11 +6,12 @@ name: Release
 # tag does the same thing for people who prefer tagging first; `v*-rc*` tags run only the
 # pre-release test.
 #
-# WHAT A RELEASE IS (docs/92-release.md "Versions"). A version is X.Y.Z: X.Y the series of the
-# server and every plugin, Z each component's own patch. `component: all` releases the series,
-# every component at X.Y.0, tagged `vX.Y.0`; a component releases its patch alone, tagged
-# `<component>-vX.Y.Z` (`server-`, `vscode-`, `clion-`, `zed-`, `claude-code-`), carrying only its
-# own files. Every release is tested as a whole: the candidate is always the whole product.
+# WHAT A RELEASE IS (docs/92-release.md "Versions", "Which release a change needs"). A version is X.Y.Z:
+# X.Y the series of the server and every plugin, Z the patch of one plugin alone. Any change to the server
+# is a series: `component: all` releases it, every component at X.(Y+1).0, tagged `vX.(Y+1).0`. A change
+# confined to one plugin is that plugin's patch alone, tagged `<plugin>-vX.Y.Z` (`vscode-`, `clion-`,
+# `zed-`, `claude-code-`), carrying only its own files. The server has no patch: `server-v*` and
+# `component: server` are refused. Every release is tested as a whole: the candidate is always the whole product.
 #
 # The release is a draft unless asked otherwise, because it is verified before anyone gets it: the
 # maintainer tries the draft's `mcppls-<platform>.vsix` files locally, then publishes the draft.
@@ -32,7 +33,7 @@ on:
         description: 'What is released: the series (all), or one component''s patch'
         type: choice
         default: all
-        options: [all, server, vscode, clion, zed, claude-code]
+        options: [all, vscode, clion, zed, claude-code]
       draft:
         description: 'Publish as a draft (uncheck to publish immediately)'
         type: boolean
@@ -42,7 +43,7 @@ on:
         type: boolean
         default: true
   push:
-    tags: ['v*', '!v*-rc*', 'server-v*', 'vscode-v*', 'clion-v*', 'zed-v*', 'claude-code-v*']
+    tags: ['v*', '!v*-rc*', 'server-v*', 'vscode-v*', 'clion-v*', 'zed-v*', 'claude-code-v*']   # server-v* is refused below: a server change is a series
 
 permissions:
   contents: write
@@ -76,6 +77,9 @@ jobs:
               v*) component=all; version="${ref#v}" ;;
               *-v*) component="${ref%%-v*}"; version="${ref#*-v}" ;;
             esac
+          fi
+          if [ "$component" = server ]; then
+            echo "::error::the server has no patch release: any change to it is a series (component all, X.(Y+1).0); docs/92-release.md \"Which release a change needs\""; exit 1
           fi
           if [ "$component" = all ]; then
             tag="v$version"; heading="[$version]"
