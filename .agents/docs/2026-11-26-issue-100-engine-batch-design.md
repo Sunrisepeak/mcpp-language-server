@@ -1,12 +1,12 @@
 # Issue 100 and one engine batch: MS inline assembly in module builds, with the engine items that ride the same rebuild
 
-Status: **design, review decisions recorded (§9), nothing implemented** · 2026-11-26 · issue [#100](https://github.com/Sunrisepeak/mcpp-language-server/issues/100)
+Status: **implemented and released in 0.25.0** (server PR #101/#102, engine mcppls-clangd 0.0.24; what changed from this design is in §12 and §13) · 2026-11-26 · issue [#100](https://github.com/Sunrisepeak/mcpp-language-server/issues/100)
 (32-bit Windows target, `<Windows.h>`, "MS-style inline assembly is not available: target MC unavailable") ·
 related: #24 (register), #47, #50, #52, #66, #77, mcppls-clangd#19 · evidence: the clang/clangd 23.1.0 sources in
 `~/workspace/engine-local/src`, the mcppls-clangd series (patches 0001-0048), the bundled engine
 `23.1.0-mcppls.5` run locally, the issue text.
 
-Decisions taken (2026-11-26): fix **B** below (not linking the target's MC); carry as many of the open
+Decisions taken (2026-11-26): fix **B** below (not linking the target's MC; B proved infeasible and **A**, linking x86 MC + the asm parser on non-arm64, shipped: §2 and §12); carry as many of the open
 engine/server items as need the same engine rebuild; Linux first, locally, then CI on the other platforms. The
 answers to the review questions are in §9.
 
